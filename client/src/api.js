@@ -49,7 +49,7 @@ export const api = {
   parseGuide: (guide, instructions) => post("/api/ikeafy/parse", { guide, instructions }),
   defaultGuide: () => req("/api/ikeafy/default"),
   expand: (step, note) => post("/api/ikeafy/expand", { step, note }),
-  video: () => post("/api/ikeafy/video"),
+  video: (body = {}) => post("/api/ikeafy/video", body),
   renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
   colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),

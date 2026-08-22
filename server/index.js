@@ -31,6 +31,7 @@ import {
   assemblyView,
   confirmStep,
   editStep,
+  getAssembly,
   goBack,
   peekStep,
   skipStep,
@@ -213,23 +214,25 @@ app.post("/api/ikeafy/expand", (req, res) => {
   res.json(expandStep(state.guide, req.body?.step || 1, { stuckNote: req.body?.note || "" }));
 });
 
+function guideForVideo(body = {}) {
+  const stored = body.runId ? getAssembly(body.runId) : null;
+  if (stored?.guide) return stored.guide;
+  if (typeof body.guide === "string" && body.guide.trim()) return parseGuide(body.guide, body);
+  if (body.guide && typeof body.guide === "object" && Array.isArray(body.guide.steps)) return body.guide;
+  return state.guide;
+}
+
 app.post("/api/ikeafy/video", (req, res) => {
-  const guide = req.body?.guide ? parseGuide(req.body.guide, req.body) : state.guide;
-  res.json(makeVideoPlan(guide));
+  res.json(makeVideoPlan(guideForVideo(req.body || {})));
 });
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
-  const run = body.runId ? assemblyView(body.runId) : null;
-  const guide = run?.ok
-    ? { ...run.guide, steps: [run.step].filter(Boolean), theme: run.guide.theme }
-    : body.guide
-      ? parseGuide(body.guide, body)
-      : state.guide;
+  const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? 1);
   try {
     const result = await renderStepVideo({
-      guide: run?.ok ? state.guide : guide,
+      guide,
       stepNumber,
       imageDataUrl: body.imageDataUrl,
     });

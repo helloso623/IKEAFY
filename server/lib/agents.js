@@ -135,20 +135,23 @@ function localReply(message, ctx) {
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
 
   if (agent.id === "scout" || /add |find |cheap/.test(lower)) {
-    const query = lower.includes("led")
-      ? "led"
-      : lower.includes("table")
-        ? "table"
-        : lower.includes("tape")
-          ? "tape"
-          : "";
-    const hits = searchParts({ query, maxCost: maxCost || Infinity }).slice(0, 6);
+    const query = catalogNeedle(lower);
+    let hits = searchParts({ query, maxCost: maxCost || Infinity });
+    if (!isElectronicsAsk(lower)) {
+      const furniture = hits.filter((h) => h.category !== "electronics" && h.category !== "cable");
+      if (furniture.length) hits = furniture;
+    }
+    hits = hits.slice(0, 6);
     if (/add/.test(lower) && hits[0] && ctx.project) {
       const piece = addPiece(ctx.project, hits[0].id, { x: 0.2, y: 0.26, z: 0.12 });
       actions.push({ type: "add_part", partId: hits[0].id, piece });
-      text += `Dropped ${hits[0].name} (${hits[0].dimsMm.x}×${hits[0].dimsMm.y}×${hits[0].dimsMm.z} mm) on the bench.`;
+      text += `Dropped ${hits[0].name} on the bench.`;
+    } else if (!hits.length) {
+      text += "Nothing on the shelf matches that. Try “table”, “lack”, or “tape”.";
+      actions.push({ type: "catalog", hits: [] });
     } else {
-      text += `Catalog hits under ${maxCost || "any"}: ${hits.map((h) => `${h.name} $${h.cost} @ ${h.store}`).join("; ")}.`;
+      const cap = maxCost && Number.isFinite(Number(maxCost)) ? ` under $${maxCost}` : "";
+      text += `On the shelf${cap}: ${hits.map((h) => `${h.name} · $${h.cost}${h.store ? ` at ${h.store}` : ""}`).join("; ")}.`;
       actions.push({ type: "catalog", hits });
     }
   } else if (agent.id === "assembler") {
@@ -228,7 +231,7 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} in IKEAFY, a furniture/electronics workshop. Be concrete. Never ask for secrets. Reply in under 120 words.`,
+        content: `You are ${agent.name} in IKEAFY, a furniture shop with an optional electronics bench. Be concrete. Never ask for secrets. Reply in under 120 words. If the user is asking about furniture, tables, or catalog parts, talk only about those — no Arduino, ports, firmware, or boards unless they asked about electronics.`,
       },
       { role: "user", content: message },
     ],
