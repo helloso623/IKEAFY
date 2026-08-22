@@ -1187,6 +1187,7 @@ if (existsSync(dist)) {
 const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
   ikealiveLog("video", "ready", { port, keyed: hasFal() });
+  ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
 });
 

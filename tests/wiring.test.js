@@ -127,6 +127,8 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(studio, /bootReel|parseCustom/);
   assert.match(studio, /Get the Reel/);
   assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
+  assert.match(studio, /guideText\s*=\s*plates\.text/, "send extracted PDF text to GLiNER 2 before vision");
+  assert.match(studio, /guide:\s*guideText/, "include extracted PDF text in the assembly request");
   assert.match(studio, /FAL_KEY/);
   assert.match(studio, /renderVideo/);
   assert.match(studio, /bom\.owned|You have this/);
@@ -250,18 +252,15 @@ test("upload offers video, image, and 3D instruction controls before Seedance", 
   assert.doesNotMatch(startOfficial, /await bootReel\(/);
 });
 
-test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
+test("custom studio sends extracted PDF text to GLiNER 2 without inventing guide text", () => {
   assert.equal(
     /Unpack the pieces in the photos/.test(studio),
     false,
     "studio.js must not invent a placeholder guide when the user drops photos",
   );
   assert.match(studio, /pdf-upload/, "uploaded PDFs need to travel with parse");
-  assert.equal(
-    /plates\.text/.test(studio),
-    false,
-    "extracted PDF text must not be stuffed into the guide textarea",
-  );
+  assert.match(studio, /guideText\s*=\s*plates\.text/);
+  assert.match(studio, /guide:\s*guideText/);
 });
 
 test("electronics stays off the Lab header and inspect", () => {

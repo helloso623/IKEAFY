@@ -375,12 +375,81 @@ function guideFromModel(parsed, { raw, instructions = "", availableTools = [], p
   });
 }
 
+function hasGroundedGlinerSteps(extracted, source, { plates = false } = {}) {
+  const steps = Array.isArray(extracted?.steps) ? extracted.steps.filter((step) => String(step?.body || "").trim()) : [];
+  if (!steps.length) return false;
+  if (!plates) return true;
+  const text = String(source || "").toLowerCase();
+  const explicitlyNumbered = /\bstep\s*\d+\b/i.test(text);
+  const grounded = steps.filter((step) => {
+    const tokens = String(step.body || "")
+      .toLowerCase()
+      .match(/[a-z0-9]{4,}/g);
+    if (!tokens?.length) return false;
+    return tokens.filter((token) => text.includes(token)).length >= Math.min(3, tokens.length);
+  });
+  return grounded.length === steps.length && (steps.length >= 2 || explicitlyNumbered);
+}
+
+function safeOpenAiText(value) {
+  return String(value || "")
+    .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/gi, "[image data]")
+    .replace(/[A-Za-z0-9+/=]{100,}/g, "[base64 data]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted key]")
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .slice(0, 800);
+}
+
+async function openAiErrorBody(res) {
+  let body = null;
+  try {
+    if (typeof res.text === "function") {
+      const text = await res.text();
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    } else if (typeof res.json === "function") {
+      body = await res.json();
+    }
+  } catch {
+    body = null;
+  }
+  const error = body?.error || body;
+  if (error && typeof error === "object") {
+    return {
+      type: safeOpenAiText(error.type),
+      code: safeOpenAiText(error.code),
+      param: safeOpenAiText(error.param),
+      message: safeOpenAiText(error.message),
+    };
+  }
+  return { message: safeOpenAiText(error) };
+}
+
+function openAiFailureReason(status, body = {}) {
+  if (status === 401 || status === 403) {
+    return "OpenAI could not authenticate the configured OPENAI_API_KEY. Update it to read drawing-only PDF plates.";
+  }
+  if (status === 413) {
+    return "OpenAI rejected the PDF plate payload as too large. Try a shorter manual or fewer plates.";
+  }
+  if (status === 429) {
+    return "OpenAI vision is rate-limited or out of quota. Check the OpenAI project billing and try again.";
+  }
+  const detail = safeOpenAiText(body.message || body.code || body.type);
+  return detail
+    ? `OpenAI could not read the PDF plates (HTTP ${status}): ${detail}`
+    : `OpenAI could not read the PDF plates (HTTP ${status}).`;
+}
+
 async function extractGuideWithOpenAI(
   { raw, images = [], instructions = "", availableTools = [] } = {},
   { fetchFn = fetch } = {},
 ) {
   const key = usableOpenAiKey();
-  if (!key) return null;
+  if (!key) throw new Error("Set OPENAI_API_KEY to read drawing-only PDF plates");
   const catalogHint = listParts()
     .slice(0, 48)
     .map((p) => `${p.id} (${p.name})`)
@@ -411,28 +480,54 @@ async function extractGuideWithOpenAI(
   }
   if (userContent.length === 1 && !raw) return null;
 
-  const res = await fetchFn("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `You parse building guides — including IKEA PDF plates — into IKEAFY JSON. Catalog part ids you may use: ${catalogHint}. Actions: unpack, place, align, fasten, flip, inspect, install, tape, solder, wire, assemble, prepare. Reply with JSON {"title":string,"steps":[{"number":1,"action":"assemble","body":"one clear instruction","partsUsed":["part-id"],"toolRequired":null,"warnings":[]}]}. Keep each body to one move. Use empty partsUsed when the catalog has no match. Do not invent a LACK table.`,
-        },
-        { role: "user", content: userContent },
-      ],
-    }),
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  const requestBody = JSON.stringify({
+    model,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: `You parse building guides — including IKEA PDF plates — into IKEAFY JSON. Catalog part ids you may use: ${catalogHint}. Actions: unpack, place, align, fasten, flip, inspect, install, tape, solder, wire, assemble, prepare. Reply with JSON {"title":string,"steps":[{"number":1,"action":"assemble","body":"one clear instruction","partsUsed":["part-id"],"toolRequired":null,"warnings":[]}]}. Keep each body to one move. Use empty partsUsed when the catalog has no match. Do not invent a LACK table.`,
+      },
+      { role: "user", content: userContent },
+    ],
   });
-  if (!res.ok) return null;
+  ikealiveLog("parse", "OpenAI request", {
+    endpoint,
+    model,
+    keyed: Boolean(key),
+    imageCount: userContent.filter((item) => item.type === "image_url").length,
+    imageChars: images.reduce((sum, image) => sum + String(image.dataUrl || image.url || "").length, 0),
+    payloadBytes: Buffer.byteLength(requestBody),
+  });
+  let res;
+  try {
+    res = await fetchFn(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: requestBody,
+    });
+  } catch (error) {
+    const detail = safeOpenAiText(error?.message || error);
+    ikealiveWarn("parse", "OpenAI request failed", { model, error: detail });
+    throw new Error(`OpenAI vision request failed: ${detail || "network error"}`);
+  }
+  ikealiveLog("parse", "OpenAI response", { model, status: res.status ?? (res.ok ? 200 : null), ok: res.ok });
+  if (!res.ok) {
+    const body = await openAiErrorBody(res);
+    ikealiveWarn("parse", "OpenAI error", { model, status: res.status ?? null, body });
+    throw new Error(openAiFailureReason(res.status ?? 500, body));
+  }
   const json = await res.json();
   const parsed = parseJsonObject(json.choices?.[0]?.message?.content);
-  return guideFromModel(parsed, { raw, instructions, availableTools });
+  const guide = guideFromModel(parsed, { raw, instructions, availableTools });
+  if (!guide?.steps?.length) {
+    throw new Error("OpenAI returned no usable assembly steps for those PDF plates.");
+  }
+  return guide;
 }
 
 /**
@@ -449,9 +544,8 @@ export async function parseGuideAsync(
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
   const modelText = String(raw || "").trim();
-  const hasPdfPageText = /Page\s+\d+:\s+\S[\s\S]{30,}/i.test(modelText);
-  const hasTextForGliner = Boolean(modelText && (!plates.length || hasPdfPageText));
-  if (hasTextForGliner) {
+  let glinerStatus = modelText ? "no grounded steps" : "no readable text";
+  if (modelText) {
     try {
       const extracted = await extractGuideWithGliner2(raw, deps);
       const modeled = guideFromModel(extracted, {
@@ -460,16 +554,23 @@ export async function parseGuideAsync(
         availableTools,
         parser: GLINER2_BACKEND,
       });
-      if (modeled?.steps?.length) {
+      if (modeled?.steps?.length && hasGroundedGlinerSteps(extracted, modelText, { plates: Boolean(plates.length) })) {
         ikealiveLog("parse", "GLiNER 2 ok", { title: modeled.title, steps: modeled.steps.length });
         return modeled;
       }
-      ikealiveWarn("parse", "GLiNER 2 returned no steps; using fallback");
+      glinerStatus = modeled?.steps?.length ? "steps not grounded in extracted PDF text" : "no grounded steps";
     } catch (error) {
-      ikealiveWarn("parse", "GLiNER 2 unavailable; using fallback", String(error?.message || error));
+      glinerStatus = `unavailable: ${String(error?.message || error)}`;
     }
   }
   if (plates.length) {
+    ikealiveLog("parse", "gliner2 insufficient; using plate vision", { reason: glinerStatus, plates: plates.length });
+    if (!usableOpenAiKey()) {
+      const guide = emptyGuide({ instructions });
+      guide.parseError =
+        "GLiNER 2 found no readable text in this drawing-only manual. Set OPENAI_API_KEY for plate vision.";
+      return guide;
+    }
     ikealiveLog("parse", "vision plates", { count: plates.length });
     try {
       const hosted = await extractGuideWithOpenAI(
@@ -481,8 +582,12 @@ export async function parseGuideAsync(
         return hosted;
       }
       ikealiveWarn("parse", "vision returned no steps");
-    } catch {
-      // Fall through to an empty guide — never leak the key, never parse plates as text.
+    } catch (error) {
+      const reason = safeOpenAiText(error?.message || error);
+      ikealiveWarn("parse", "vision failed", { reason });
+      const guide = emptyGuide({ instructions });
+      guide.parseError = reason || "OpenAI could not read those PDF plates.";
+      return guide;
     }
     return emptyGuide({ instructions });
   }

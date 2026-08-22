@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
+    />
     <title>IKEAlive — the booklet, as a film</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -614,44 +618,7 @@
         </details>
       </aside>
     </div>
-    <script>
-      (function () {
-        const app = document.getElementById("app");
-        if (!app) return;
-
-        function setInterface(name) {
-          if (name !== "upload" && name !== "watch") return;
-          app.setAttribute("data-interface", name);
-          if (name === "upload" || name === "watch") {
-            const tab = document.querySelector('#modes [data-mode="ikeafy"]');
-            if (app.dataset.mode !== "ikeafy") tab?.click();
-          }
-          window.dispatchEvent(new Event("resize"));
-        }
-
-        function setWatchCard(name) {
-          const allowed = new Set(["bom", "reviews", "broken", "spare"]);
-          const next = allowed.has(name) ? name : "bom";
-          const rail = document.querySelector(".rail.cards");
-          if (rail) rail.setAttribute("data-watch-card", next);
-          for (const btn of document.querySelectorAll(".watch-pick")) {
-            const on = btn.getAttribute("data-watch-card") === next;
-            btn.classList.toggle("on", on);
-            btn.setAttribute("aria-pressed", String(on));
-          }
-        }
-
-        document.addEventListener("click", (ev) => {
-          const go = ev.target.closest("[data-go-interface]");
-          if (go) setInterface(go.getAttribute("data-go-interface"));
-          const pick = ev.target.closest(".watch-pick");
-          if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
-        });
-
-        window.setIkealiveInterface = setInterface;
-        window.setIkealiveWatchCard = setWatchCard;
-      })();
-    </script>
+    <script type="module" src="/src/interface-nav.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
