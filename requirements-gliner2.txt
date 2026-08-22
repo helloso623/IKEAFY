@@ -1,0 +1,2 @@
+# Official Pioneer/Fastino GLiNER 2 local inference stack.
+gliner2[local]

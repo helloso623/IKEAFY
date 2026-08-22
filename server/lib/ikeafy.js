@@ -2,6 +2,7 @@ import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { usableOpenAiKey } from "./secrets.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
+import { extractGuideWithGliner2, GLINER2_BACKEND } from "./gliner2.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -254,7 +255,7 @@ export function parseGuide(
     appliedEdits,
     ignoredEdits,
     raw: text,
-    parser: "local-gliner-standin",
+    parser: "local-parser",
   });
 }
 
@@ -268,7 +269,7 @@ function emptyGuide({ locked = false, productArticle = null, instructions = "" }
     appliedEdits: [],
     ignoredEdits: [],
     raw: "",
-    parser: "local-gliner-standin",
+    parser: "local-parser",
   });
 }
 
@@ -339,7 +340,7 @@ function parseJsonObject(text) {
   }
 }
 
-function guideFromModel(parsed, { raw, instructions = "", availableTools = [] } = {}) {
+function guideFromModel(parsed, { raw, instructions = "", availableTools = [], parser = "openai" } = {}) {
   if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) return null;
   const steps = parsed.steps.map((step, i) => {
     const body = String(step.body || step.instruction || step.text || "").trim();
@@ -370,7 +371,7 @@ function guideFromModel(parsed, { raw, instructions = "", availableTools = [] } 
     appliedEdits: [],
     ignoredEdits: [],
     raw,
-    parser: "openai",
+    parser,
   });
 }
 
@@ -435,8 +436,8 @@ async function extractGuideWithOpenAI(
 }
 
 /**
- * Custom guides go through OpenAI when a key is set so pasted text and dropped
- * photos become the actual steps. Official sheets stay on the transcribed text.
+ * Custom guide text goes through local GLiNER 2 first. Diagram-only plates keep
+ * the vision path. Official sheets stay on their locked transcription.
  */
 export async function parseGuideAsync(
   raw,
@@ -447,6 +448,27 @@ export async function parseGuideAsync(
   const plates = (images || []).filter((image) =>
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
+  const modelText = String(raw || "").trim();
+  const hasPdfPageText = /Page\s+\d+:\s+\S[\s\S]{30,}/i.test(modelText);
+  const hasTextForGliner = Boolean(modelText && (!plates.length || hasPdfPageText));
+  if (hasTextForGliner) {
+    try {
+      const extracted = await extractGuideWithGliner2(raw, deps);
+      const modeled = guideFromModel(extracted, {
+        raw,
+        instructions,
+        availableTools,
+        parser: GLINER2_BACKEND,
+      });
+      if (modeled?.steps?.length) {
+        ikealiveLog("parse", "GLiNER 2 ok", { title: modeled.title, steps: modeled.steps.length });
+        return modeled;
+      }
+      ikealiveWarn("parse", "GLiNER 2 returned no steps; using fallback");
+    } catch (error) {
+      ikealiveWarn("parse", "GLiNER 2 unavailable; using fallback", String(error?.message || error));
+    }
+  }
   if (plates.length) {
     ikealiveLog("parse", "vision plates", { count: plates.length });
     try {

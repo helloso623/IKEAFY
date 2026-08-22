@@ -9,6 +9,8 @@ dist/
 .vite/
 coverage/
 tmp/
+__pycache__/
+*.py[cod]
 *.stl
 uploads/
 client/public/generated/
