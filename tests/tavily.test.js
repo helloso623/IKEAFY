@@ -8,7 +8,7 @@ import {
   ownedTools,
   pickManualPdfHit,
   findIkeaManual,
-  searchBuildWayOffers,
+  searchFurniturePieceOffers,
   searchToolOffers,
 } from "../server/lib/tavily.js";
 
@@ -79,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("ways-to-make research asks for methods and shaped pieces instead of fasteners", async () => {
+test("board research asks for dimensioned shaped pieces instead of fasteners", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -93,19 +93,15 @@ test("ways-to-make research asks for methods and shaped pieces instead of fasten
     };
   };
   try {
-    const offers = await searchBuildWayOffers(
-      {
-        modelDimensionsMm: { x: 900, y: 500, z: 740 },
-        lines: [
-          { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
-          { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
-        ],
-        ways: [],
-      },
+    const offers = await searchFurniturePieceOffers(
+      [
+        { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
+        { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
+      ],
       { fetchFn },
     );
-    assert.match(query, /ways to build custom table/i);
-    assert.match(query, /cut list|tabletop|table legs/i);
+    assert.match(query, /buy cut-to-size furniture board/i);
+    assert.match(query, /tabletop|table legs/i);
     assert.match(query, /-screws -bolts -fasteners/);
     assert.equal(offers.length, 1);
   } finally {

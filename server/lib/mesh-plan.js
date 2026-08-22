@@ -1,6 +1,12 @@
-const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt)\b/i;
+const GENERATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn)\b/i;
+const PLACE_VERB = /\b(add|place|put|drop)\b/i;
+const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn|add|place|put|drop)\b/i;
 const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|room|interior)\b/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
+const MODEL_NOUN =
+  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture)\b/i;
+const SPAWN_FOLLOW_UP =
+  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one)\s*[.!]?$/i;
 
 export const AI_MESH_SHAPES = Object.freeze([
   "box",
@@ -114,6 +120,7 @@ export function sanitizeMeshSpec(raw = {}) {
   return {
     id: text(source.id, "", 64) || undefined,
     name: text(source.name, "AI mesh", 80),
+    kind: text(source.kind, "object", 32).toLowerCase(),
     prompt: text(source.prompt, "", 500),
     components,
     position: {
@@ -130,10 +137,46 @@ export function sanitizeMeshAction(raw = {}) {
 }
 
 export function isMeshBuildAsk(message) {
-  const source = String(message || "");
-  if (!CREATE_VERB.test(source)) return false;
-  if (NON_MODEL_ASK.test(source) || BRANDED_CATALOG_ASK.test(source)) return false;
+  const source = String(message || "").trim();
+  const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
+  const createsMesh = GENERATE_VERB.test(source) || (PLACE_VERB.test(source) && MODEL_NOUN.test(source));
+  if (!createsMesh && !directNoun) return false;
+  if (NON_MODEL_ASK.test(source)) return false;
+  if (BRANDED_CATALOG_ASK.test(source) && !GENERATE_VERB.test(source)) return false;
   return true;
+}
+
+/** Resolve “spawn it” against the recent user description, never assistant prose. */
+export function meshPromptFromContext(message, ctx = {}) {
+  const source = String(message || "").trim();
+  if (!SPAWN_FOLLOW_UP.test(source)) return source;
+  const history = Array.isArray(ctx.history) ? ctx.history : [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (entry?.role !== "user") continue;
+    const content = String(entry.content || "").trim();
+    if (!content || SPAWN_FOLLOW_UP.test(content)) continue;
+    if (MODEL_NOUN.test(content) || isMeshBuildAsk(content)) return content;
+  }
+  return source;
+}
+
+/**
+ * Pull independently spawnable objects out of a room request. The room itself
+ * is handled by the House action; phrases after “with”, “containing”, or
+ * “featuring” become editable bench meshes instead of being lost in room copy.
+ */
+export function meshPromptsFromRoom(message) {
+  const source = String(message || "").trim();
+  const tail = source.match(/\b(?:with|containing|featuring|plus)\s+(.+)$/i)?.[1];
+  if (!tail) return [];
+  return tail
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((item) => item.replace(/^(?:a|an|the|some)\s+/i, "").replace(/[.!?]+$/g, "").trim())
+    .filter(Boolean)
+    .filter((item) => !/^(?:walls?|floors?|ceilings?|paint|lighting|windows?)(?:\s|$)/i.test(item))
+    .slice(0, 8)
+    .map((item) => (CREATE_VERB.test(item) ? item : `make ${item}`));
 }
 
 function unitMm(number, unit = "mm") {
@@ -185,8 +228,9 @@ function tablePlan(message) {
     const legDiameter = Math.max(80, Math.min(220, topDiameter * 0.15));
     return {
       name: central || /\bpedestal\b/i.test(message) ? "Round pedestal table" : "Round table",
+      kind: "table",
       components: [
-        component("cylinder", "Circular tabletop", [topDiameter, thickness, topDiameter], [0, legHeight, 0], {
+        component("cylinder", "Circular tabletop", [topDiameter, thickness, topDiameter], [0, legHeight + thickness / 2, 0], {
           color: wood,
           segments: 48,
         }),
@@ -203,8 +247,9 @@ function tablePlan(message) {
   const insetZ = depth / 2 - leg;
   return {
     name: "Custom table",
+    kind: "table",
     components: [
-      component("box", "Tabletop", [width, thickness, depth], [0, legHeight, 0], { color: wood }),
+      component("box", "Tabletop", [width, thickness, depth], [0, legHeight + thickness / 2, 0], { color: wood }),
       ...[
         [-insetX, -insetZ],
         [insetX, -insetZ],
@@ -227,6 +272,7 @@ function chairPlan(message) {
   const legW = Math.max(28, width * 0.07);
   return {
     name: "Custom chair",
+    kind: "chair",
     components: [
       component("box", "Seat", [width, 45, depth], [0, seatY, 0], { color: colorValue }),
       component("box", "Back", [width, Math.max(180, height - seatY), 45], [0, (height + seatY) / 2, depth / 2 - 22], {
@@ -250,6 +296,7 @@ function lampPlan(message) {
   const shadeD = Math.max(220, height * 0.48);
   return {
     name: "Custom lamp",
+    kind: "lamp",
     components: [
       component("cylinder", "Base", [baseD, 35, baseD], [0, 17.5, 0], { color: "#32363a", metalness: 0.65 }),
       component("cylinder", "Stem", [32, height * 0.68, 32], [0, 35 + height * 0.34, 0], {
@@ -270,10 +317,105 @@ function shelfPlan(message) {
   const thickness = measurement(message, "(?:thickness|thick)", 28);
   return {
     name: "Custom wall shelf",
+    kind: "shelf",
     components: [
       component("box", "Shelf", [width, thickness, depth], [0, 420, 0], { color: "#bd8956" }),
       component("box", "Left bracket", [35, 210, depth * 0.8], [-width * 0.34, 315, 0], { color: "#3e4246", metalness: 0.7 }),
       component("box", "Right bracket", [35, 210, depth * 0.8], [width * 0.34, 315, 0], { color: "#3e4246", metalness: 0.7 }),
+    ],
+  };
+}
+
+function stoolPlan(message) {
+  const width = measurement(message, "(?:width|wide)", /\bbench\b/i.test(message) ? 1100 : 420);
+  const depth = measurement(message, "(?:depth|deep)", 380);
+  const height = measurement(message, "(?:height|high|tall)", /\bbench\b/i.test(message) ? 460 : 450);
+  const top = 42;
+  const legH = height - top;
+  const legW = Math.max(35, Math.min(65, depth * 0.12));
+  const insetX = width / 2 - legW;
+  const insetZ = depth / 2 - legW;
+  return {
+    name: /\bbench\b/i.test(message) ? "Custom bench" : "Custom stool",
+    kind: /\bbench\b/i.test(message) ? "bench" : "stool",
+    components: [
+      component("box", "Seat", [width, top, depth], [0, legH + top / 2, 0], { color: "#b8824f" }),
+      ...[
+        [-insetX, -insetZ],
+        [insetX, -insetZ],
+        [-insetX, insetZ],
+        [insetX, insetZ],
+      ].map(([x, z], index) =>
+        component("box", `Leg ${index + 1}`, [legW, legH, legW], [x, legH / 2, z], { color: "#9b6a3e" }),
+      ),
+    ],
+  };
+}
+
+function sofaPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 1900);
+  const depth = measurement(message, "(?:depth|deep)", 850);
+  const height = measurement(message, "(?:height|high|tall)", 820);
+  const seatY = 430;
+  const upholstery = /\b(green)\b/i.test(message) ? "#657d68" : /\b(blue)\b/i.test(message) ? "#61758e" : "#9a8170";
+  return {
+    name: "Custom sofa",
+    kind: "sofa",
+    components: [
+      component("box", "Seat cushion", [width - 160, 170, depth - 210], [0, seatY, -35], { color: upholstery, roughness: 0.86 }),
+      component("box", "Back", [width - 100, height - seatY, 150], [0, (height + seatY) / 2, depth / 2 - 75], {
+        color: upholstery,
+        roughness: 0.9,
+      }),
+      component("box", "Left arm", [130, 410, depth], [-width / 2 + 65, 465, 0], { color: upholstery, roughness: 0.88 }),
+      component("box", "Right arm", [130, 410, depth], [width / 2 - 65, 465, 0], { color: upholstery, roughness: 0.88 }),
+      component("box", "Base", [width - 120, 180, depth - 100], [0, 210, 0], { color: "#5a4336" }),
+    ],
+  };
+}
+
+function bedPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 1500);
+  const depth = measurement(message, "(?:depth|deep|length|long)", 2000);
+  const height = measurement(message, "(?:height|high|tall)", 950);
+  return {
+    name: "Custom bed",
+    kind: "bed",
+    components: [
+      component("box", "Frame", [width + 80, 220, depth + 80], [0, 280, 0], { color: "#8b633f" }),
+      component("box", "Mattress", [width, 240, depth], [0, 500, 0], { color: "#ded8cb", roughness: 0.94 }),
+      component("box", "Headboard", [width + 80, height, 90], [0, height / 2, depth / 2], { color: "#805b3c" }),
+      ...[
+        [-width / 2, -depth / 2],
+        [width / 2, -depth / 2],
+        [-width / 2, depth / 2],
+        [width / 2, depth / 2],
+      ].map(([x, z], index) => component("box", `Leg ${index + 1}`, [70, 220, 70], [x, 110, z], { color: "#5b4030" })),
+    ],
+  };
+}
+
+function cabinetPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 900);
+  const depth = measurement(message, "(?:depth|deep)", 380);
+  const height = measurement(message, "(?:height|high|tall)", 1800);
+  const side = 28;
+  const shelves = /\b(bookcase|bookshelf)\b/i.test(message) ? 5 : 3;
+  const wood = "#b88958";
+  return {
+    name: /\b(bookcase|bookshelf)\b/i.test(message) ? "Custom bookcase" : "Custom cabinet",
+    kind: /\b(bookcase|bookshelf)\b/i.test(message) ? "bookcase" : "cabinet",
+    components: [
+      component("box", "Left side", [side, height, depth], [-width / 2 + side / 2, height / 2, 0], { color: wood }),
+      component("box", "Right side", [side, height, depth], [width / 2 - side / 2, height / 2, 0], { color: wood }),
+      component("box", "Back", [width, height, 18], [0, height / 2, depth / 2 - 9], { color: "#8f6846" }),
+      ...Array.from({ length: shelves + 2 }, (_, index) =>
+        component("box", index === 0 ? "Base" : index === shelves + 1 ? "Top" : `Shelf ${index}`, [
+          width - side * 2,
+          side,
+          depth - 24,
+        ], [0, (index / (shelves + 1)) * (height - side) + side / 2, -12], { color: wood }),
+      ),
     ],
   };
 }
@@ -289,6 +431,7 @@ function sculptedFallback(message) {
   if (/\b(vase|bottle|urn)\b/i.test(message)) {
     return {
       name,
+      kind: "vase",
       components: [
         component("lathe", "Turned body", [320, 520, 320], [0, 260, 0], {
           color: "#6b8f88",
@@ -307,6 +450,7 @@ function sculptedFallback(message) {
   }
   return {
     name,
+    kind: "object",
     components: [
       component(round ? "sphere" : tall ? "capsule" : "box", "Main body", tall ? [260, 700, 260] : [500, 400, 420], [0, tall ? 350 : 200, 0], {
         color: "#7293a8",
@@ -323,13 +467,17 @@ export function meshPlanFromDescription(message) {
   let plan;
   if (/\btables?\b/i.test(source)) plan = tablePlan(source);
   else if (/\b(chair|seat)\b/i.test(source)) plan = chairPlan(source);
+  else if (/\b(stool|bench)\b/i.test(source)) plan = stoolPlan(source);
+  else if (/\b(sofa|couch)\b/i.test(source)) plan = sofaPlan(source);
+  else if (/\bbed\b/i.test(source)) plan = bedPlan(source);
+  else if (/\b(cabinet|bookcase|bookshelf|dresser|wardrobe)\b/i.test(source)) plan = cabinetPlan(source);
   else if (/\b(lamp|light)\b/i.test(source)) plan = lampPlan(source);
   else if (/\b(shelf|shelves)\b/i.test(source)) plan = shelfPlan(source);
   else plan = sculptedFallback(source);
   return sanitizeMeshSpec({ ...plan, prompt: source });
 }
 
-export function localMeshAction(message) {
-  const mesh = meshPlanFromDescription(message);
+export function localMeshAction(message, ctx = {}) {
+  const mesh = meshPlanFromDescription(meshPromptFromContext(message, ctx));
   return mesh ? { type: "mesh", mesh } : null;
 }

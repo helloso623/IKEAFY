@@ -817,7 +817,7 @@ function syncMaterialPanel() {
   if (hint) {
     hint.textContent = picked
       ? picked.piece.reconstructed
-        ? `Scanned mesh — color and roughness apply, finishes need a flat surface.`
+        ? `${picked.piece.generated ? "AI mesh" : "Scanned mesh"} — color and roughness apply, finishes need a flat surface.`
         : `Material on ${picked.part?.name || "this piece"}.`
       : "Pick a piece, then set its material.";
   }
@@ -905,6 +905,11 @@ shop.onSculpt?.(({ mode, name }) => {
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
+shop.onMeshEdit?.(({ tool, name, label }) => {
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  hud(`${label || tool} on ${name}. Undo takes it back.`);
+});
+
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
 // a joint mate lands as api.move (plus a joint record) so undo covers both.
 shop.onSketch?.(async ({ partId, pose, label }) => {
@@ -938,10 +943,11 @@ async function commitPose(pose) {
   if (!pose?.id) return;
 
   if (shop.updateReconstructedPose?.(pose)) {
+    const record = shop.getReconstructed?.().find((entry) => entry.piece.id === pose.id);
     renderBenchPieces();
     if (house?.hasScene?.()) house.rebuildHouse3d?.();
     void refreshCurrentDiy();
-    hud(pose.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
+    hud(record?.piece.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
     return;
   }
 
@@ -1204,10 +1210,8 @@ function isLab() {
 function labHud(space) {
   if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
-
-    ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask AI, or measure the room below.";
-
+    ? "Bench — pick a body, then model it with the left-bar tools."
+    : "Bench — sketch or scan a body, then model it with the left-bar tools.";
 }
 
 function setLabSpace(space) {
@@ -1799,6 +1803,13 @@ window.addEventListener("keydown", (ev) => {
   if (key === "s") setEditMode("scale");
   if (key === "n") setSnap(!shop.getSnap());
   if (key === "f") shop.frameSelected?.();
+  if (key === "h" && ev.altKey) {
+    ev.preventDefault();
+    unhideAllBodies();
+    return;
+  }
+  if (key === "h") hideSelectedBody();
+  if (key === "m") document.getElementById("side-measure")?.click();
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     const id = selectedPieceId();

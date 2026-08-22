@@ -504,6 +504,8 @@ export function buildWaysForProject(project = {}) {
   };
 }
 
+export const pieceBomForProject = buildWaysForProject;
+
 function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
   return [
@@ -533,7 +535,7 @@ export function buildPlanSource(build) {
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
     `Build scope: ${build.scope}.`,
     match,
-    `Board / stock cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    `Cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
     "Construction ways:",
     alternatives,
     "",

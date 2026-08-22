@@ -145,8 +145,8 @@ test("POST /api/chat creates a room and table via steward actions", async (t) =>
       `${route} should return a room action`,
     );
     assert.ok(
-      body.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"),
-      `${route} should return a table add action`,
+      body.actions.some((action) => action.type === "mesh" && action.mesh?.kind === "table"),
+      `${route} should return a table mesh action`,
     );
   }
 });
@@ -161,14 +161,14 @@ test("chat() itself creates rooms and tables as steward actions", async () => {
     });
     assert.equal(reply.backend, "local-steward");
     assert.ok(reply.actions.some((action) => action.type === "room"));
-    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
+    assert.ok(reply.actions.some((action) => action.type === "mesh" && action.mesh?.kind === "table"));
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
 });
 
-test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => {
+test("HTTP chat emits table, stool, and shelf meshes for the bench", async (t) => {
   const port = 22000 + (process.pid % 1000);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -185,11 +185,11 @@ test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => 
   assert.ok(catalog.some((part) => part.id === "generic-shelf-board"));
 
   const cases = [
-    ["make a side table", ["generic-side-table"]],
-    ["make a stool", ["generic-stool"]],
-    ["make a shelf", ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"]],
+    ["make a side table", "table", 5],
+    ["make a stool", "stool", 5],
+    ["make a shelf", "shelf", 3],
   ];
-  for (const [message, expected] of cases) {
+  for (const [message, kind, bodyCount] of cases) {
     const seeded = await fetch(`${base}/api/project/seed`, { method: "POST" });
     assert.equal(seeded.status, 200);
     const response = await fetch(`${base}/api/chat`, {
@@ -200,12 +200,12 @@ test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => 
     assert.equal(response.status, 200);
     const reply = await response.json();
     assert.equal(reply.ok, true);
-    assert.deepEqual(
-      reply.actions.filter((action) => action.type === "add").map((action) => action.partId),
-      expected,
-    );
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.equal(mesh.mesh.kind, kind);
+    assert.equal(mesh.mesh.components.length, bodyCount);
+    assert.equal(reply.actions.some((action) => action.type === "add"), false);
     const project = await (await fetch(`${base}/api/project`)).json();
-    assert.deepEqual(project.pieces.map((piece) => piece.partId), expected);
+    assert.deepEqual(project.pieces, []);
   }
 
   await fetch(`${base}/api/project/seed`, { method: "POST" });

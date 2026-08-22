@@ -395,6 +395,56 @@ test("Lab spaces are Bench and House; camera/video live under Scan", () => {
   assert.doesNotMatch(css, /\.house-drawer/);
 });
 
+test("the Desk left bar is a modeling sidebar; House keeps the room panel", () => {
+  const left = html.slice(html.indexOf("lab-browser"), html.indexOf("lab-viewport"));
+
+  // Model section: create, faces, cuts, sculpt and show tools live on the left bar.
+  assert.match(left, /id="model-tools"/);
+  for (const tool of ["extrude", "inset", "bevel", "knife", "loopcut"]) {
+    assert.match(left, new RegExp(`data-mesh-tool="${tool}"`), `${tool} button lives in the sidebar`);
+  }
+  for (const brush of ["grab", "smooth", "inflate"]) {
+    assert.match(left, new RegExp(`data-sculpt="${brush}"`), `${brush} brush lives in the sidebar`);
+  }
+  assert.match(left, /data-cad-tool="sketch-rect"/);
+  assert.match(left, /data-subdivide/);
+  assert.match(left, /data-hide-selected/);
+  assert.match(left, /data-unhide-all/);
+
+  // The top strip keeps only transform/snap/history; the moved tools left it.
+  const strip = html.slice(html.indexOf('id="edit-tools"'), html.indexOf('id="edit-pose"'));
+  assert.doesNotMatch(strip, /data-sculpt=|data-mesh-tool=|data-cad-tool=|data-subdivide/);
+
+  // Fusion-like measure + scale: two-point mm readout and numeric scaling.
+  assert.match(left, /id="side-measure"/);
+  assert.match(left, /id="measure-readout"/);
+  assert.match(left, /id="scale-factor"/);
+  assert.match(left, /id="scale-apply"/);
+  assert.match(left, /id="scale-target-mm"/);
+  assert.match(left, /id="scale-to-measure"/);
+  assert.match(lab, /side-measure/);
+
+  // Desk sections hide in House and vice versa; House keeps its room panel.
+  const css = read("client/src/styles.css");
+  assert.match(css, /data-lab="house"\] \.lab-browser \.desk-space \{ display: none/);
+  assert.match(css, /data-lab="desk"\] \.lab-browser \.house-space \{ display: none/);
+  assert.match(left, /id="lab-room"[^>]*house-space|house-space[^>]*id="lab-room"/);
+  assert.match(left, /id="room-photo"/);
+  assert.match(left, /id="adapt-btn"/);
+
+  // main.js wires the sidebar to the workshop.
+  assert.match(main, /model-tools/);
+  assert.match(main, /scaleSelectedToMeasured/);
+  assert.match(main, /hideSelectedBody/);
+  assert.match(main, /unhideAllBodies/);
+
+  // The workshop exposes the modeling API the sidebar reaches for.
+  const shopSource = read("client/src/workshop.js");
+  for (const method of ["setMeshTool", "onMeshEdit", "hideSelected", "unhideAll", "setPieceHidden", "isPieceHidden", "getMeasuredMm"]) {
+    assert.match(shopSource, new RegExp(method), `workshop exposes ${method}`);
+  }
+});
+
 test("the removed function and simulation strips stay out of the Lab", () => {
   assert.doesNotMatch(html, /id="lab-strip"|id="fn-btns"|data-fn=/);
   assert.doesNotMatch(lab, /simRun|data-sim|Run sim/);
@@ -481,7 +531,7 @@ test("bench editing controls are wired for furniture first", () => {
 });
 
 test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body", () => {
-  const tools = html.slice(html.indexOf('id="edit-tools"'), html.indexOf("lab-view-meta"));
+  const tools = html.slice(html.indexOf('id="model-tools"'), html.indexOf("lab-measure-fold"));
   assert.match(tools, /data-sculpt="grab"/);
   assert.match(tools, /data-sculpt="smooth"/);
   assert.match(tools, /data-sculpt="inflate"/);
@@ -502,10 +552,12 @@ test("finished furniture researches ways, prints the cut list, and opens its par
   assert.match(html, /construction methods, boards, tops, legs, and cut sizes/);
   assert.match(html, /Ways-to-make history/);
   assert.match(apiSource, /^\s{2}finishProject:/m);
+  assert.match(apiSource, /^\s{2}diyCurrent:/m);
   assert.match(main, /api\.finishProject\(\)/);
+  assert.match(main, /refreshCurrentDiy/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {

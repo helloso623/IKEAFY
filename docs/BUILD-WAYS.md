@@ -8,9 +8,9 @@ IKEAlive's **Finish & find ways** action researches how to make the table curren
 - nearby catalog pieces by dimensions and ordinary legal search links for cut-to-size stock;
 - an IKEA whole-product article only when the modeled envelope closely matches.
 
-The optional live provider is the existing Tavily Search API. One `basic` request researches the whole saved model revision, keeping the action inexpensive. Tavily documents 1,000 free credits per month and one credit per basic search: <https://docs.tavily.com/documentation/api-credits>.
+The optional live provider is the existing Tavily Search API. One `basic` request researches construction methods and shaped bodies for the current model revision. Tavily documents one credit per basic search: <https://docs.tavily.com/documentation/api-credits>.
 
-Without a Tavily key, local dimension matches and normal public search URLs remain available. IKEAlive does not scrape retailer catalogs and does not use industrial fastener catalogs for this feature.
+Without a Tavily key, local dimension matches and normal public retailer search URLs remain available. IKEAlive does not scrape retailer catalogs or use industrial fastener catalogs for this feature.
 
 Every finish action records the model signature, dimensions, construction ways, cut list, PDF metadata, and IKEAlive run in `project.diyHistory`. Editing the table and finishing again creates a new immutable revision; prior ways remain printable.
 
