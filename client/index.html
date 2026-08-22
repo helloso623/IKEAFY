@@ -63,96 +63,100 @@
 
       <!-- ============ UPLOAD / LANDING ============ -->
       <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
-        <div class="landing">
-          <p class="kicker">IKEAlive</p>
-          <h1>Watch the manual instead of reading it.</h1>
+        <div class="landing landing-split">
+          <div class="landing-copy">
+            <p class="kicker">IKEAlive</p>
+            <h1>Watch the manual instead of reading it.</h1>
 
-          <ul class="upload-feature-grid">
-            <li class="feature-item">
-              <span class="feature-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <path d="M16 6v14M10 12l6-6 6 6M8 24h16" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </span>
-              <strong>Upload</strong>
-              <p>Drop in the IKEA PDF, or just type the product name.</p>
-            </li>
-            <li class="feature-item">
-              <span class="feature-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.8" />
-                  <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.8" stroke-linejoin="round" fill="#111" />
-                </svg>
-              </span>
-              <strong>Generate</strong>
-              <p>Every page becomes a short film you can play.</p>
-            </li>
-            <li class="feature-item">
-              <span class="feature-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.8" />
-                  <circle cx="16" cy="16" r="2.4" fill="#111" />
-                </svg>
-              </span>
-              <strong>Watch</strong>
-              <p>One step at a time, at your own pace.</p>
-            </li>
-            <li class="feature-item">
-              <span class="feature-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.8" stroke-linecap="round" />
-                  <circle cx="13.2" cy="14" r="1.4" fill="#111" />
-                  <circle cx="18.8" cy="14" r="1.4" fill="#111" />
-                </svg>
-              </span>
-              <strong>Ask</strong>
-              <p>Find a part, identify hardware, or get unstuck without leaving the page.</p>
-            </li>
-          </ul>
+            <ul class="upload-feature-grid">
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <path d="M16 6v14M10 12l6-6 6 6M8 24h16" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+                <strong>Upload</strong>
+                <p>Drop in the IKEA PDF, or just type the product name.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.8" />
+                    <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.8" stroke-linejoin="round" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Generate</strong>
+                <p>Every page becomes a short film you can play.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.8" />
+                    <circle cx="16" cy="16" r="2.4" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Watch</strong>
+                <p>One step at a time, at your own pace.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.8" stroke-linecap="round" />
+                    <circle cx="13.2" cy="14" r="1.4" fill="#111" />
+                    <circle cx="18.8" cy="14" r="1.4" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Ask</strong>
+                <p>Find a part, identify hardware, or get unstuck without leaving the page.</p>
+              </li>
+            </ul>
+          </div>
 
-          <form id="upload-form" class="card upload-card">
-            <label class="upload-drop" id="pdf-drop" for="pdf-upload">
-              <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
-              <strong class="upload-drop-title">Drop the IKEA PDF</strong>
-              <span class="upload-drop-hint">or click to choose a file</span>
-              <em id="pdf-name" class="upload-file"></em>
-            </label>
+          <div class="landing-panel">
+            <form id="upload-form" class="card upload-card">
+              <label class="upload-drop" id="pdf-drop" for="pdf-upload">
+                <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
+                <strong class="upload-drop-title">Drop the IKEA PDF</strong>
+                <span class="upload-drop-hint">or click to choose a file</span>
+                <em id="pdf-name" class="upload-file"></em>
+              </label>
 
-            <p class="upload-or">or type the product name</p>
-            <div class="product-lookup">
-              <label class="picker-label" for="product-name">IKEA product name</label>
-              <div class="row product-lookup-row">
-                <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
-                <button type="button" id="product-lookup">Find the PDF</button>
+              <p class="upload-or">or type the product name</p>
+              <div class="product-lookup">
+                <label class="picker-label" for="product-name">IKEA product name</label>
+                <div class="row product-lookup-row">
+                  <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
+                  <button type="button" id="product-lookup">Find the PDF</button>
+                </div>
+                <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
               </div>
-              <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
-            </div>
 
-            <div id="custom-source" class="custom-parse">
-              <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
-              <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
-            </div>
+              <div id="custom-source" class="custom-parse">
+                <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
+                <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
+              </div>
 
-            <div class="row upload-actions">
-              <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
-              <button type="button" id="clear-custom-session" class="quiet">Clear</button>
-            </div>
-            <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
-          </form>
+              <div class="row upload-actions">
+                <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
+                <button type="button" id="clear-custom-session" class="quiet">Clear</button>
+              </div>
+              <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
+            </form>
 
-          <details id="official-source" class="official-picker upload-official">
-            <summary>Use the official sheet</summary>
-            <label class="picker-label" for="official-product">Official IKEA product</label>
-            <select id="official-product" aria-label="IKEA product"></select>
-            <p class="hint lock-note" id="official-lock-note">
-              LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
-            </p>
-            <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
-              <span class="when-official">Start the official LACK sheet</span>
-              <span class="when-custom">Use the official LACK sheet</span>
-            </button>
-          </details>
-          <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
+            <details id="official-source" class="official-picker upload-official">
+              <summary>Use the official sheet</summary>
+              <label class="picker-label" for="official-product">Official IKEA product</label>
+              <select id="official-product" aria-label="IKEA product"></select>
+              <p class="hint lock-note" id="official-lock-note">
+                LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
+              </p>
+              <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
+                <span class="when-official">Start the official LACK sheet</span>
+                <span class="when-custom">Use the official LACK sheet</span>
+              </button>
+            </details>
+            <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
+          </div>
         </div>
       </section>
 
