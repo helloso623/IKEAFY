@@ -125,9 +125,9 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
 });
 
 test("Lab loadCatalog hides electronics, cables, and bench irons", () => {
-  assert.match(main, /function isLabShelfPart|isLabShelfPart\(/);
-  assert.match(main, /category !== "electronics"/);
-  assert.match(main, /category !== "cable"/);
+  assert.match(main, /function isLabShelfPart/);
+  assert.match(main, /category === "electronics"/);
+  assert.match(main, /category === "cable"/);
   assert.match(main, /soldering-iron/);
   assert.match(main, /multimeter/);
   assert.match(main, /enclosure-print/);
