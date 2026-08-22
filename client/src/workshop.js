@@ -122,6 +122,42 @@ const insertRingMat = new THREE.MeshStandardMaterial({ color: 0x8f9499, roughnes
 const insertHoleMat = new THREE.MeshStandardMaterial({ color: 0x241d14, roughness: 0.92, metalness: 0 });
 const footPlasticMat = new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.8, metalness: 0.04 });
 
+// Baked radial falloff for contact shadows: one tiny canvas, sampled by a
+// transparent unlit plane. Cheaper and steadier than a shadow map on the
+// floor, which flickered (see the floor comment in createWorkshop).
+function contactShadowMap(size = 256) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.04, half, half, half);
+  grad.addColorStop(0, "rgba(0, 0, 0, 0.42)");
+  grad.addColorStop(0.55, "rgba(0, 0, 0, 0.17)");
+  grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Foil sheen: a hash-noise jitter on roughness, injected into the foil
+// laminate shader. A few ALU ops per fragment, no extra textures, and the
+// constant cache key means every foil part shares one compiled program.
+function addFoilGrain(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <roughnessmap_fragment>",
+      `#include <roughnessmap_fragment>
+      #ifdef USE_MAP
+      float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      #endif`,
+    );
+  };
+  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  return mat;
+}
+
 function pcbMap(hex = "#1b4d8c") {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -265,7 +301,7 @@ function foilMaterial(part, hex, kind) {
     grainRepeat(part.dimsMm?.x),
     grainRepeat(part.dimsMm?.y),
   );
-  return new THREE.MeshPhysicalMaterial({
+  const mat = new THREE.MeshPhysicalMaterial({
     color,
     map,
     roughness: 0.55,
@@ -273,6 +309,11 @@ function foilMaterial(part, hex, kind) {
     clearcoat: 0.22,
     clearcoatRoughness: 0.55,
   });
+  // Reuse the printed grain as a faint bump so streaks catch the key light —
+  // one extra sample of a texture already on the GPU — and jitter roughness.
+  mat.bumpMap = map;
+  mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  return addFoilGrain(mat);
 }
 
 function openWoodMaterial(part, hex) {
@@ -323,11 +364,100 @@ function add(parent, geo, mat, x = 0, y = 0, z = 0, keepColor = false) {
   return mesh;
 }
 
-/* Flat-pack tabletop: a rounded-edge board wrapped in edge band, foil skins
-   laminated on the faces, and zinc screw-insert sockets on the underside. */
+/* ------------------------------------------------------ Tabletop profiles
+   Tops are swept from a real board profile instead of a box: a rounded-
+   rectangle plan (LINNMON's soft ~18 mm corners, LACK's tight ~5 mm, raw
+   lumber nearly crisp) extruded through an eased edge bevel. Face skins are
+   cut from the same plan so nothing overhangs the corner radius. */
+
+function roundedRectShape(w, d, r) {
+  const hw = w / 2;
+  const hd = d / 2;
+  const rr = Math.max(0.0004, Math.min(r, hw * 0.45, hd * 0.45));
+  const s = new THREE.Shape();
+  s.moveTo(-hw + rr, -hd);
+  s.lineTo(hw - rr, -hd);
+  s.absarc(hw - rr, -hd + rr, rr, -Math.PI / 2, 0, false);
+  s.lineTo(hw, hd - rr);
+  s.absarc(hw - rr, hd - rr, rr, 0, Math.PI / 2, false);
+  s.lineTo(-hw + rr, hd);
+  s.absarc(-hw + rr, hd - rr, rr, Math.PI / 2, Math.PI, false);
+  s.lineTo(-hw, -hd + rr);
+  s.absarc(-hw + rr, -hd + rr, rr, Math.PI, Math.PI * 1.5, false);
+  return s;
+}
+
+/** Board body: plan corners and edge ease are independent, like a real top. */
+function slabGeometry(w, h, d, cornerR) {
+  const ease = Math.max(0.001, Math.min(0.0026, h * 0.24, w * 0.02, d * 0.02));
+  const core = Math.max(h - ease * 2, h * 0.5);
+  const geo = new THREE.ExtrudeGeometry(
+    roundedRectShape(w - ease * 2, d - ease * 2, Math.max(cornerR - ease, 0.0006)),
+    {
+      depth: core,
+      bevelEnabled: true,
+      bevelThickness: ease,
+      bevelSize: ease,
+      bevelSegments: 3,
+      curveSegments: 12,
+    },
+  );
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, -core / 2, 0);
+  return geo;
+}
+
+/** Thin laminate sheet cut to the same rounded plan. */
+function facePlateGeometry(w, d, cornerR, t) {
+  const geo = new THREE.ExtrudeGeometry(roundedRectShape(w, d, cornerR), {
+    depth: t,
+    bevelEnabled: false,
+    curveSegments: 12,
+  });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, -t / 2, 0);
+  return geo;
+}
+
+let stickerTexCache = null;
+function stickerTexture() {
+  if (stickerTexCache) return stickerTexCache;
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 120;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fbfaf6";
+  ctx.fillRect(0, 0, 192, 120);
+  ctx.fillStyle = "#20242a";
+  ctx.font = "700 30px 'DM Sans', system-ui, sans-serif";
+  ctx.fillText("IKEALIVE", 12, 36);
+  ctx.font = "400 13px 'IBM Plex Mono', monospace";
+  ctx.fillText("FLAT PACK · KEEP DRY", 12, 58);
+  let x = 12;
+  for (let i = 0; i < 30; i += 1) {
+    const bw = 1 + ((i * 7) % 4);
+    if (i % 2 === 0) ctx.fillRect(x, 72, bw, 34);
+    x += bw + 2;
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  stickerTexCache = tex;
+  return tex;
+}
+
+/* Flat-pack tabletop: profile-swept board wrapped in edge band, foil skins
+   laminated on the faces, zinc screw-insert sockets on the underside, and
+   the article sticker every flat pack ships with. Raw lumber (opts.lumber)
+   skips the flat-pack dressing and keeps near-crisp corners. */
 function makeSlab(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
-  const r = Math.max(0.0015, Math.min(0.0045, h * 0.28, w * 0.02, d * 0.02));
+  const lumber = Boolean(opts.lumber);
+  const cornerR = opts.cornerR ?? (lumber ? 0.0018 : w >= 0.8 ? 0.018 : 0.005);
+  const lift = 0.0004;
+  if (lumber) {
+    add(g, slabGeometry(w, h, d, cornerR), mat);
+    return g;
+  }
   const band = mat.clone();
   band.color = mat.color.clone().multiplyScalar(0.93);
   band.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.08);
@@ -339,34 +469,41 @@ function makeSlab(w, h, d, mat, opts = {}) {
     bandMap.needsUpdate = true;
     band.map = bandMap;
   }
-  const core = add(g, new RoundedBoxGeometry(w, h, d, 3, r), band);
+  const core = add(g, slabGeometry(w, h, d, cornerR), band);
   core.userData.tintMul = 0.93;
   const skinT = Math.max(0.0006, Math.min(0.0012, h * 0.08));
-  const lift = 0.0004;
-  add(g, new THREE.BoxGeometry(w - r * 2, skinT, d - r * 2), mat, 0, h / 2 - skinT / 2 + lift, 0);
-  const under = add(
-    g,
-    new THREE.BoxGeometry(w - r * 2, skinT, d - r * 2),
-    band.clone(),
-    0,
-    -h / 2 + skinT / 2 - lift,
-    0,
-  );
+  const skinInset = Math.min(0.0035, h * 0.24) * 2;
+  const skinGeo = facePlateGeometry(w - skinInset, d - skinInset, Math.max(cornerR - skinInset / 2, 0.0006), skinT);
+  add(g, skinGeo, mat, 0, h / 2 - skinT / 2 + lift, 0);
+  const under = add(g, skinGeo.clone(), band.clone(), 0, -h / 2 + skinT / 2 - lift, 0);
   under.userData.tintMul = 0.93;
   for (const [ix, iz] of opts.inserts || []) {
     add(g, new THREE.CylinderGeometry(0.0055, 0.0055, 0.0014, 18), insertRingMat, ix, -h / 2 - lift, iz, true);
     add(g, new THREE.CylinderGeometry(0.0028, 0.0028, 0.002, 12), insertHoleMat, ix, -h / 2 - lift - 0.0003, iz, true);
   }
+  if (w >= 0.35 && d >= 0.25) {
+    const sticker = add(
+      g,
+      new THREE.PlaneGeometry(0.046, 0.029),
+      new THREE.MeshStandardMaterial({ map: stickerTexture(), color: 0xffffff, roughness: 0.85, metalness: 0 }),
+      w * 0.22,
+      -h / 2 - lift - 0.0002,
+      d * 0.18,
+      true,
+    );
+    sticker.rotation.x = Math.PI / 2;
+  }
   return g;
 }
 
-/* Chunky flat-pack leg: a square post with softly rounded vertical edges,
-   an end-grain cap, a plastic glide pad underneath, and the double-ended
-   screw stud waiting on top. */
+/* Chunky flat-pack leg: a square post with crisply eased vertical edges
+   (a couple of millimetres, like a wrapped particleboard leg — not a soft
+   blob), an end-grain cap, a round plastic glide underneath, and the
+   double-ended screw stud waiting on top. */
 function makeWoodLeg(w, h, d, mat) {
   const g = new THREE.Group();
   const padH = Math.max(0.002, Math.min(0.004, h * 0.02));
-  const r = Math.min(w, d) * 0.14;
+  const r = Math.min(0.003, Math.min(w, d) * 0.09);
   if (mat.map) {
     // Grain runs the length of the leg, one tile across its narrow faces.
     const legMap = mat.map.clone();
@@ -377,15 +514,24 @@ function makeWoodLeg(w, h, d, mat) {
   add(g, new RoundedBoxGeometry(w, h - padH, d, 2, r), mat, 0, padH / 2, 0);
   const cap = mat.clone();
   cap.color = mat.color.clone().multiplyScalar(0.9);
-  const capMesh = add(g, new THREE.BoxGeometry(w * 0.88, 0.001, d * 0.88), cap, 0, h / 2 + 0.0002, 0);
+  const capMesh = add(g, new THREE.BoxGeometry(w * 0.92, 0.001, d * 0.92), cap, 0, h / 2 + 0.0002, 0);
   capMesh.userData.tintMul = 0.9;
-  add(g, new THREE.BoxGeometry(w * 0.72, padH, d * 0.72), glideMat, 0, -h / 2 + padH / 2, 0, true);
+  add(
+    g,
+    new THREE.CylinderGeometry(Math.min(w, d) * 0.3, Math.min(w, d) * 0.34, padH, 18),
+    glideMat,
+    0,
+    -h / 2 + padH / 2,
+    0,
+    true,
+  );
   add(g, new THREE.CylinderGeometry(0.0032, 0.0032, 0.016, 12), zincMat, 0, h / 2 + 0.005, 0, true);
   return g;
 }
 
-/* Round steel leg: powder-coated tube, zinc mounting plate with four screw
-   dimples up top, and an adjustable plastic foot at the floor. */
+/* Round steel leg: powder-coated tube on a rounded-square zinc mounting
+   plate (~58 mm, four corner screws and a centre weld boss), with a plastic
+   foot cup and an adjustable glide at the floor. */
 function makeSteelLeg(w, h, d, mat) {
   const g = new THREE.Group();
   const r = Math.max(w, d) / 2;
@@ -394,8 +540,9 @@ function makeSteelLeg(w, h, d, mat) {
   const tubeH = h - footH - plateT;
   add(g, new THREE.CylinderGeometry(r * 0.92, r * 0.92, tubeH, 24), mat, 0, (footH - plateT) / 2, 0);
   add(g, new THREE.CylinderGeometry(r * 0.96, r * 0.92, 0.008, 24), mat.clone(), 0, h / 2 - plateT - 0.004, 0);
-  const plateR = Math.min(0.045, r * 2.2);
-  add(g, new THREE.CylinderGeometry(plateR, plateR, plateT, 28), zincMat, 0, h / 2 - plateT / 2, 0, true);
+  const plateW = Math.min(0.058, r * 3);
+  add(g, new RoundedBoxGeometry(plateW, plateT, plateW, 2, plateT * 0.4), zincMat, 0, h / 2 - plateT / 2, 0, true);
+  add(g, new THREE.CylinderGeometry(r * 0.5, r * 0.5, plateT * 0.5, 16), zincMat, 0, h / 2 + plateT * 0.2, 0, true);
   for (const [sx, sz] of [
     [-1, -1],
     [1, -1],
@@ -404,11 +551,11 @@ function makeSteelLeg(w, h, d, mat) {
   ]) {
     add(
       g,
-      new THREE.CylinderGeometry(0.002, 0.002, 0.0012, 10),
-      insertHoleMat,
-      sx * plateR * 0.62,
-      h / 2 + 0.0002,
-      sz * plateR * 0.62,
+      new THREE.CylinderGeometry(0.0028, 0.0032, 0.0018, 10),
+      zincMat,
+      sx * plateW * 0.34,
+      h / 2 + 0.0006,
+      sz * plateW * 0.34,
       true,
     );
   }
@@ -449,17 +596,19 @@ function makeTable(part, mat) {
   const legH = h - topH;
   const inset = legCenterInset(w, legW);
   const g = new THREE.Group();
-  const top = makeSlab(w, topH, d, mat);
-  top.position.y = h / 2 - topH / 2;
-  g.add(top);
-  for (const [sx, sz] of [
+  const slots = [
     [-1, -1],
     [1, -1],
     [-1, 1],
     [1, 1],
-  ]) {
+  ].map(([sx, sz]) => [sx * (w / 2 - inset), sz * (d / 2 - inset)]);
+  // The top carries its insert sockets right where the legs screw in.
+  const top = makeSlab(w, topH, d, mat, { inserts: slots });
+  top.position.y = h / 2 - topH / 2;
+  g.add(top);
+  for (const [x, z] of slots) {
     const leg = makePost(legW, legH, legW, mat.clone());
-    leg.position.set(sx * (w / 2 - inset), -h / 2 + legH / 2, sz * (d / 2 - inset));
+    leg.position.set(x, -h / 2 + legH / 2, z);
     g.add(leg);
   }
   return g;
@@ -824,6 +973,7 @@ function bodyFor(shape, part, mat) {
   if (shape === "slab")
     return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, {
       inserts: insertsFromPorts(part),
+      lumber: part.texture === "oak-open",
     });
   if (shape === "post")
     return makePost(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, part.material === "steel");
@@ -972,6 +1122,27 @@ export function createWorkshop(canvas) {
   floor.castShadow = false;
   floor.userData.baseMaterial = floor.material;
   scene.add(floor);
+
+  // Soft contact shadow grounding the bench on the floor. The floor never
+  // receiveShadows (see above), so this baked blob is the AO feel instead:
+  // unlit, depthWrite off, and drawn after the floor via renderOrder — three
+  // reasons it cannot z-fight the plane 2 mm below it.
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.7, 2.0),
+    new THREE.MeshBasicMaterial({
+      map: contactShadowMap(),
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = floor.position.y + 0.002;
+  contactShadow.renderOrder = 0;
+  contactShadow.castShadow = false;
+  contactShadow.receiveShadow = false;
+  scene.add(contactShadow);
 
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
   benchMap.repeat.set(2, 1.2);
@@ -1284,6 +1455,8 @@ export function createWorkshop(canvas) {
     hemi.intensity = lookOn ? 1 : 0.9;
     floor.receiveShadow = false;
     bench.receiveShadow = !lookOn;
+    // Clay renders still want grounding, just less of it.
+    contactShadow.material.opacity = lookOn ? 0.28 : 0.55;
   }
 
   function meshOverride() {
