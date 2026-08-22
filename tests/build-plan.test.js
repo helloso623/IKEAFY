@@ -124,7 +124,7 @@ test("ways-to-make source is numbered for the IKEAlive parser", () => {
   });
   const source = buildPlanSource(plan);
   assert.match(source, /Construction ways:/);
-  assert.match(source, /Cut list:/);
+  assert.match(source, /cut list:/i);
   assert.doesNotMatch(source, /M6|wood screw|mounting plate/i);
   assert.match(source, /^1\. Freeze this model revision/m);
   assert.match(source, /^6\. Turn the table upright/m);

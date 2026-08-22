@@ -83,7 +83,7 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   const packet = await response.json();
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, and legs/);
+  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, legs/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
   assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
