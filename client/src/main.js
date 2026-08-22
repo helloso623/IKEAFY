@@ -6,6 +6,8 @@ import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
+import { knownObject, resolveScanScale } from "./frame-scale.js";
+import { grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
