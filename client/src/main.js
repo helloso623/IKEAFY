@@ -4,6 +4,7 @@ import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
+import { bindVoice } from "./voice.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -304,6 +305,8 @@ async function applyShopActions(actions) {
       house?.applyPlan(action.plan);
     } else if (action.type === "firmware") {
       continue;
+    } else if (action.type === "studio") {
+      await window.__ikeafyStudio?.applyActions?.([action]);
     }
   }
   return added;
@@ -759,6 +762,15 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
   $("chat-in").value = "";
   await askShop(message);
 });
+
+bindVoice({
+  button: $("lab-voice"),
+  status: $("lab-voice-status"),
+  input: $("chat-in"),
+  onHear: (text) => askShop(text),
+});
+
+window.__ikeafyApplyShop = applyShopActions;
 
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;

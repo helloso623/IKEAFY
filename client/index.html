@@ -261,8 +261,10 @@
             <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
             <form id="ikea-chat-form">
               <input id="ikea-chat-in" autocomplete="off" aria-label="Message us" placeholder="Ask about a step, tool or part…" />
+              <button type="button" id="ikea-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
               <button type="submit" class="primary">Send</button>
             </form>
+            <p id="ikea-voice-status" class="voice-status hint" aria-live="polite"></p>
           </div>
         </section>
       </aside>
@@ -461,8 +463,10 @@
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form">
             <input id="chat-in" autocomplete="off" placeholder="Add a LACK table, put four legs, generate a lamp…" />
+            <button type="button" id="lab-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
             <button type="submit" class="primary">Send</button>
           </form>
+          <p id="lab-voice-status" class="voice-status hint" aria-live="polite"></p>
         </div>
       </aside>
     </div>

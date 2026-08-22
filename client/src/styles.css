@@ -499,6 +499,8 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .chat-log .me { color: var(--ink); font-weight: 600; }
 #chat-form, #ikea-chat-form { display: flex; gap: 0.45rem; margin-top: 0.55rem; }
 #chat-form button, #ikea-chat-form button { flex: 0 0 auto; }
+.voice-status { min-height: 1.2rem; margin: 0.35rem 0 0; }
+.voice-status:empty { display: none; }
 .chat-panel .chat-log { height: 130px; }
 .studio-chat summary {
   cursor: pointer;

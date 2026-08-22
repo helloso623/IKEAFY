@@ -5,6 +5,7 @@
  */
 
 import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
+import { bindVoice } from "./voice.js";
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
@@ -68,6 +69,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     chatForm: first("#ikea-chat-form", "#chat-form"),
     chatInput: first("#ikea-chat-in", "#chat-in"),
     chatLog: first("#ikea-chat-log", "#chat-log"),
+    voice: first("#ikea-voice"),
+    voiceStatus: first("#ikea-voice-status"),
   };
 
   const listeners = [];
@@ -1265,6 +1268,26 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.chatLog.scrollTop = el.chatLog.scrollHeight;
   }
 
+  async function applyStudioActions(actions) {
+    for (const action of actions || []) {
+      if (action?.type !== "studio") continue;
+      console.log("[ikealive:voice]", "studio action", action.action);
+      if (action.action === "start") await parseCustom();
+      else if (action.action === "official") await startOfficial();
+      else if (action.action === "next") await nextStep();
+      else if (action.action === "back") await backStep();
+      else if (action.action === "play") togglePlay();
+      else if (action.action === "spare") await requestFittings();
+      else if (action.action === "clear") {
+        if (el.pdf) el.pdf.value = "";
+        if (el.productName) el.productName.value = "";
+        showPdfName(null);
+        clearCustomSession();
+        setInterface("upload");
+      }
+    }
+  }
+
   async function sendChat(event) {
     event?.preventDefault();
     const message = el.chatInput?.value?.trim();
@@ -1274,6 +1297,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
       addChatLine(reply?.agent?.name || "shop", reply?.text || "");
+      if (typeof window.__ikeafyApplyShop === "function") await window.__ikeafyApplyShop(reply.actions);
+      else await applyStudioActions(reply.actions);
       return reply;
     } catch (error) {
       addChatLine("shop", error?.message || "Chat failed");
@@ -1340,6 +1365,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.broken, "click", attachBroken);
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);
+  bindVoice({
+    button: el.voice,
+    status: el.voiceStatus,
+    input: el.chatInput,
+    onHear: (text) => {
+      if (el.chatInput) el.chatInput.value = text;
+      sendChat();
+    },
+  });
 
   setMode("custom");
   setInterface("upload");
@@ -1351,6 +1385,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     startOfficial,
     parseCustom,
     lookupProductManual,
+    applyActions: applyStudioActions,
     nextStep,
     backStep,
     skipStep,
