@@ -474,8 +474,6 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     orbit.maxPolarAngle = Math.PI / 2 - 0.05;
     orbit.minDistance = 0.85;
     orbit.maxDistance = 22;
-    orbit.minAzimuthAngle = -Math.PI * 0.72;
-    orbit.maxAzimuthAngle = Math.PI * 0.72;
     scene.add(new THREE.HemisphereLight(0xffffff, 0x2c2c34, 1.05));
     const sun = new THREE.DirectionalLight(0xfff2df, 1.1);
     sun.position.set(3, 6, 2);

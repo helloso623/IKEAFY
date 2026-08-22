@@ -307,11 +307,6 @@ function resolveAddList(message, ctx = {}) {
     return table ? expandPart(table) : [];
   }
 
-  if (/\black\s+table\b/.test(lower)) {
-    const table = getPart("lack-table");
-    return table ? expandPart(table) : [];
-  }
-
   const counted = parseQtyNoun(lower);
   if (counted && getPart(counted.partId)) {
     const part = getPart(counted.partId);

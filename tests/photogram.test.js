@@ -132,14 +132,20 @@ test("the default table footprint is the neutral 550 × 550 × 450 mm placeholde
   assert.match(GENERIC_SIDE_TABLE.note, /specs needed for an exact IKEA article/i);
 });
 
-test("the camera frames the interior so orbit and walk can see the room", () => {
+test("the camera frames the house from the open front so orbit can see the room", () => {
   const room = { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
   const pose = frameRoomCamera(room);
-  assert.ok(pose.position.x > 0 && pose.position.x < room.widthM);
-  assert.ok(pose.position.z > 0 && pose.position.z < room.depthM);
-  assert.ok(pose.position.y > 0.8 && pose.position.y < room.heightM);
   assert.equal(pose.target.x, room.widthM / 2);
+  assert.ok(pose.target.z > 0 && pose.target.z < room.depthM);
+  assert.ok(pose.position.z > room.depthM, "camera sits outside the open front so orbit has room");
+  assert.ok(pose.position.y > 1);
   assert.ok(pose.maxDistance > pose.minDistance);
+  const dist = Math.hypot(
+    pose.position.x - pose.target.x,
+    pose.position.y - pose.target.y,
+    pose.position.z - pose.target.z,
+  );
+  assert.ok(dist > pose.minDistance);
 });
 
 test("the AR overlay scales the table to room metres on the photo floor", () => {

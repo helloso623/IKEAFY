@@ -879,34 +879,32 @@ app.get("/api/agents", (_req, res) => {
   res.json({ roster: ROSTER, hosted: hasHostedBrain(), fallback: "local-steward" });
 });
 
-app.post(["/api/chat", "/api/agents/chat"], async (req, res) => {
+async function handleChat(req, res) {
   const message = String(req.body?.message || "").trim();
+  const ctx = {
+    project: state.project,
+    guide: state.guide,
+    costBarrier: req.body?.costBarrier,
+    step: req.body?.step,
+    partId: req.body?.partId,
+    room: req.body?.room,
+    scene: req.body?.scene,
+    history: req.body?.history,
+    photoName: req.body?.photoName || "",
+  };
   try {
-    const reply = await chat(message, {
-      project: state.project,
-      guide: state.guide,
-      costBarrier: req.body?.costBarrier,
-      step: req.body?.step,
-      partId: req.body?.partId,
-      room: req.body?.room,
-      scene: req.body?.scene,
-      history: req.body?.history,
-      photoName: req.body?.photoName || "",
-    });
+    const reply = await chat(message, ctx);
     res.json({ ok: true, ...reply });
   } catch (error) {
+    // Chat must remain available when a hosted provider is unavailable. The
+    // steward still returns room/table actions so the client can apply them.
     ikealiveWarn("agents", "chat error", String(error?.message || error));
-    res.json({
-      ok: true,
-      agent: ROSTER.find((agent) => agent.id === "creative"),
-      backend: "local-steward",
-      text: message
-        ? "I couldn’t complete that edit. Try describing the room or object with dimensions."
-        : "Tell me what room or object you want to create.",
-      actions: [],
-    });
+    res.json({ ok: true, ...fallbackChat(message, ctx) });
   }
-});
+}
+
+app.post("/api/chat", handleChat);
+app.post("/api/agents/chat", handleChat);
 
 app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));

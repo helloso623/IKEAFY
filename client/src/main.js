@@ -223,6 +223,7 @@ async function refreshProject() {
   syncEditButtons();
   renderBenchPieces();
   syncFunctionStrip();
+  syncMaterialPanel();
   aiDock?.refreshScene();
 }
 
@@ -674,6 +675,28 @@ function selectedPiece() {
   return { piece, part: partsById[piece.partId] };
 }
 
+
+function syncFunctionStrip() {
+  const picked = selectedPiece();
+  const hint = $("fn-hint");
+  if (hint) {
+    hint.textContent = picked?.piece.reconstructed
+      ? "Scanned meshes can be moved, scaled, duplicated, or deleted locally."
+      : picked
+        ? picked.piece.functionLabel
+          ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
+          : `Assign a job to ${picked.part?.name || "this piece"}.`
+        : "Pick a piece, then assign a job.";
+  }
+  const row = $("fn-btns");
+  if (!row) return;
+  for (const btn of row.querySelectorAll("[data-fn]")) {
+    const fn = btn.dataset.fn;
+    btn.disabled = !picked || Boolean(picked.piece.reconstructed);
+    btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
+  }
+}
+
 /* ---- Materials: color, roughness, finish presets on the selected piece ---- */
 
 const MAT_FINISH_TEXTURES = { foil: "birch-foil", wood: "oak-open", metal: "metal" };
@@ -770,6 +793,7 @@ function showPart(part, piece) {
 
   inspect(lines.join("\n"));
   syncEditButtons();
+  syncFunctionStrip();
   syncMaterialPanel();
   aiDock?.refreshScene();
 }
@@ -819,6 +843,78 @@ shop.onJoint?.(async ({ moves, joint, label }) => {
     hud(err.message || "The joint did not take.");
   }
 });
+
+$("lab-btns")?.addEventListener("click", async (ev) => {
+  const test = ev.target.dataset.test;
+  if (!test) return;
+  const piece = shop.getSelected();
+  const partId = piece?.part?.id || "lack-top";
+  const report = await api.physics({
+    partId,
+    tapeId: "tape-gaffer",
+    forceN: test === "speed" ? 12 : 180,
+    rain: Boolean($("rain")?.checked),
+    tempC: Number($("temp")?.value || 22),
+    aeroMs: 8,
+    flowMs: 2,
+  });
+  const row = report.tests[test] || report.tests.strength;
+  const testName = ev.target.textContent.trim() || test;
+  inspect(
+    `${testName}\n${row.note}\n${report.failed?.length ? "That one did not hold." : "Still in one piece."}`,
+  );
+  shop.setSim(true, {
+    rain: test === "weather" && Boolean($("rain")?.checked),
+    heat: Number($("temp")?.value) > 40,
+    force: ["strength", "pressure", "speed", "aero"].includes(test),
+  });
+  hud(row.note);
+});
+
+async function applyTape(id) {
+  const ids = selectedIds.length ? selectedIds : project.pieces.slice(0, 2).map((p) => p.id);
+  await api.tape(id, ids);
+  await refreshProject();
+  hud(id === "tape-electrical" ? "Wrapped electrical tape on the join." : "Wrapped gaffer tape on the join.");
+}
+$("tape-elec")?.addEventListener("click", () => applyTape("tape-electrical"));
+$("tape-gaff")?.addEventListener("click", () => applyTape("tape-gaffer"));
+
+$("fn-btns")?.addEventListener("click", async (ev) => {
+  const fn = ev.target.closest("[data-fn]")?.dataset.fn;
+  if (!fn || !PIECE_FUNCTIONS.includes(fn)) return;
+  const picked = selectedPiece() || shop.getSelected();
+  if (!picked?.piece) return hud("Pick a piece, then assign a job.");
+  await api.label(picked.piece.id, fn);
+  await refreshProject();
+  const piece = project.pieces.find((p) => p.id === picked.piece.id);
+  const part = partsById[piece?.partId] || picked.part;
+  if (part && piece) showPart(part, piece);
+  hud(`${part?.name || "Piece"} is now ${fn}.`);
+});
+
+$("sim-behavior")?.addEventListener("click", async () => {
+  const rain = Boolean($("rain")?.checked);
+  const tempC = Number($("temp")?.value || 22);
+  hud("Running the behavior suite…");
+  const result = await api.simBehavior({
+    rain,
+    tempC,
+    tapeId: "tape-gaffer",
+    forceN: 180,
+    aeroMs: 8,
+    flowMs: 2,
+  });
+  const notes = (result.notes || []).filter((n) => !/firmware|arduino|sketch/i.test(n));
+  inspect((notes.length ? notes : ["Behavior suite finished."]).join("\n"));
+  hud(notes[0] || "Behavior suite finished.");
+  shop.setSim(true, {
+    rain,
+    heat: tempC > 40,
+    force: true,
+  });
+});
+
 
 async function commitPose(pose) {
   if (!pose?.id) return;

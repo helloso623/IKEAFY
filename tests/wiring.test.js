@@ -352,8 +352,15 @@ test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", ()
   assert.match(main, /scan-bake-plan/);
   assert.match(main, /startFromGuide/);
   assert.match(studio, /startFromGuide/);
+  const startFromGuide = studio.slice(studio.indexOf("async function startFromGuide"), studio.indexOf("async function startOfficial"));
+  assert.match(startFromGuide, /afterGuideReady/);
+  assert.doesNotMatch(startFromGuide, /await bootReel\(/);
   assert.match(house, /makeGenericSideTable/);
   assert.match(house, /KeyW/);
+  assert.match(house, /maxPolarAngle = Math.PI \/ 2/);
+  assert.doesNotMatch(html, /id="sim-toggle"/);
+  assert.doesNotMatch(html, /id="reset-sim"/);
+  assert.doesNotMatch(html, /id="print-btn"/);
 });
 
 test("Lab spaces are Bench, House, AR, then Scan", () => {

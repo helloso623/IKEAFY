@@ -191,8 +191,6 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     opts.forceN = 200;
     hud("Running the stacked sim…");
     await api.simStart();
-    const simToggle = document.getElementById("sim-toggle");
-    if (simToggle) simToggle.checked = true;
     const report = await api.simRun(opts);
     shop.setSim(true, {
       rain: opts.rain,
@@ -224,8 +222,6 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     hud(`${selected.part?.name || "Piece"} is now ${functionLabel}.`);
   });
 
-  document.getElementById("reset-sim")?.addEventListener("click", () => say(""));
-
-  say([graphLine(getProject()), "Stack chips, then Run sim. Reset puts the bench back."]);
+  say([graphLine(getProject()), "Stack chips, then Run sim."]);
   return { say };
 }
