@@ -13,9 +13,6 @@ tmp/
 uploads/
 client/public/generated/
 
-# production
-/build
-
 # env / secrets
 .env
 .env.local
@@ -32,4 +29,3 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
