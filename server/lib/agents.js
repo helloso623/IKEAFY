@@ -568,7 +568,7 @@ function selectedPieceFromCtx(ctx = {}) {
 
 function selectedTransformPlan(message, ctx = {}) {
   const lower = String(message || "").toLowerCase();
-  if (!MOVE_HINTS.test(lower) || isCatalogAsk(lower) || /\bcamera\b/.test(lower)) return null;
+  if (!MOVE_HINTS.test(lower) || /\bcamera\b/.test(lower)) return null;
   const piece = selectedPieceFromCtx(ctx);
   if (
     !piece ||
