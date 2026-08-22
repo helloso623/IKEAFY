@@ -86,7 +86,7 @@ When a table model is ready, **Finish & find ways** researches construction meth
 
 Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
-### Hunt pieces for the final table
+### Find ways to make the final table
 
 After modeling or remodeling a table, click **Finish & find ways**. IKEAlive offers routes such as a cut-to-size top with ready-made legs or an all-wood apron frame, then derives the current top, legs, boards, and method-specific cuts by shape and millimetres. It produces a printable ways-and-cut-list PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily is an optional one-query research provider; without it, dimension catalog matches and public search links remain available. Retailer scraping and fastener catalogs are not part of this flow. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
 
