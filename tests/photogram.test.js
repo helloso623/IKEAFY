@@ -148,7 +148,7 @@ test("the camera frames the house from the open front so orbit can see the room"
   assert.ok(dist > pose.minDistance);
 });
 
-test("the AR overlay scales the table to room metres on the photo floor", () => {
+test("the room photo overlay scales the table to room metres on the photo floor", () => {
   const floor = overlayFloorFromHorizon({ x: 0, y: 0, w: 800, h: 600 }, 0.5);
   assert.equal(floor.y, 300);
   assert.equal(floor.h, 300);
@@ -195,14 +195,15 @@ test("scanned and bench furniture is placed from millimetre dims, clamped in-roo
 test("the room panel takes many photos and the stage has a 3D scene canvas", () => {
   const html = read("client/index.html");
   assert.match(html, /<input id="room-photos"[^>]*multiple/);
-  assert.match(html, /id="ar-camera"[^>]*autoplay[^>]*playsinline/);
-  assert.match(html, /id="ar-toggle"[^>]*>AR on</);
+  assert.doesNotMatch(html, /data-lab="ar"/);
+  assert.match(html, /id="scan-camera-preview"[^>]*autoplay[^>]*playsinline/);
+  assert.match(html, /id="scan-camera-capture"/);
   assert.match(html, /id="room-scene"/);
   assert.match(html, /id="house-view-btn"/);
   assert.match(html, /id="room-photo"/, "the single room photo input stays");
   const css = read("client/src/styles.css");
-  assert.match(css, /#app\.mode-lab\[data-lab="ar"\] #room-scene/, "the 3D house shows in AR");
   assert.match(css, /#app\.mode-lab\[data-lab="house"\] #room-scene/, "the same scene shows in House");
+  assert.doesNotMatch(css, /data-lab="ar"/);
 });
 
 test("house.js regenerates the house as a textured 3D scene", () => {
@@ -215,10 +216,7 @@ test("house.js regenerates the house as a textured 3D scene", () => {
   assert.match(house, /wallBoxes/, "walls come from the vanishing-line heuristic");
   assert.match(house, /CanvasTexture/, "surfaces are textured from the photos");
   assert.match(house, /room-photos/);
-  assert.match(house, /mediaDevices[\s\S]{0,120}getUserMedia/, "AR opens the browser/Electron camera");
-  assert.match(house, /captureBurst\(count = 6\)/, "AR captures several frames, not one still");
-  assert.match(house, /capturedFrames\.push\(frame\)/, "camera frames feed the room reconstruction");
-  assert.match(house, /draw\(lastPlan\)/, "the live camera canvas redraws its furniture overlay");
+  assert.doesNotMatch(house, /getUserMedia/, "camera capture belongs to Scan, not House");
   assert.match(house, /api\.adapt/, "adapt still works");
   assert.match(house, /api\.scan/, "the catalog scan still works");
   assert.match(house, /scanFits\(\)/, "the room scan keeps its trigger");

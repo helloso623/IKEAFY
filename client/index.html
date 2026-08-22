@@ -160,7 +160,8 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
+        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
+        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
@@ -334,6 +335,7 @@
                 </label>
                 <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
               </div>
+              <p class="hint lab-hint">Leave the URL empty to pull the last POST to <code>/api/scan/video</code> (Tailscale phone → this Lab).</p>
               <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
                 <label class="field" for="scan-scale-kind">
                   <span>Scale from</span>
@@ -398,8 +400,13 @@
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                Upload room photos to rebuild the room in 3D. Object camera and video capture live under Scan.
+                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
+                Uploads still work when a camera is unavailable.
               </p>
+              <div class="ar-capture">
+                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
+                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
@@ -604,12 +611,13 @@
           <p id="ai-scene">Upload</p>
         </section>
         <div id="agent-bar" class="agent-bar"></div>
+        <p id="many-agents-note" class="hint">Lab many agents: CAD, Creative and Assembler run in parallel on “build this furniture”.</p>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="chat-form" class="ai-form">
           <input
             id="chat-in"
             autocomplete="off"
-            placeholder="Add a table, generate a lamp, or ask about this scene…"
+            placeholder="build this furniture, add a table, or ask about this scene…"
             aria-label="Message AI"
           />
           <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>

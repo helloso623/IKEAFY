@@ -53,6 +53,37 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   throw new Error(`server did not start: ${lastError}`);
 }
 
+test("finishing a 3D table returns a printable hardware BOM and parsed assembly run", async (t) => {
+  const port = 20500 + (process.pid % 400);
+  const child = spawn(process.execPath, ["server/index.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), OPENAI_API_KEY: "", TAVILY_API_KEY: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => child.kill("SIGTERM"));
+  const base = `http://127.0.0.1:${port}`;
+  await waitForHealth(`${base}/api/health`);
+
+  const added = await fetch(`${base}/api/project/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ partId: "generic-side-table" }),
+  });
+  assert.equal(added.status, 200);
+
+  const response = await fetch(`${base}/api/project/finish`, { method: "POST" });
+  assert.equal(response.status, 200);
+  const packet = await response.json();
+  assert.equal(packet.ok, true);
+  assert.equal(packet.pdf.method, "client-print");
+  assert.equal(packet.bom.scope, "Hardware and non-wood components only");
+  assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
+  assert.ok(packet.bom.lines.some((line) => line.id === "m6-machine-screw"));
+  assert.equal(packet.assembly.ok, true);
+  assert.ok(packet.assembly.run.id);
+  assert.ok(packet.assembly.guide.steps.length >= 5);
+});
+
 test("POST /api/chat creates a room and table via steward actions", async (t) => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;

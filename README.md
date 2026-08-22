@@ -55,13 +55,15 @@ Names only.
 | `guides/` | Official building guides |
 | `docs/` | Short product notes |
 
-Lab is one workspace with three spaces: **Bench** (3D edit), **House** (your room photos rebuilt as a real 3D scene), and **AR** (a live `#ar-photo` camera/furniture overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
-AR requests the browser/Electron camera and captures a six-frame burst locally; those frames update the textured `#room-scene` house while furniture from the plan, bench, and scans is placed inside. The single-photo and multi-file photo inputs remain available when camera access is unavailable. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
+House uses single-photo and multi-file room inputs. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
 
 ### Object scans
 
-Lab → **Scan** accepts aligned front, side, and top photos, extra stills, a walk-around video, or a video URL. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` (and `client/src/frame-scale.js`) is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
+Lab → **Scan** accepts aligned front, side, and top photos, the live browser/Electron camera, extra stills, a walk-around video, or a video URL. Video and camera stills populate the same three-view inputs and reconstruct into a mesh on the Bench. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`).
+
+Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
 
 ### Tailscale (optional)
 

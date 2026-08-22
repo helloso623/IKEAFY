@@ -40,7 +40,7 @@ test("the browser points the video element at the local proxy", () => {
   assert.ok(SCAN_VIDEO_MAX_BYTES >= 8 * 1024 * 1024);
 });
 
-test("the API proxies scan video and Lab markup can send a URL or frames", () => {
+test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", () => {
   const server = read("server/index.js");
   const html = read("client/index.html");
   const main = read("client/src/main.js");
@@ -50,10 +50,16 @@ test("the API proxies scan video and Lab markup can send a URL or frames", () =>
   assert.match(server, /isAllowedOrigin/);
   assert.match(html, /id="scan-video"/);
   assert.match(html, /id="scan-video-url"/);
+  assert.match(html, /id="scan-camera-preview"/);
+  assert.match(html, /id="scan-camera-capture"/);
+  assert.doesNotMatch(html, /data-lab="ar"/);
   assert.match(html, /id="scan-scale-frame"/);
   assert.match(html, /Tap two points/);
   assert.match(html, /id="room-scale-kind"/);
   assert.match(main, /grabVideoFrames/);
+  assert.match(main, /grabLiveFrames/);
+  assert.match(main, /getUserMedia/);
+  assert.match(main, /addReconstructedMesh/);
   assert.match(main, /resolveScanScale|scaleKind/);
   assert.match(house, /resolveRoomScale/);
   assert.match(house, /room-scale-kind/);

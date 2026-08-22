@@ -23,6 +23,34 @@ export async function canvasToFile(canvas, name = "frame.png") {
   return new File([blob], name, { type: "image/png" });
 }
 
+function frameCanvas(video, maxSide) {
+  const width = video?.videoWidth || 0;
+  const height = video?.videoHeight || 0;
+  if (!width || !height) throw new Error("That camera or video has no picture frames.");
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(16, Math.round(width * scale));
+  canvas.height = Math.max(16, Math.round(height * scale));
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/**
+ * Capture front / side / top stills from an already-playing camera preview.
+ * The operator moves around the object between the short capture intervals.
+ */
+export async function grabLiveFrames(
+  video,
+  { count = 3, maxSide = 1024, intervalMs = 700, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+) {
+  const frames = [];
+  for (let index = 0; index < count; index += 1) {
+    frames.push(await canvasToFile(frameCanvas(video, maxSide), `camera-view-${index + 1}.png`));
+    if (index + 1 < count && intervalMs > 0) await wait(intervalMs);
+  }
+  return { files: frames, views: assignScanViews(frames) };
+}
+
 function waitForEvent(target, event, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -67,15 +95,7 @@ export async function grabVideoFrames(source, { count = 3, maxSide = 1024 } = {}
     for (let i = 0; i < times.length; i += 1) {
       video.currentTime = times[i];
       await waitForEvent(video, "seeked", 4000);
-      const width = video.videoWidth || 0;
-      const height = video.videoHeight || 0;
-      if (!width || !height) throw new Error("That video has no picture frames.");
-      const scale = Math.min(1, maxSide / Math.max(width, height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(16, Math.round(width * scale));
-      canvas.height = Math.max(16, Math.round(height * scale));
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push(await canvasToFile(canvas, `scan-frame-${i + 1}.png`));
+      frames.push(await canvasToFile(frameCanvas(video, maxSide), `scan-frame-${i + 1}.png`));
     }
     return { files: frames, views: assignScanViews(frames), duration: video.duration, times };
   } finally {
