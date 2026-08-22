@@ -1,6 +1,7 @@
 import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { usableOpenAiKey } from "./secrets.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -447,17 +448,17 @@ export async function parseGuideAsync(
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
   if (plates.length) {
-    console.log("[ikealive:parse]", "vision plates", { count: plates.length });
+    ikealiveLog("parse", "vision plates", { count: plates.length });
     try {
       const hosted = await extractGuideWithOpenAI(
         { raw, images: plates, instructions, availableTools },
         deps,
       );
       if (hosted?.steps?.length) {
-        console.log("[ikealive:parse]", "vision ok", { title: hosted.title, steps: hosted.steps.length });
+        ikealiveLog("parse", "vision ok", { title: hosted.title, steps: hosted.steps.length });
         return hosted;
       }
-      console.warn("[ikealive:parse]", "vision returned no steps");
+      ikealiveWarn("parse", "vision returned no steps");
     } catch {
       // Fall through to an empty guide — never leak the key, never parse plates as text.
     }

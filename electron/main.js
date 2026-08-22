@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { rendererConsoleText } from "./log.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -87,6 +88,14 @@ export async function clientUrl() {
   return SERVER_ORIGIN;
 }
 
+function attachRendererLogs(win) {
+  win.webContents.on("console-message", (event, level, message) => {
+    const text = rendererConsoleText(event, level, message);
+    if (!text) return;
+    process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+  });
+}
+
 function createWindow(url) {
   const win = new BrowserWindow({
     width: 1440,
@@ -101,6 +110,7 @@ function createWindow(url) {
       sandbox: true,
     },
   });
+  attachRendererLogs(win);
   win.loadURL(url);
   return win;
 }

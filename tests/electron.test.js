@@ -63,3 +63,10 @@ test(".env stays out of the repo", () => {
   assert.equal(tracked.includes(".env"), false, "do not commit .env");
   assert.equal(tracked.includes(".env.example"), true, ".env.example is the public template");
 });
+
+test("Electron pipes BrowserWindow console-message events to process.stdout", () => {
+  assert.match(main, /console-message/);
+  assert.match(main, /process\.stdout\.write/);
+  assert.match(main, /attachRendererLogs/);
+  assert.match(main, /from "\.\/log\.js"/);
+});

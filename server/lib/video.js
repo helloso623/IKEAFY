@@ -7,8 +7,22 @@ export const FAL_REQUIRED =
   "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 const MODEL_ROOT = "https://queue.fal.run/bytedance/seedance-2.5";
 const QUEUE = `${MODEL_ROOT}/text-to-video`;
-const POLL_MS = 1500;
-const DEADLINE_MS = 180_000;
+export const FAL_POLL_MS = 1500;
+/** Seedance 2.5 often sits in queue 8–15+ minutes; 180s was cutting jobs off. */
+export const DEFAULT_FAL_TIMEOUT_MS = 15 * 60 * 1000;
+
+export function falTimeoutMs(env = process.env) {
+  const n = Number(env.FAL_TIMEOUT_MS);
+  if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  return DEFAULT_FAL_TIMEOUT_MS;
+}
+
+function queuePollUrls(requestId) {
+  return {
+    statusUrl: `${MODEL_ROOT}/requests/${requestId}/status`,
+    resultUrl: `${MODEL_ROOT}/requests/${requestId}`,
+  };
+}
 
 export function hasFal() {
   return typeof process.env.FAL_KEY === "string" && process.env.FAL_KEY.trim().length > 0;
@@ -61,9 +75,23 @@ export function promptForStep(guide, stepNumber, extra = "") {
     .join(" ");
 }
 
-async function falQueue(payload, { fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+async function falQueue(
+  payload,
+  {
+    fetchFn = fetch,
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+    now = () => Date.now(),
+  } = {},
+) {
   const headers = falHeaders();
-  ikealiveLog("video", "submit", { queue: QUEUE, promptChars: String(payload?.prompt || "").length, resolution: payload?.resolution, duration: payload?.duration });
+  const timeoutMs = falTimeoutMs();
+  ikealiveLog("video", "submit", {
+    queue: QUEUE,
+    promptChars: String(payload?.prompt || "").length,
+    resolution: payload?.resolution,
+    duration: payload?.duration,
+    timeoutMs,
+  });
   const submitted = await fetchFn(QUEUE, {
     method: "POST",
     headers,
@@ -83,40 +111,51 @@ async function falQueue(payload, { fetchFn = fetch, sleep = (ms) => new Promise(
 
   const requestId = ticket.request_id;
   if (!requestId) throw new Error("fal submit returned no request_id");
-  const statusUrl = ticket.status_url || `${MODEL_ROOT}/requests/${requestId}/status`;
-  const resultUrl = ticket.response_url || `${MODEL_ROOT}/requests/${requestId}`;
-  ikealiveLog("video", "queued", { requestId, statusUrl, resultUrl });
+  // Submit is /text-to-video; status/result live under /requests/$ID, never /text-to-video/requests/.
+  const { statusUrl, resultUrl } = queuePollUrls(requestId);
+  ikealiveLog("video", "queued", { requestId, statusUrl, resultUrl, timeoutMs });
 
-  const deadline = Date.now() + DEADLINE_MS;
+  const started = now();
+  const deadline = started + timeoutMs;
   let polls = 0;
-  while (Date.now() < deadline) {
+  let lastState = "unknown";
+  while (now() < deadline) {
     polls += 1;
+    const elapsedMs = now() - started;
     const statusRes = await fetchFn(statusUrl, { headers });
     if (!statusRes.ok) {
-      ikealiveWarn("video", "poll failed", { requestId, status: statusRes.status, polls });
+      ikealiveWarn("video", "poll failed", { requestId, status: statusRes.status, polls, elapsedMs });
       throw new Error(`fal status ${statusRes.status}`);
     }
     const status = await statusRes.json();
     const state = String(status.status || "").toUpperCase();
-    ikealiveLog("video", "poll", { requestId, state, polls });
+    lastState = state || "unknown";
+    ikealiveLog("video", "poll", {
+      requestId,
+      state: lastState,
+      polls,
+      elapsedMs,
+      queuePosition: status.queue_position ?? null,
+    });
     if (state === "COMPLETED") {
       const done = await fetchFn(resultUrl, { headers });
       if (!done.ok) {
-        ikealiveWarn("video", "result failed", { requestId, status: done.status });
+        ikealiveWarn("video", "result failed", { requestId, status: done.status, elapsedMs });
         throw new Error(`fal result ${done.status}`);
       }
       const body = await done.json();
-      ikealiveLog("video", "result", { requestId, videoUrl: videoUrlFrom(body), polls });
+      ikealiveLog("video", "result", { requestId, videoUrl: videoUrlFrom(body), polls, elapsedMs });
       return body;
     }
     if (state === "FAILED" || state === "CANCELED") {
-      ikealiveWarn("video", "job failed", { requestId, state });
+      ikealiveWarn("video", "job failed", { requestId, state: lastState, elapsedMs });
       throw new Error(`fal ${state.toLowerCase()}`);
     }
-    await sleep(POLL_MS);
+    await sleep(FAL_POLL_MS);
   }
-  ikealiveWarn("video", "timeout", { requestId, polls });
-  throw new Error("fal timeout");
+  const elapsedMs = now() - started;
+  ikealiveWarn("video", "timeout", { requestId, polls, elapsedMs, lastStatus: lastState });
+  throw new Error(`fal timeout after ${elapsedMs}ms (last status: ${lastState})`);
 }
 
 export async function renderStepVideo(
