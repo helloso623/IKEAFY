@@ -676,3 +676,35 @@ test("the shop is a bottom-right editable 3D generator with chat context", () =>
   assert.match(main, /sceneContext/);
   assert.match(main, /scene,/);
 });
+
+test("physics preview is an overlay by Finish that never edits the bodies", () => {
+  // The control sits in the viewport meta bar next to Finish / Find a way.
+  const meta = html.slice(html.indexOf('class="lab-view-meta"'), html.indexOf('class="lab-proj"'));
+  assert.match(meta, /id="physics-btn"/, "the Will it hold? button lives by Finish");
+  assert.match(meta, /id="finish-model"/);
+  assert.match(html, /id="physics-verdict"/, "the status bar carries the verdict");
+
+  // main.js toggles the preview and repaints when the workshop clears it.
+  assert.match(main, /runPhysicsPreview/);
+  assert.match(main, /clearPhysicsPreview/);
+  assert.match(main, /onPhysicsCleared/);
+
+  // The workshop runs the pure analyzer and animates ghost clones only.
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /from "\.\/stability\.js"/);
+  assert.match(workshop, /physicsFx/);
+  assert.match(workshop, /clone\(true\)/, "ghosts are clones, not the editable meshes");
+  assert.doesNotMatch(
+    workshop.slice(workshop.indexOf("Physics preview"), workshop.indexOf("function clearPhysicsPreview")),
+    /geometry\.attributes|setAttribute|needsUpdate/,
+    "the preview never writes into body geometry",
+  );
+
+  // The analyzer stays pure so node:test can drive stable vs unstable builds.
+  const stability = read("client/src/stability.js");
+  assert.doesNotMatch(stability, /["']three["']|from "three/, "stability.js must not need three.js");
+  assert.match(stability, /analyzeStability/);
+  assert.match(stability, /floating/);
+  assert.match(stability, /tip/);
+  assert.match(stability, /joint/);
+});

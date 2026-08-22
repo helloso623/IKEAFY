@@ -1188,6 +1188,49 @@ function unhideAllBodies() {
   hud(count ? `Unhid ${count} ${count === 1 ? "body" : "bodies"}.` : "Nothing is hidden.");
 }
 
+/* Physics preview: overlay ghosts act out whether the build holds or breaks.
+   The editable bodies never move — toggling off just clears the overlay. */
+let physicsOn = false;
+
+function paintPhysics(report) {
+  const btn = $("physics-btn");
+  const verdict = $("physics-verdict");
+  btn?.classList.toggle("on", physicsOn);
+  btn?.classList.toggle("breaks", physicsOn && report?.verdict === "breaks");
+  if (verdict) {
+    verdict.hidden = !physicsOn || !report;
+    verdict.textContent = report ? (report.holds ? "Holds" : "Breaks") : "";
+    verdict.classList.toggle("holds", Boolean(physicsOn && report?.holds));
+    verdict.classList.toggle("breaks", Boolean(physicsOn && report && !report.holds));
+  }
+}
+
+function togglePhysicsPreview() {
+  if (physicsOn) {
+    shop.clearPhysicsPreview?.();
+    physicsOn = false;
+    paintPhysics(null);
+    hud("Physics preview off.");
+    return;
+  }
+  const report = shop.runPhysicsPreview?.();
+  if (!report || !report.pieceCount) {
+    hud("Nothing on the bench to test.");
+    return;
+  }
+  physicsOn = true;
+  paintPhysics(report);
+  hud(report.note);
+}
+
+$("physics-btn")?.addEventListener("click", togglePhysicsPreview);
+
+// Esc inside the workshop and any project sync also clear the ghosts.
+shop.onPhysicsCleared?.(() => {
+  physicsOn = false;
+  paintPhysics(null);
+});
+
 /* Fusion-style numeric scale: a factor, or scale so a measured span becomes
    the typed millimetres. Bottom stays on the bench (y scales with the body). */
 async function scaleSelectedBy(factor) {

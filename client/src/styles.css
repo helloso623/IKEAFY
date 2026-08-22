@@ -2636,6 +2636,29 @@ body.lab-resizing * {
   opacity: 0.65;
 }
 
+/* Physics preview: ghosts answer "will it hold?" without touching the bodies. */
+.lab-tool.lab-physics {
+  margin-right: 0.45rem;
+  border-color: var(--lab-line);
+}
+.lab-tool.lab-physics.on {
+  border-color: #39d98a;
+  background: var(--lab-raised);
+  color: var(--lab-ink);
+}
+.lab-tool.lab-physics.on.breaks {
+  border-color: #ff5340;
+}
+.physics-verdict {
+  font-weight: 700;
+}
+.physics-verdict.holds {
+  color: #39d98a;
+}
+.physics-verdict.breaks {
+  color: #ff5340;
+}
+
 .finish-progress {
   position: absolute;
   z-index: 8;

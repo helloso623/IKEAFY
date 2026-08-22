@@ -594,6 +594,7 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
+            <button type="button" class="lab-tool lab-physics" id="physics-btn" title="Physics preview: ghost overlay shows whether this build holds or breaks — collapse, tip-over, failed joints. The editable bodies stay untouched.">Will it hold?</button>
             <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
@@ -625,6 +626,7 @@
           <span>Grid 10 mm</span>
           <span id="snap-flag">Snap on</span>
           <span>Units mm</span>
+          <span id="physics-verdict" class="physics-verdict" hidden></span>
         </div>
       </div>
 
