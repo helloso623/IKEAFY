@@ -426,6 +426,13 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       note.textContent = "Missing tools: live shop links from Tavily.";
       el.bom.append(note);
     }
+    // Say why a row is a stand-in rather than leaving catalog links unexplained.
+    if (bom.degradedNote) {
+      const why = document.createElement("p");
+      why.className = "hint";
+      why.textContent = bom.degradedNote;
+      el.bom.append(why);
+    }
 
     const group = (label, lines, withShops = false) => {
       const wrap = document.createElement("div");
@@ -454,7 +461,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
             link.target = "_blank";
             link.rel = "noreferrer";
             // Retailer links read as the store's own name — never a bare "Shop" label.
-            link.textContent = offer.store || offer.title || "View";
+            const store = offer.store || offer.title || "View";
+            link.textContent = offer.priceText ? `${store} · ${offer.priceText}` : store;
             list.append(link);
           }
           wrap.append(list);

@@ -27,6 +27,7 @@ import {
   reviewsForGuide,
   scannedObjectGuide,
   searchOfficialProducts,
+  shoppingList,
   shoppingListAsync,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
@@ -55,7 +56,7 @@ import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
 import { FAL_IMAGE_REQUIRED, renderStepImage } from "./lib/image.js";
 import { FAL_SCENE_REQUIRED, MODEL as TRIPO_MODEL, QUEUE as TRIPO_QUEUE, renderStepScene } from "./lib/scene.js";
-import { hasTavily, findIkeaManual } from "./lib/tavily.js";
+import { hasTavily, findIkeaManual, offerCacheSize, describeOfferReason } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import {
@@ -220,6 +221,11 @@ app.get("/api/health", (_req, res) => {
       partner: hasTavily() ? "tavily" : "tavily-standin",
       live: hasTavily(),
       route: "/api/ikeafy/shopping",
+      // Offers are ranked, priced where the snippet says one, and spread
+      // across distinct stores. Failures come back named on `degraded`.
+      ranked: true,
+      cachedQueries: offerCacheSize(),
+      degradedReasons: ["no-key", "auth", "rate-limited", "timeout", "network", "http", "no-results"],
       note: hasTavily()
         ? "Tavily looks up IKEA / Amazon / hardware shops for tools you still need."
         : "Set TAVILY_API_KEY to search for live shop links. IKEAlive does not scrape retailer catalogs.",
@@ -893,7 +899,13 @@ app.post("/api/ikeafy/fix", (req, res) => {
 });
 
 app.get("/api/ikeafy/shopping", async (_req, res) => {
-  res.json(await shoppingListAsync(state.guide));
+  try {
+    res.json(await shoppingListAsync(state.guide));
+  } catch (error) {
+    // The list itself is local, so a lookup blowing up must not 500 the page.
+    ikealiveWarn("tavily", "shopping route error", String(error?.message || error));
+    res.json({ ...shoppingList(state.guide), degraded: "network", degradedNote: describeOfferReason("network") });
+  }
 });
 
 app.get("/api/agents", (_req, res) => {
