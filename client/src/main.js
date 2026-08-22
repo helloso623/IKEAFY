@@ -562,8 +562,8 @@ async function boot() {
   setMode("ikeafy");
   hud(
     health.video?.live
-      ? "Studio ready — step films render through Veed Fabric on fal.ai."
-      : "Studio ready — official IKEA steps, one plate at a time. Films play as a local storyboard.",
+      ? "Drop an IKEA PDF — Veed Fabric will build the reel."
+      : "Drop an IKEA PDF — the reel plays as a local storyboard until FAL_KEY is set.",
   );
 }
 
