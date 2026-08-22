@@ -110,7 +110,7 @@ export async function startAssemblyAsync({
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
   let text = String(rawGuide || "");
-  if (!plates.length && pdfBase64) {
+  if (pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
     text = [extracted, text].filter(Boolean).join("\n\n");
   }
@@ -119,7 +119,7 @@ export async function startAssemblyAsync({
     return {
       ok: false,
       reason: plates.length
-        ? "Could not read those PDF plates into steps. Check the OpenAI key — IKEA manuals are drawings, not plain text."
+        ? guide?.parseError || "OpenAI could not read those PDF plates into assembly steps."
         : "That guide has no steps. Drop a PDF or paste a numbered guide.",
     };
   }

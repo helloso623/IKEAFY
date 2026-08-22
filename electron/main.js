@@ -124,8 +124,8 @@ export async function clientUrl() {
 }
 
 function attachRendererLogs(win) {
-  win.webContents.on("console-message", (event, level, message) => {
-    const text = rendererConsoleText(event, level, message);
+  win.webContents.on("console-message", (event) => {
+    const text = rendererConsoleText(event);
     if (!text) return;
     process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
   });
