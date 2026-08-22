@@ -1304,7 +1304,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
   window.addEventListener("resize", () => {
     const app = $("app");
     if (app?.dataset.mode !== "lab") return;
-    if (app.dataset.lab !== "ar" && app.dataset.lab !== "house") return;
+    if (app.dataset.lab !== "house") return;
     if (view3d && three?.built) sizeScene();
     else draw(lastPlan);
   });
