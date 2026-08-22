@@ -192,3 +192,22 @@ test("empty inspect is quiet — no ports, no Arduino", () => {
   assert.match(main, /EMPTY_INSPECT|showEmptyInspect/, "main.js must restore the empty inspect");
   assert.match(main, /syncDeleteButton/, "delete should track whether a piece is selected");
 });
+
+test("Lab chrome is a CAD browser, viewport, and inspector", () => {
+  assert.match(html, /class="[^"]*lab-browser/, "left pane is the Fusion-style browser");
+  assert.match(html, /class="[^"]*lab-viewport/, "center pane is the CAD viewport");
+  assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
+  assert.match(html, /Catalog/);
+  assert.match(html, /Bodies/);
+  assert.match(html, /Parameters/);
+  assert.match(html, /Functions/);
+  assert.match(html, /Nets/);
+  const css = read("client/src/styles.css");
+  assert.match(css, /\.lab-browser/);
+  assert.match(css, /\.lab-viewport/);
+  assert.match(css, /\.lab-inspector/);
+  assert.match(css, /\.studio-side > \.watch \{/, "Finley watch cards keep their own chrome");
+  assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
+  assert.match(html, /class="panel watch bom"/);
+  assert.match(html, /class="studio-side"/);
+});
