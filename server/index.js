@@ -25,6 +25,7 @@ import {
   parseGuide,
   parseGuideAsync,
   reviewsForGuide,
+  scenePlanForStep,
   searchOfficialProducts,
   shoppingListAsync,
   verifyOfficialGuide,
@@ -368,10 +369,26 @@ app.post("/api/ikeafy/render", (req, res) => {
     const updated = setAssemblyRenderMode(runId, mode);
     if (!updated.ok) ikealiveWarn("render", "run missing", { runId, mode });
   }
+  if (mode === "scene") {
+    const stored = runId ? getAssembly(runId) : null;
+    const guide = stored?.guide || guideForVideo(body);
+    const stepNumber = Number(body.stepNumber ?? stored?.cursor ?? 1);
+    const plan = scenePlanForStep(guide, stepNumber);
+    ikealiveLog("3d", "step", { step: plan.number, parts: plan.parts, camera: plan.camera });
+    return res.json({
+      ok: true,
+      mode,
+      renderMode: mode,
+      implemented: true,
+      engine: "workshop",
+      plan,
+      reason: null,
+    });
+  }
   if (mode === "video" || mode === "images") {
     return res.json({ ok: true, mode, renderMode: mode, implemented: true, reason: null });
   }
-  const reason = "3D engine instructions are not implemented yet.";
+  const reason = "Unknown instruction render mode.";
   ikealiveLog("render", "unimplemented", { mode, reason });
   res.json({ ok: true, mode, renderMode: mode, implemented: false, reason });
 });
@@ -393,10 +410,24 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
     renderMode,
   });
   if (renderMode !== "video") {
+    if (renderMode === "scene") {
+      const plan = scenePlanForStep(guide, stepNumber);
+      ikealiveLog("3d", "step", { step: plan.number, parts: plan.parts, camera: plan.camera });
+      return res.json({
+        ok: true,
+        implemented: true,
+        mode: renderMode,
+        renderMode,
+        engine: "workshop",
+        stepNumber,
+        videoUrl: null,
+        plan,
+      });
+    }
     const reason =
       renderMode === "images"
         ? "Image mode uses Flux Schnell stills, not Seedance."
-        : "3D engine instructions are not implemented yet.";
+        : "3D instructions use the workshop engine, not Seedance.";
     ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
     return res.json({
       ok: true,
@@ -451,10 +482,24 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
     renderMode,
   });
   if (renderMode !== "video") {
+    if (renderMode === "scene") {
+      const steps = (guide?.steps || []).map((step) => scenePlanForStep(guide, step.number));
+      ikealiveLog("3d", "reel", { steps: steps.length, parts: steps[0]?.parts || [] });
+      return res.json({
+        ok: true,
+        implemented: true,
+        mode: renderMode,
+        renderMode,
+        engine: "workshop",
+        reel: true,
+        videoUrl: null,
+        steps,
+      });
+    }
     const reason =
       renderMode === "images"
         ? "Image mode uses Flux Schnell stills, not Seedance."
-        : "3D engine instructions are not implemented yet.";
+        : "3D instructions use the workshop engine, not Seedance.";
     ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
     return res.json({
       ok: true,
@@ -532,10 +577,24 @@ app.post("/api/ikeafy/image/render", async (req, res) => {
     renderMode,
   });
   if (renderMode !== "images") {
+    if (renderMode === "scene") {
+      const plan = scenePlanForStep(guide, stepNumber);
+      ikealiveLog("3d", "step", { step: plan.number, parts: plan.parts, camera: plan.camera });
+      return res.json({
+        ok: true,
+        implemented: true,
+        mode: renderMode,
+        renderMode,
+        engine: "workshop",
+        stepNumber,
+        imageUrl: null,
+        plan,
+      });
+    }
     const reason =
       renderMode === "video"
         ? "Video mode uses Seedance films, not Flux stills."
-        : "3D engine instructions are not implemented yet.";
+        : "3D instructions use the workshop engine, not Flux stills.";
     ikealiveLog("image", "image route skipped", { mode: renderMode, reason });
     return res.json({
       ok: true,

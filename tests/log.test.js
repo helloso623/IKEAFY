@@ -63,6 +63,7 @@ test("server stdout uses ikealive video parse tavily assembly render and image p
   assert.match(index, /ikealiveLog\("assembly"/);
   assert.match(index, /ikealiveLog\("render"/);
   assert.match(index, /ikealiveLog\("image"/);
+  assert.match(index, /ikealiveLog\("3d"/);
   assert.match(index, /keyed:\s*hasFal\(\)/);
   assert.doesNotMatch(index, /process\.env\.FAL_KEY/);
 });

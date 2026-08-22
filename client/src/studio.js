@@ -14,6 +14,7 @@ const FAL_REQUIRED =
 const FAL_IMAGE_REQUIRED =
   "Set FAL_KEY for Flux Schnell instruction stills. Image mode is a live plate, not a canvas table drawing.";
 const STILL_MS = 4000;
+const SCENE_FRAME_MS = 1100;
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -21,7 +22,7 @@ function text(value) {
   return value == null ? "" : String(value);
 }
 
-export function initStudio({ api, hud = () => {} } = {}) {
+export function initStudio({ api, hud = () => {}, shop = null, getParts = () => ({}), restoreShop = null } = {}) {
   if (!api) throw new Error("initStudio requires an api client");
 
   const el = {
@@ -229,7 +230,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
         }
         return state.run;
       }
-      const reason = "3D engine instructions are not implemented yet.";
+      if (mode === "scene") {
+        announce("Playing 3D instructions on the workshop.");
+        await bootScene();
+        return state.run;
+      }
+      const reason = posted?.reason || "Unknown instruction render mode.";
       hideVideo();
       showFilmStatus(reason);
       announce(reason);
@@ -656,6 +662,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
     hideVideo();
     el.film?.classList.add("hidden");
+    restoreShop?.();
     renderTransport();
     try {
       localStorage.removeItem(CUSTOM_SESSION_KEY);
@@ -985,14 +992,71 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   function clipsFromOutline() {
-    const images = normalizeRenderMode(state.renderMode) === "images";
+    const mode = normalizeRenderMode(state.renderMode);
+    const provider = mode === "images" ? "flux-schnell" : mode === "scene" ? "workshop" : "seedance-2.5";
     return (state.outline || []).map((item) => ({
       number: item.number,
       frames: [],
       videoUrl: null,
       imageUrl: null,
-      provider: images ? "flux-schnell" : "seedance-2.5",
+      parts: item.partsUsed || [],
+      provider,
     }));
+  }
+
+  function isSceneMode() {
+    return normalizeRenderMode(state.renderMode || state.run?.renderMode) === "scene";
+  }
+
+  function sceneCamera(frameIndex) {
+    const i = Math.max(0, Number(frameIndex) || 0);
+    return { az: 35 + i * 12, el: 28 - i * 2, zoom: 1.1 - i * 0.05 };
+  }
+
+  function sceneParts(clip) {
+    const outline = state.outline.find((item) => item.number === clip?.number);
+    const ids = outline?.partsUsed || clip?.parts || state.step?.partsUsed || [];
+    return [...new Set(ids.filter(Boolean))];
+  }
+
+  function showScene(clip, { play = false } = {}) {
+    const parts = sceneParts(clip);
+    const camera = sceneCamera(state.frameIndex);
+    const explode = state.frameIndex * 0.08;
+    ikealiveLog("3d", "step", { step: clip.number, parts, camera });
+    if (shop?.illustrate) {
+      shop.illustrate({ parts, camera, explode, partsById: getParts() || {} });
+    }
+    shop?.resize?.();
+    if (!play) return;
+    state.timer = setTimeout(() => {
+      if (!state.playingOn) return;
+      if (state.frameIndex < 3) {
+        state.frameIndex += 1;
+        showScene(clip, { play: true });
+      } else {
+        finishClip();
+      }
+    }, SCENE_FRAME_MS);
+  }
+
+  async function bootScene() {
+    if (!state.run) return;
+    stopPlayback();
+    hideVideo();
+    el.film?.classList.remove("hidden");
+    state.reel = clipsFromOutline();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
+    state.frameIndex = 0;
+    renderSteps();
+    renderTransport();
+    showFilmStatus("");
+    showClip(state.clipIndex, { play: true, restart: true });
+    shop?.resize?.();
   }
 
   async function falIsLive() {
@@ -1228,6 +1292,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
         action: outline.action,
         body: outline.body || clipCaption(clip),
         toolRequired: outline.toolRequired,
+        partsUsed: outline.partsUsed || [],
       };
     }
     setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
@@ -1235,6 +1300,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
     renderTransport();
 
     const images = normalizeRenderMode(state.renderMode) === "images";
+    if (isSceneMode()) {
+      hideVideo();
+      showFilmStatus("");
+      showScene(clip, { play });
+      return;
+    }
     if (images) {
       if (clip.imageUrl && showStill(clip.imageUrl, { number: clip.number })) {
         if (play) {
@@ -1640,7 +1711,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     requestFittings,
     clearCustomSession,
     replay() {
-      return normalizeRenderMode(state.renderMode) === "images" ? bootImageReel() : bootReel();
+      const mode = normalizeRenderMode(state.renderMode);
+      if (mode === "images") return bootImageReel();
+      if (mode === "scene") return bootScene();
+      return bootReel();
     },
     destroy() {
       state.destroyed = true;

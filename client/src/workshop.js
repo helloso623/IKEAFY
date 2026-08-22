@@ -2245,6 +2245,73 @@ export function createWorkshop(canvas) {
     });
   }
 
+  function expandSceneParts(ids, catalog) {
+    const out = [];
+    for (const id of ids || []) {
+      const part = catalog[id];
+      if (part?.kitParts?.length) out.push(...part.kitParts);
+      else if (id) out.push(id);
+    }
+    return out;
+  }
+
+  function layoutScenePieces(ids, catalog) {
+    const pieces = [];
+    const corners = [
+      [-0.23, -0.23],
+      [0.23, -0.23],
+      [-0.23, 0.23],
+      [0.23, 0.23],
+    ];
+    let legs = 0;
+    let extras = 0;
+    expandSceneParts(ids, catalog).forEach((id, i) => {
+      const part = catalog[id];
+      if (!part) return;
+      const y = ((part.dimsMm?.z || 40) * MM) / 2;
+      let x = 0;
+      let z = 0;
+      if (isTableTop(part)) {
+        x = 0;
+        z = 0;
+      } else if (isTableLeg(part)) {
+        const slot = corners[legs % 4];
+        x = slot[0];
+        z = slot[1];
+        legs += 1;
+      } else {
+        x = 0.38 + (extras % 3) * 0.14;
+        z = (Math.floor(extras / 3) - 0.5) * 0.14;
+        extras += 1;
+      }
+      pieces.push({
+        id: `scene-${i + 1}`,
+        partId: id,
+        x,
+        y,
+        z,
+        rx: 0,
+        ry: 0,
+        rz: 0,
+        sx: 1,
+        sy: 1,
+        sz: 1,
+      });
+    });
+    return pieces;
+  }
+
+  function illustrate({ parts = [], camera: cam = {}, explode: amount = 0, partsById } = {}) {
+    const catalog = partsById && Object.keys(partsById).length ? partsById : knownParts;
+    const pieces = layoutScenePieces(parts, catalog);
+    sync({ pieces, cables: [], tapes: [], joints: [] }, catalog);
+    const camera = { az: cam.az ?? 42, el: cam.el ?? 28, zoom: cam.zoom ?? 1 };
+    setCamera(camera);
+    if (amount) explode(amount);
+    resize();
+    return { parts: pieces.map((piece) => piece.partId), camera };
+  }
+
   function setLed(on) {
     // Emission only draws in material shading — same rule as Blender's solid view.
     if (lookOn || shading !== "material") return;
@@ -2392,6 +2459,7 @@ export function createWorkshop(canvas) {
     sync,
     setSim,
     setCamera,
+    illustrate,
     setShading,
     getShading: () => shading,
     setLook,

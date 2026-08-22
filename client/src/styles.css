@@ -1065,6 +1065,27 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   opacity: 0;
   pointer-events: none;
 }
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] #view,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #view {
+  position: relative;
+  inset: auto;
+  opacity: 1;
+  pointer-events: auto;
+  flex: 1 1 auto;
+  min-height: 280px;
+  height: auto;
+  border-radius: 22px;
+}
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] .film-stage,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film-stage,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] #film-video,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #film-video {
+  display: none;
+}
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] .film,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film {
+  flex: 0 0 auto;
+}
 #app.mode-ikeafy[data-interface="watch"] .film {
   position: relative;
   inset: auto;

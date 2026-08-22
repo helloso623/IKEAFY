@@ -163,6 +163,36 @@ test("image instructions render Flux Schnell stills in the film stage", () => {
   assert.doesNotMatch(startChosen, /Image instructions are not implemented yet/);
 });
 
+test("3D instructions play on the workshop engine without Seedance", () => {
+  const workshop = read("client/src/workshop.js");
+  const css = read("client/src/styles.css");
+  const index = read("server/index.js");
+  const startChosen = studio.slice(studio.indexOf("async function startChosenRender"), studio.indexOf("function setMode"));
+  const bootScene = studio.slice(studio.indexOf("async function bootScene"), studio.indexOf("async function falIsLive"));
+  const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
+
+  assert.match(startChosen, /mode === "scene"/);
+  assert.match(startChosen, /bootScene/);
+  assert.doesNotMatch(startChosen, /3D engine instructions are not implemented yet/);
+  assert.match(bootScene, /clipsFromOutline/);
+  assert.doesNotMatch(bootScene, /renderClipVideo|renderVideo|falIsLive/);
+  assert.match(showClip, /isSceneMode/);
+  assert.match(showClip, /showScene/);
+  assert.match(studio, /ikealiveLog\("3d"/);
+  assert.match(studio, /shop\?\.illustrate/);
+  assert.match(studio, /SCENE_FRAME_MS/);
+  assert.match(main, /initStudio\(\{[\s\S]*?shop/);
+  assert.match(workshop, /function illustrate/);
+  assert.match(workshop, /layoutScenePieces/);
+  assert.match(workshop, /setCamera/);
+  assert.match(css, /data-render-mode="scene"\] #view/);
+  assert.match(css, /opacity:\s*1/);
+  assert.match(index, /ikealiveLog\("3d"/);
+  assert.match(index, /scenePlanForStep/);
+  assert.match(index, /engine: "workshop"/);
+  assert.doesNotMatch(index, /3D engine instructions are not implemented yet/);
+});
+
 test("upload offers video, image, and 3D instruction controls before Seedance", () => {
   for (const id of ["render-modes", "render-mode-video", "render-mode-images", "render-mode-scene"]) {
     assert.ok(markupIds.has(id), `upload markup is missing #${id}`);
