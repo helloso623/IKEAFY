@@ -420,6 +420,11 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
 });
 
+test("retail links never fall back to a bare Shop label", () => {
+  assert.doesNotMatch(studio, /\|\|\s*"Shop"/, "unnamed retailers read as View, not Shop");
+  assert.doesNotMatch(html, />\s*Shop\s*</);
+});
+
 test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /applyShopActions/);
   assert.match(main, /api\.add\(/);
