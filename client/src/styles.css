@@ -882,6 +882,20 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   outline-offset: 3px;
   background: #fff;
 }
+.upload-or {
+  margin: 0.15rem 0 0.85rem;
+  color: var(--faint);
+  font-size: 0.82rem;
+  text-align: center;
+}
+.product-lookup { margin: 0 0 1.1rem; }
+.product-lookup .hint { margin: 0.45rem 0 0; }
+.product-lookup-row { margin: 0; align-items: stretch; }
+.product-lookup-row input { flex: 1 1 auto; }
+.product-lookup-row button {
+  flex: 0 0 auto;
+  padding: 0.55rem 1rem;
+}
 .upload-progress:not(:empty) {
   margin: 0.85rem 0 0;
   min-height: 1.4rem;

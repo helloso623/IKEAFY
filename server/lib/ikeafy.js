@@ -447,12 +447,17 @@ export async function parseGuideAsync(
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
   if (plates.length) {
+    console.log("[ikealive:parse]", "vision plates", { count: plates.length });
     try {
       const hosted = await extractGuideWithOpenAI(
         { raw, images: plates, instructions, availableTools },
         deps,
       );
-      if (hosted?.steps?.length) return hosted;
+      if (hosted?.steps?.length) {
+        console.log("[ikealive:parse]", "vision ok", { title: hosted.title, steps: hosted.steps.length });
+        return hosted;
+      }
+      console.warn("[ikealive:parse]", "vision returned no steps");
     } catch {
       // Fall through to an empty guide — never leak the key, never parse plates as text.
     }

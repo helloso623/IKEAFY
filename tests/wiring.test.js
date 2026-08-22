@@ -87,7 +87,9 @@ test("the css does not hide the custom notes while the studio is open", () => {
 });
 
 test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
-  assert.match(html, /id="pdf-upload"/);
+  assert.match(html, /id="product-name"/);
+  assert.match(html, /id="product-lookup"/);
+  assert.match(studio, /lookupManual|fetchNamedManual/);
   assert.match(html, /id="upload-form"/);
   assert.match(html, /Get the Reel/);
   assert.match(html, /New manual/);

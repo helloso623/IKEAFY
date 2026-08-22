@@ -78,6 +78,16 @@
               <em id="pdf-name" class="upload-file"></em>
             </label>
 
+            <p class="upload-or">or type the product name</p>
+            <div class="product-lookup">
+              <label class="picker-label" for="product-name">IKEA product name</label>
+              <div class="row product-lookup-row">
+                <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
+                <button type="button" id="product-lookup">Find the PDF</button>
+              </div>
+              <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
+            </div>
+
             <div id="custom-source" class="custom-parse">
               <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
               <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
@@ -98,7 +108,7 @@
                   <path d="M16 9v10M11 14l5 5 5-5M10 23h12" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </span>
-              <span><strong>Upload</strong> the IKEA instructions PDF</span>
+              <span><strong>Upload</strong> the IKEA instructions PDF, or type the product name</span>
             </li>
             <li>
               <span class="process-icon" aria-hidden="true">

@@ -52,6 +52,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     pdf: first("#pdf-upload"),
     pdfName: first("#pdf-name"),
     pdfDrop: first("#pdf-drop", ".upload-drop"),
+    productName: first("#product-name"),
+    productLookup: first("#product-lookup"),
     uploadForm: first("#upload-form"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
@@ -157,6 +159,63 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   function showPdfName(file) {
     if (el.pdfName) el.pdfName.textContent = file?.name || "";
+  }
+
+  function fileFromPdfBase64(base64, filename) {
+    const binary = atob(String(base64 || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], filename || "ikea-manual.pdf", { type: "application/pdf" });
+  }
+
+  function attachPdfFile(file) {
+    if (!file || !el.pdf) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    el.pdf.files = transfer.files;
+    showPdfName(file);
+  }
+
+  async function fetchNamedManual() {
+    if (!api.lookupManual) return null;
+    const name = String(el.productName?.value || "").trim();
+    if (!name) {
+      announce("Type an IKEA product name.");
+      return null;
+    }
+    announce(`Looking up “${name}” with Tavily…`);
+    console.log("[ikealive:tavily]", "lookup", { productName: name });
+    const found = await api.lookupManual(name);
+    if (!found?.ok || !found.pdfBase64) {
+      console.log("[ikealive:tavily]", "no pdf", {
+        partner: found?.partner || null,
+        catalog: (found?.catalog || []).map((row) => row.id),
+        reason: found?.reason || null,
+      });
+      announce(found?.reason || "Could not find that manual.");
+      return null;
+    }
+    const file = fileFromPdfBase64(found.pdfBase64, found.filename);
+    attachPdfFile(file);
+    console.log("[ikealive:tavily]", "pdf attached", {
+      filename: file.name,
+      bytes: found.bytes || file.size,
+      url: found.pdfUrl || null,
+    });
+    announce(`Found ${file.name}. Reading the plates…`);
+    return file;
+  }
+
+  async function lookupProductManual() {
+    if (state.submitting) return null;
+    try {
+      const file = await fetchNamedManual();
+      if (!file) return null;
+      return parseCustom();
+    } catch (error) {
+      console.warn("[ikealive:tavily]", "lookup failed", error?.message || error);
+      return fail(error);
+    }
   }
 
   async function fillProducts() {
@@ -394,7 +453,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     setBusy(true);
     try {
       setMode("custom");
-      const file = el.pdf?.files?.[0] || null;
+      let file = el.pdf?.files?.[0] || null;
+      if (!file && String(el.productName?.value || "").trim()) {
+        file = await fetchNamedManual();
+      }
       let images = [];
       if (file) {
         showPdfName(file);
@@ -421,7 +483,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
         }
       }
       if (!images.length) {
-        announce("Drop a PDF first.");
+        announce("Drop a PDF or type an IKEA product name first.");
         return null;
       }
       announce("Reading the plates with vision…");
@@ -1225,10 +1287,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Drop a PDF, then get the reel.");
+    announce("Drop a PDF or type a product name, then get the reel.");
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
+  listen(el.productLookup, "click", lookupProductManual);
   listen(el.pdf, "change", () => {
     const file = el.pdf?.files?.[0] || null;
     showPdfName(file);
@@ -1254,6 +1317,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   });
   listen(el.clear, "click", () => {
     if (el.pdf) el.pdf.value = "";
+    if (el.productName) el.productName.value = "";
     showPdfName(null);
     clearCustomSession();
     setInterface("upload");
@@ -1286,6 +1350,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     setInterface,
     startOfficial,
     parseCustom,
+    lookupProductManual,
     nextStep,
     backStep,
     skipStep,
