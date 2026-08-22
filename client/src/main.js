@@ -562,8 +562,8 @@ async function boot() {
   setMode("ikeafy");
   hud(
     health.video?.live
-      ? "Drop an IKEA PDF — Veed Fabric will build the reel."
-      : "Drop an IKEA PDF — the reel plays as a local storyboard until FAL_KEY is set.",
+      ? "Drop an IKEA PDF — Seedance 2.5 will build the reel."
+      : "Drop an IKEA PDF. Set FAL_KEY for Seedance 2.5 films — the reel is a live MP4, not a table drawing.",
   );
 }
 
