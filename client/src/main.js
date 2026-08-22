@@ -517,6 +517,16 @@ function labScenePayload() {
         partId: piece.partId,
         dimsMm: part?.dimsMm || null,
         reconstructed: Boolean(piece.reconstructed),
+        generated: Boolean(piece.generated),
+        x: Number(piece.x) || 0,
+        y: Number(piece.y) || 0,
+        z: Number(piece.z) || 0,
+        rx: Number(piece.rx) || 0,
+        ry: Number(piece.ry) || 0,
+        rz: Number(piece.rz) || 0,
+        sx: Number(piece.sx) || 1,
+        sy: Number(piece.sy) || 1,
+        sz: Number(piece.sz) || 1,
       }
     : null;
   return {
@@ -577,6 +587,11 @@ async function applyShopActions(actions) {
       }
       const id = action.id || selectedPieceId();
       if (!id) continue;
+      if (shop.updateReconstructedPose?.({ id, ...action })) {
+        const record = shop.getReconstructed?.().find((entry) => entry.piece.id === id);
+        if (record?.piece) added.push(record.piece);
+        continue;
+      }
       const result = await api.move({
         id,
         x: action.x,
@@ -805,6 +820,13 @@ function syncMaterialPanel() {
   }
   const roughOut = $("mat-rough-out");
   if (roughOut) roughOut.textContent = ((Number(rough?.value) || 0) / 100).toFixed(2);
+  const metal = $("mat-metal");
+  if (metal) {
+    metal.disabled = disabled;
+    if (current) metal.value = String(Math.round((current.metalness ?? 0.05) * 100));
+  }
+  const metalOut = $("mat-metal-out");
+  if (metalOut) metalOut.textContent = ((Number(metal?.value) || 0) / 100).toFixed(2);
   for (const btn of document.querySelectorAll("[data-mat-color]")) btn.disabled = disabled;
   for (const btn of document.querySelectorAll("[data-mat-finish]")) {
     btn.disabled = disabled || Boolean(picked?.piece.reconstructed);
@@ -827,8 +849,8 @@ async function applyMaterial(patch) {
   const picked = selectedPiece();
   if (!picked?.piece) return hud("Pick a piece, then set its material.");
   const id = picked.piece.id;
-  if (patch.roughness != null || patch.color) {
-    shop.setPieceMaterial?.(id, { roughness: patch.roughness, color: patch.color });
+  if (patch.roughness != null || patch.metalness != null || patch.color) {
+    shop.setPieceMaterial?.(id, { roughness: patch.roughness, metalness: patch.metalness, color: patch.color });
   }
   if (!picked.piece.reconstructed && (patch.color || patch.texture) && patch.persist !== false) {
     const result = await api.move({ id, color: patch.color, texture: patch.texture, snap: false });
@@ -855,6 +877,12 @@ $("mat-rough")?.addEventListener("input", (ev) => {
   const out = $("mat-rough-out");
   if (out) out.textContent = roughness.toFixed(2);
   applyMaterial({ roughness });
+});
+$("mat-metal")?.addEventListener("input", (ev) => {
+  const metalness = Math.min(1, Math.max(0, Number(ev.target.value) / 100));
+  const out = $("mat-metal-out");
+  if (out) out.textContent = metalness.toFixed(2);
+  applyMaterial({ metalness });
 });
 $("mat-swatches")?.addEventListener("click", (ev) => {
   const hex = ev.target.closest("[data-mat-color]")?.dataset.matColor;
