@@ -165,9 +165,9 @@
         <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
-        <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
-        <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
-        <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
+        <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
+        <div id="viewport-strip" class="viewport-strip hidden" aria-hidden="true"></div>
+        <div id="vs-out" class="vs-out hidden" aria-live="polite"></div>
         <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
         <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
         <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
@@ -520,12 +520,12 @@
       <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Parameters · Functions</strong>
+          <strong class="lab-pane-title">Materials</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Parameters</summary>
+            <summary class="lab-sheet-sum">Selection</summary>
             <div class="lab-sheet-body">
               <div class="lab-param-grid">
                 <span class="lab-param-key">Selection</span>
@@ -559,21 +559,6 @@
                 <button type="button" data-mat-finish="metal" title="Brushed metal" disabled>Metal</button>
               </div>
               <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
-            </div>
-          </details>
-          <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Functions</summary>
-            <div class="lab-sheet-body">
-              <div id="lab-strip" class="lab-strip">
-                <p class="hint lab-hint" id="fn-hint">Assign a job on the selected piece.</p>
-                <div class="row wrap" id="fn-btns">
-                  <button type="button" data-fn="support">Support</button>
-                  <button type="button" data-fn="light">Light</button>
-                  <button type="button" data-fn="sense">Sense</button>
-                  <button type="button" data-fn="control">Control</button>
-                  <button type="button" data-fn="decorate">Decorate</button>
-                </div>
-              </div>
             </div>
           </details>
         </div>

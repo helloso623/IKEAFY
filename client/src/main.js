@@ -81,12 +81,6 @@ function syncEditButtons() {
   if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
 }
 
-function money(n) {
-  const value = Number(n);
-  if (!Number.isFinite(value)) return "";
-  return `$${value % 1 ? value.toFixed(2) : value}`;
-}
-
 function sizePlain(part) {
   const d = part?.dimsMm;
   if (!d) return "";

@@ -397,6 +397,13 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
 test("the removed function and simulation strips stay out of the Lab", () => {
   assert.doesNotMatch(html, /id="lab-strip"|id="fn-btns"|data-fn=/);
   assert.doesNotMatch(lab, /simRun|data-sim|Run sim/);
+  assert.doesNotMatch(main, /shopLine|part\.store|Job: \$\{piece/);
+  assert.match(html, /data-watch-card="bom"/);
+  assert.match(html, /data-watch-card="reviews"/);
+  assert.match(html, /data-watch-card="broken"/);
+  assert.match(html, /data-watch-card="spare"/);
+  assert.match(html, /id="broken-btn"/);
+  assert.match(html, /id="bom"/);
 });
 
 test("the workshop is the app — no leftover Next store", () => {

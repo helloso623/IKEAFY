@@ -495,30 +495,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 
 /* ----------------------------------------------------------- details folds */
 
-.lab-strip { margin-top: 0.75rem; }
-.lab-strip > .hint { margin: 0 0 0.35rem; }
-#fn-btns button { padding: 0.4rem 0.75rem; font-size: 0.82rem; }
-#fn-btns button:disabled { opacity: 0.4; }
-#sim-behavior { width: 100%; }
-.more-tools { margin: 0.65rem 0 0; color: var(--soft); font-size: 0.85rem; }
-.more-tools summary {
-  cursor: pointer;
-  list-style: none;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--soft);
-}
-.more-tools summary:hover { color: var(--ink); }
-.more-tools summary::-webkit-details-marker { display: none; }
-.more-tools summary::after { content: " ▾"; color: var(--faint); }
-.more-tools[open] summary { margin-bottom: 0.5rem; }
-.more-tools .row label {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  font-size: 0.85rem;
-}
-
 /* -------------------------------------------------------------------- chat */
 
 .chat { margin-top: auto; }
