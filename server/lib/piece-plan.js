@@ -778,7 +778,7 @@ export function pieceBomForProject(project = {}, options = {}) {
   return {
     ok: true,
     name: String(project.name || components[0]?.name || "Custom object").trim() || "Custom object",
-    scope: "Construction ways, geometry-derived furniture pieces, boards, and connection hardware for this exact modeled shape",
+    scope: "Construction ways, cut stock, shaped pieces, and visible bodies for this exact modeled shape",
     components,
     modelDimensionsMm: dimensions,
     modelSignature: modelSignature(components),

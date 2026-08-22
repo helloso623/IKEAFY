@@ -156,16 +156,6 @@
                 </div>
               </div>
 
-              <div id="custom-source" class="custom-parse">
-                <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
-                <div class="row product-lookup-row">
-                  <span class="field-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-7.4 7.4a2 2 0 0 1-1 .55l-3 .65.65-3a2 2 0 0 1 .55-1l7.2-7.6Z" stroke="#8a8378" stroke-width="1.4" stroke-linejoin="round" /></svg>
-                  </span>
-                  <input id="guide-notes" placeholder="Allen key, screwdriver…" />
-                </div>
-              </div>
-
               <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
                 <p class="render-modes-label">How should we show the steps?</p>
                 <div class="row render-mode-picks">
@@ -435,7 +425,7 @@
               <div class="scan-phone" id="scan-phone">
                 <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
                 <div id="scan-phone-card" class="scan-phone-card hidden">
-                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
+                  <p class="hint lab-hint">The copy field features a Tailscale HTTPS link when available and keeps a same‑Wi‑Fi LAN fallback. Scan the QR or copy the URL, then record up to 30s walking the room.</p>
                   <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
                   <div class="scan-phone-copy-row">
                     <input id="scan-phone-url" class="scan-phone-url" type="url" readonly value="" aria-label="Phone upload URL" placeholder="Waiting for a phone link…" />
@@ -607,7 +597,7 @@
           </div>
           <div class="lab-view-meta">
             <button type="button" class="lab-tool lab-physics" id="physics-btn" title="Physics preview: ghost overlay shows whether this build holds or breaks — collapse, tip-over, failed joints. The editable bodies stay untouched.">Will it hold?</button>
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, search boards and connection hardware, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, source its pieces and stock, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -693,9 +683,9 @@
             </div>
           </details>
           <details class="lab-sheet" id="diy-build-sheet">
-            <summary class="lab-sheet-sum">Ways-to-make history</summary>
+            <summary class="lab-sheet-sum">Piece-plan history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, searches boards and connection hardware, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
+              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, sources pieces and stock, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>

@@ -995,6 +995,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     const qr = $("scan-phone-qr");
     const url = preferredPhoneUrl(lan);
     const lanUrl = lanFallbackUrl(lan, url);
+    const usingTailscale = Boolean(lan?.tailscaleUrl && url === lan.tailscaleUrl);
     if (link) {
       link.value = url;
       link.placeholder = url
@@ -1003,14 +1004,14 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     }
     if (fallback) {
       fallback.classList.toggle("hidden", !lanUrl);
-      fallback.textContent = lanUrl ? `Alternate LAN link: ${lanUrl}` : "";
+      fallback.textContent = lanUrl ? `LAN fallback: ${lanUrl}` : "";
       if (lanUrl) fallback.href = lanUrl;
       else fallback.removeAttribute("href");
     }
     if (qr) qr.innerHTML = url ? qrSvg(url) : "";
     if (note && !lastRoomVideoId) {
       note.textContent = url
-        ? "LAN link ready. Scan the QR or copy the URL, record ~30s, then send."
+        ? `${usingTailscale ? "Tailscale HTTPS" : "LAN"} link ready. Scan the QR or copy the URL, record ~30s, then send.`
         : "No phone address yet — join the same Wi-Fi as this computer.";
     }
   }

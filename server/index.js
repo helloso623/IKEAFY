@@ -84,8 +84,11 @@ import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior }
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
+import { PLATE_VISION_ENDPOINT, PLATE_VISION_MODEL } from "./lib/plate-vision.js";
+import { logGliner2Configuration } from "./lib/gliner2.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import { finishFurnitureBuild } from "./lib/build-plan.js";
+import { runtimeBuild } from "../runtime-build.js";
 import {
   addCable,
   addJoint,
@@ -117,7 +120,10 @@ import {
 } from "./lib/project.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-loadDotEnv(path.join(__dirname, "..", ".env"));
+const ROOT = path.join(__dirname, "..");
+loadDotEnv(path.join(ROOT, ".env"));
+const SERVER_STARTED_AT = new Date().toISOString();
+const SERVER_BUILD = runtimeBuild(ROOT);
 
 const VIDEO_PARTNERS = {
   seedance: {
@@ -214,6 +220,12 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     name: "IKEAlive",
+    build: {
+      ...SERVER_BUILD,
+      pid: process.pid,
+      port: Number(process.env.PORT || 8787),
+      startedAt: SERVER_STARTED_AT,
+    },
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
     video: {
@@ -239,6 +251,12 @@ app.get("/api/health", (_req, res) => {
     render: {
       route: "/api/ikeafy/render",
       modes: ["video", "images", "scene"],
+    },
+    plateVision: {
+      live: hasFal(),
+      endpoint: PLATE_VISION_ENDPOINT,
+      model: PLATE_VISION_MODEL,
+      normalizer: "fastino/gliner2-base-v1",
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -369,11 +387,18 @@ app.post("/api/ikeafy/parse", async (req, res) => {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
-  const guide = await parseGuideAsync(raw, {
-    instructions: req.body?.instructions || "",
-    availableTools: req.body?.availableTools || [],
-    images,
-  });
+  const guide = await parseGuideAsync(
+    raw,
+    {
+      instructions: req.body?.instructions || "",
+      availableTools: req.body?.availableTools || [],
+      images,
+    },
+    {
+      requestId: req.body?.requestId || null,
+      requireGliner: Boolean(req.body?.pdfBase64 || hasPlates),
+    },
+  );
   state.guide = guide;
   res.json(guide);
 });
@@ -406,8 +431,21 @@ app.post("/api/ikeafy/manual", async (req, res) => {
       pdfBase64: found.pdfBase64 || null,
     });
   } catch (err) {
-    ikealiveWarn("tavily", "manual lookup error", err?.message || err);
-    res.status(502).json({ ok: false, reason: String(err.message || err) });
+    const code = err?.code || err?.cause?.code || null;
+    const cause = err?.cause?.message || null;
+    ikealiveWarn("tavily", "manual lookup error", {
+      name: err?.name || "Error",
+      message: err?.message || String(err),
+      code,
+      cause,
+    });
+    const detail = [err?.message || String(err), cause, code ? `(${code})` : null]
+      .filter(Boolean)
+      .join(" — ");
+    res.status(502).json({
+      ok: false,
+      reason: `Manual lookup failed: ${detail}. Check TAVILY_API_KEY and network access to api.tavily.com.`,
+    });
   }
 });
 
@@ -809,25 +847,30 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  */
 app.post("/api/assembly/start", async (req, res) => {
   const body = req.body || {};
+  const requestId =
+    String(body.requestId || req.get("x-request-id") || "").trim().slice(0, 100) ||
+    `assembly-${Date.now().toString(36)}`;
   ikealiveLog("assembly", "POST /api/assembly/start", {
+    requestId,
     mode: body.mode || "official",
     article: body.article || null,
     plates: Array.isArray(body.images) ? body.images.length : 0,
     hasGuideText: Boolean(body.guide),
     renderMode: normalizeRenderMode(body.renderMode) || null,
   });
-  const result = await startAssemblyAsync(req.body || {});
+  const result = await startAssemblyAsync({ ...body, requestId });
   if (result.ok && getAssembly(result.run?.id)?.guide) {
     state.guide = getAssembly(result.run.id).guide;
   }
   if (result.ok) {
     ikealiveLog("assembly", "run ready", {
+      requestId,
       runId: result.run?.id || null,
       mode: result.run?.mode || body.mode || null,
       steps: result.outline?.length || result.run?.total || 0,
     });
   } else {
-    ikealiveWarn("assembly", "start failed", { reason: result.reason || null });
+    ikealiveWarn("assembly", "start failed", { requestId, reason: result.reason || null });
   }
   res.status(result.ok ? 200 : 400).json(result);
 });
@@ -1510,7 +1553,18 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
   const link = phoneUploadUrls({ apiPort: port });
   ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
-  ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
+  const gliner = logGliner2Configuration();
+  ikealiveLog("parse", "GLiNER 2 configuration", {
+    status: gliner.status,
+    model: gliner.model,
+    python: gliner.python,
+    setupCommand: gliner.setupCommand,
+    falPlateVision: hasFal(),
+  });
+  ikealiveLog("tavily", "configuration", {
+    keyVisible: hasTavily(),
+    envFile: existsSync(path.join(__dirname, "..", ".env")),
+  });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
   console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });
