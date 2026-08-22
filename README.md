@@ -107,5 +107,3 @@ Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a
 ## Social preview
 
 The repository currently has no committed social-preview image. Add one in the GitHub repository settings when final brand artwork is available; the README intentionally does not reference a placeholder or missing asset.
-
-<p align="center"><sub>IKEAlive is the product. All rights reserved.</sub></p>
