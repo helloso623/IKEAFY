@@ -107,6 +107,7 @@ test("electronics stays a Lab feature of the main IKEAlive app", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
+  assert.match(html, /id="house-drawer"/);
   assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
 });
 
@@ -135,6 +136,7 @@ test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
   }
   assert.match(main, /initHouse/);
   assert.match(main, /back-ikealive/);
+  assert.match(html, /id="house-drawer"/);
   assert.match(house, /api\.adapt/);
   assert.match(house, /CHEAPER FITS/);
   assert.match(house, /drawImage/);

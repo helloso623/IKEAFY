@@ -2,6 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bomFromIds, cheaperAlternatives, retailerOffers, searchParts } from "../server/lib/catalog.js";
 
+test("token search finds a LACK table from “lack table”", () => {
+  const hits = searchParts({ query: "lack table" });
+  assert.ok(hits.some((p) => p.id === "lack-table"));
+});
+
 test("cost barrier filters the list", () => {
   const cheap = searchParts({ maxCost: 3 });
   assert.ok(cheap.every((p) => p.cost <= 3));

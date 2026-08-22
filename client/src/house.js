@@ -190,11 +190,10 @@ export function initHouse({ api, hud = () => {} } = {}) {
   }
 
   function setActive(on) {
-    canvas.classList.toggle("hidden", !on);
-    if (on) {
-      markPhoto();
-      draw(lastPlan);
-    }
+    markPhoto();
+    const show = Boolean(on && (photo || lastPlan));
+    canvas.classList.toggle("hidden", !show);
+    if (show) draw(lastPlan);
   }
 
   async function adaptRoom() {
@@ -240,7 +239,7 @@ export function initHouse({ api, hud = () => {} } = {}) {
 
   window.addEventListener("resize", () => {
     const app = $("app");
-    if (app?.dataset.mode === "house") draw(lastPlan);
+    if (app?.dataset.mode === "house" || app?.dataset.mode === "lab") draw(lastPlan);
   });
 
   return {

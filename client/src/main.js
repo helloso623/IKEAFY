@@ -229,7 +229,7 @@ async function applyShopActions(actions) {
       const ids = action.pieceIds?.length ? action.pieceIds : added.map((p) => p.id).filter(Boolean);
       if (ids.length) await api.isolate(ids, action.label || "board");
     } else if (action.type === "adaptation" && action.plan) {
-      setMode("house");
+      setMode("lab");
       house?.applyPlan(action.plan);
     } else if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
       inspect("The board is programmed.");
@@ -564,7 +564,8 @@ $("delete-piece").addEventListener("click", () => {
 });
 
 function setMode(mode) {
-  if (mode !== "lab") mode = "ikeafy";
+  if (mode === "lab" || mode === "house" || mode === "bench") mode = "lab";
+  else mode = "ikeafy";
   const app = $("app");
   const inLab = mode === "lab";
   app.dataset.mode = mode;
