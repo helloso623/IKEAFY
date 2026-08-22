@@ -34,6 +34,9 @@ test("Seedance renderer logs queue, poll, and missing FAL_KEY without interpolat
   assert.match(video, /missing FAL_KEY/);
   assert.match(video, /"submit"/);
   assert.match(video, /"poll"/);
+  assert.match(video, /elapsedMs/);
+  assert.match(video, /lastStatus/);
+  assert.match(video, /promptChars/);
   assert.match(video, /keyed:\s*true|hasFal\(\)/);
   assert.doesNotMatch(video, /ikealiveLog\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(video, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
