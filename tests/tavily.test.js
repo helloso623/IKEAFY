@@ -8,7 +8,9 @@ import {
   ownedTools,
   pickManualPdfHit,
   findIkeaManual,
+  searchDiyOffers,
   searchFurniturePieceOffers,
+  searchHardwareOffers,
   searchToolOffers,
 } from "../server/lib/tavily.js";
 
@@ -138,6 +140,45 @@ test("construction research includes the analyzed silhouette, support, material,
     assert.match(query, /round central wood silhouette/);
     assert.match(query, /circular top 900 × 900 × 28 mm/);
     assert.match(query, /-McMaster/);
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("DIY research keeps boards and hardware offers in separate current-model groups", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "tvly-test";
+  const queries = [];
+  const fetchFn = async (_url, init = {}) => {
+    const query = JSON.parse(init.body).query;
+    queries.push(query);
+    return {
+      ok: true,
+      json: async () => ({
+        results: [
+          query.includes("connection hardware")
+            ? { title: "Mounting plates", url: "https://hardware.example/plates", content: "70 mm steel plates" }
+            : { title: "Birch tabletop", url: "https://lumber.example/top", content: "900 mm cut board" },
+        ],
+      }),
+    };
+  };
+  const build = {
+    name: "Current changed table",
+    modelDimensionsMm: { x: 900, y: 500, z: 740 },
+    profile: { topShape: "rectangular", supportStyle: "four-leg", materialFamily: "wood" },
+    cutList: [{ qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" }],
+    hardwareLines: [{ qty: 4, name: "Table-leg mounting plate", dimensions: "70 × 70 mm" }],
+    ways: [],
+  };
+  try {
+    const directHardware = await searchHardwareOffers(build, { fetchFn });
+    assert.equal(directHardware.length, 1);
+    const offers = await searchDiyOffers(build, { fetchFn });
+    assert.deepEqual(new Set(offers.map((offer) => offer.group)), new Set(["boards-and-stock", "hardware"]));
+    assert.ok(queries.some((query) => /table top 900 × 500 × 18 mm/.test(query)));
+    assert.ok(queries.some((query) => /Table-leg mounting plate 70 × 70 mm/.test(query)));
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;

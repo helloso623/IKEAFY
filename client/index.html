@@ -557,7 +557,7 @@
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
               <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish / Find a way scores physical methods for the current model.</p>
+              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish / Find a way scores physical methods and finds boards plus connection hardware for the current model.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -604,7 +604,7 @@
           </div>
           <div class="lab-view-meta">
             <button type="button" class="lab-tool lab-physics" id="physics-btn" title="Physics preview: ghost overlay shows whether this build holds or breaks — collapse, tip-over, failed joints. The editable bodies stay untouched.">Will it hold?</button>
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, search boards and connection hardware, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -692,7 +692,7 @@
           <details class="lab-sheet" id="diy-build-sheet">
             <summary class="lab-sheet-sum">Ways-to-make history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
+              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, searches boards and connection hardware, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>

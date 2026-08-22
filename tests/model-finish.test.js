@@ -50,3 +50,27 @@ test("the local fingerprint changes when geometry changes inside the same bounds
   const after = analyzeMeshGeometry(edited, { x: 900, y: 900, z: 740 });
   assert.notEqual(before.geometryFingerprint, after.geometryFingerprint);
 });
+
+test("finish snapshot keys DIY research to edited mesh bounds, scale, and rotation", () => {
+  const snapshot = finishModelSnapshot([
+    {
+      piece: {
+        id: "mesh-rotated",
+        partId: "ai-mesh",
+        generated: true,
+        sx: 1.5,
+        sy: 0.5,
+        sz: 2,
+        rx: 0.1,
+        ry: Math.PI / 2,
+        rz: -0.2,
+      },
+      part: { name: "Edited mesh", dimsMm: { x: 800, y: 400, z: 600 } },
+      positions: roundPedestalPoints(),
+    },
+  ]);
+
+  assert.deepEqual(snapshot[0].dimsMm, { x: 1200, y: 800, z: 300 });
+  assert.deepEqual(snapshot[0].rotationRad, { x: 0.1, y: Math.PI / 2, z: -0.2 });
+  assert.match(snapshot[0].geometryAnalysis.geometryFingerprint, /^mesh-/);
+});

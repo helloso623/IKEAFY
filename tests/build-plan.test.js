@@ -28,6 +28,7 @@ test("piece hunt follows the current scaled table dimensions", () => {
   assert.ok(plan.lines.every((line) => line.searchQuery.includes(line.dimensions)));
   assert.ok(plan.lines.some((line) => line.role === "top"));
   assert.ok(plan.lines.some((line) => line.role === "leg"));
+  assert.ok(plan.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
   assert.ok(plan.ways.some((way) => way.recommended && way.joinery));
   assert.ok(plan.similarityScore >= 90);
   assert.equal(plan.ways[0].similarity.dimensions, 100);
@@ -59,7 +60,7 @@ test("model signatures change and old piece plans remain in history", () => {
   assert.equal(project.diyHistory[0].bom.lines[0].id, "top-a");
 });
 
-test("a generated rectangular table becomes a top-and-leg cut list", () => {
+test("a generated rectangular table becomes a top-and-leg cut list with connection hardware", () => {
   const plan = pieceBomForProject(
     { name: "Current modeled object", pieces: [] },
     {
@@ -84,10 +85,11 @@ test("a generated rectangular table becomes a top-and-leg cut list", () => {
   assert.equal(plan.profile.tableLike, true);
   assert.deepEqual(plan.cutList.map((line) => [line.role, line.qty]), [["top", 1], ["leg", 4]]);
   assert.equal(plan.ways[0].id, "top-and-ready-legs");
-  assert.equal(plan.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
+  assert.ok(plan.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
+  assert.ok(plan.hardwareLines.some((line) => /screw/i.test(line.name)));
 });
 
-test("LACK-sized model yields a tabletop and legs without a fastener list", () => {
+test("LACK-sized model yields a tabletop, legs, and a separate hardware list", () => {
   const plan = pieceBomForProject({
     name: "My side table",
     pieces: [piece("generic-side-table", "table-1")],
@@ -95,8 +97,8 @@ test("LACK-sized model yields a tabletop and legs without a fastener list", () =
   assert.equal(plan.ikeaMatch.article, "304.499.08");
   assert.deepEqual(plan.cutList.map((line) => [line.role, line.qty]), [["top", 1], ["leg", 4]]);
   assert.ok(plan.cutList.every((line) => line.category === "furniture-piece"));
-  assert.equal(plan.hardwareLines, undefined);
-  assert.equal(plan.lines.some((line) => /screw|bolt|fastener|mounting plate/i.test(line.name)), false);
+  assert.ok(plan.hardwareLines.length >= 2);
+  assert.ok(plan.lines.some((line) => /screw|bolt|fastener|mounting plate/i.test(line.name)));
   assert.equal(plan.lines.some((line) => line.sources.some((source) => /mcmaster/i.test(source.url))), false);
 });
 
@@ -154,7 +156,8 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.deepEqual(plan.cutList.map((line) => line.shape), ["circular slab", "tapered cylinder", "circular slab"]);
   assert.ok(plan.ways.some((way) => way.id === "turned-pedestal"));
   assert.equal(plan.cutList[0].dimsMm.x, 900);
-  assert.equal(plan.hardwareLines, undefined);
+  assert.ok(plan.hardwareLines.some((line) => /pedestal mounting plate/i.test(line.name)));
+  assert.ok(plan.hardwareLines.some((line) => /bolt/i.test(line.name)));
   assert.equal(plan.profile.topShape, "round");
   assert.equal(plan.profile.supportStyle, "central");
   assert.ok(plan.similarityScore >= 95);
@@ -190,6 +193,26 @@ test("a LACK-sized round pedestal mesh is not mislabeled as a square four-leg LA
   assert.equal(plan.ways.some((way) => /LACK/.test(way.title)), false);
 });
 
+test("rotating the current mesh changes its envelope and DIY signature", () => {
+  const model = {
+    id: "rotated-top",
+    name: "Custom table",
+    shape: "generated-mesh",
+    dimsMm: { x: 1200, y: 600, z: 30 },
+    poseM: { x: 0, y: 0.015, z: 0 },
+    geometryAnalysis: { geometryFingerprint: "mesh-rotation-test", silhouette: "rectilinear" },
+  };
+  const unrotated = pieceBomForProject({ name: "Rotation test", pieces: [] }, { model: [model] });
+  const rotated = pieceBomForProject(
+    { name: "Rotation test", pieces: [] },
+    { model: [{ ...model, rotationRad: { x: 0, y: Math.PI / 2, z: 0 } }] },
+  );
+
+  assert.deepEqual(unrotated.modelDimensionsMm, { x: 1200, y: 600, z: 30 });
+  assert.deepEqual(rotated.modelDimensionsMm, { x: 600, y: 1200, z: 30 });
+  assert.notEqual(rotated.modelSignature, unrotated.modelSignature);
+});
+
 test("piece-plan source is numbered for the IKEAlive parser", () => {
   const plan = pieceBomForProject({
     name: "Shelf",
@@ -199,7 +222,8 @@ test("piece-plan source is numbered for the IKEAlive parser", () => {
   assert.match(source, /Construction ways:/);
   assert.match(source, /Closest construction similarity:/);
   assert.match(source, /Geometry-derived pieces:/);
-  assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
+  assert.match(source, /Connection hardware:/);
+  assert.match(source, /shelf support brackets/i);
   assert.match(source, /^1\. Freeze this model revision/m);
   assert.match(source, /^6\. Place the object/m);
 });

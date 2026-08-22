@@ -36,9 +36,20 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
           sources: [{ store: "Cut-to-size search", url: "https://example.com/cut-panel" }],
         },
       ],
+      hardwareLines: [
+        {
+          qty: 4,
+          name: "Table-leg mounting plate",
+          why: "Connects each modeled leg.",
+          dimensions: "70 × 70 mm",
+          material: "zinc-plated steel",
+          estimatedCost: 18,
+          sources: [{ store: "Hardware search", url: "https://example.com/mounting-plate" }],
+        },
+      ],
       liveSources: [
         {
-          group: "method",
+          group: "boards-and-stock",
           title: "Cut-to-size table plan",
           url: "https://example.com/live-plan",
         },
@@ -59,11 +70,13 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
   assert.match(html, /dimensions 100%.*silhouette 100%/);
   assert.match(html, /Geometry-derived pieces and cut list/);
   assert.match(html, /birch plywood/);
-  assert.match(html, /Live piece matches/);
+  assert.match(html, /Connection hardware/);
+  assert.match(html, /Table-leg mounting plate/);
+  assert.match(html, /Live piece and hardware matches/);
   assert.match(html, /Cut-to-size table plan/);
   assert.match(html, /IKEAlive watch \/ plan \/ todo/);
   assert.match(html, /Cut the top to its modeled size/);
-  assert.doesNotMatch(html, /hardware|McMaster/i);
+  assert.doesNotMatch(html, /McMaster/i);
   assert.match(html, /@page/);
 });
 

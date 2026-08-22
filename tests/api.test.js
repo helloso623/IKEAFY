@@ -101,16 +101,17 @@ test("finish starts a progress job, scores the current model, and preserves prio
   const packet = first.packet;
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /geometry-derived visible pieces/);
+  assert.match(packet.bom.scope, /geometry-derived.*pieces/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
-  assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
-  assert.equal(packet.bom.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
+  assert.deepEqual(packet.bom.cutList.map((line) => line.role), ["top", "leg"]);
+  assert.ok(packet.bom.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
+  assert.ok(packet.bom.hardwareLines.some((line) => /screw/i.test(line.name)));
   assert.ok(packet.bom.similarityScore >= 90);
   assert.ok(packet.bom.ways.every((way) => Number.isFinite(way.similarity.score)));
   const progressText = first.update.job.events.map((event) => event.text);
   assert.ok(progressText.includes("Reading the model…"));
-  assert.ok(progressText.includes("Matching boards and construction…"));
+  assert.ok(progressText.includes("Matching boards, hardware, and construction…"));
   assert.ok(progressText.includes("Scoring look-alikes…"));
   assert.ok(progressText.includes("Writing the IKEAlive plan…"));
   assert.match(progressText.at(-1), /Ready.*closest physical match/);
@@ -121,6 +122,24 @@ test("finish starts a progress job, scores the current model, and preserves prio
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
+
+  const liveModel = {
+    id: "mesh-only",
+    name: "Edited mesh table",
+    shape: "generated-mesh",
+    dimsMm: { x: 1200, y: 600, z: 740 },
+    poseM: { x: 0, y: 0.37, z: 0 },
+    geometryAnalysis: { geometryFingerprint: "mesh-live-a", silhouette: "rectilinear" },
+  };
+  const diy = await fetch(`${base}/api/project/diy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: [liveModel] }),
+  });
+  assert.equal(diy.status, 200);
+  const live = await diy.json();
+  assert.ok(live.bom.hardwareLines.length);
+  assert.ok(live.bom.components.some((component) => component.pieceId === "mesh-only"));
 
   const moved = await fetch(`${base}/api/project/move`, {
     method: "POST",

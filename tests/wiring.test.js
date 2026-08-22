@@ -556,7 +556,9 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(apiSource, /^\s{2}startFinishProject:/m);
   assert.match(apiSource, /^\s{2}finishJob:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
+  assert.match(apiSource, /diyCurrent:\s*\(model = \[\]\).*\/api\/project\/diy/);
   assert.match(main, /api\.startFinishProject\(model\)/);
+  assert.match(main, /api\.diyCurrent\(meshModel\)/);
   assert.match(main, /api\.finishJob\(id\)/);
   assert.match(main, /finishModelSnapshot/);
   assert.match(main, /Reading the model/);
@@ -565,7 +567,9 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(main, /Ways PDF/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);
+  assert.match(main, /shop\.onSculpt[\s\S]*refreshCurrentDiy/);
+  assert.match(main, /shop\.onMeshEdit[\s\S]*refreshCurrentDiy/);
+  assert.match(main, /connection-hardware lines/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {

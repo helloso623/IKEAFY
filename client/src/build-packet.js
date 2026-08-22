@@ -29,6 +29,7 @@ function sourceLinks(line) {
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
   const lines = bom.cutList || bom.lines || [];
+  const hardware = bom.hardwareLines || [];
   const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || bom.researchResults || [];
@@ -38,6 +39,18 @@ export function buildPacketHtml(packet = {}) {
         <td>${escapeHtml(line.qty)}</td>
         <td><strong>${escapeHtml(line.name)}</strong><small>${escapeHtml(line.why)}</small></td>
         <td>${escapeHtml(line.dimensions)}<small>${escapeHtml(line.shape)}</small></td>
+        <td>${escapeHtml(line.material)}</td>
+        <td>$${Number(line.estimatedCost || 0).toFixed(2)}</td>
+        <td>${sourceLinks(line)}</td>
+      </tr>`,
+    )
+    .join("");
+  const hardwareRows = hardware
+    .map(
+      (line) => `<tr>
+        <td>${escapeHtml(line.qty)}</td>
+        <td><strong>${escapeHtml(line.name)}</strong><small>${escapeHtml(line.why)}</small></td>
+        <td>${escapeHtml(line.dimensions)}</td>
         <td>${escapeHtml(line.material)}</td>
         <td>$${Number(line.estimatedCost || 0).toFixed(2)}</td>
         <td>${sourceLinks(line)}</td>
@@ -121,7 +134,7 @@ export function buildPacketHtml(packet = {}) {
 <body>
   <p class="kicker">IKEAlive build packet · closest way to make this model</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
-  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
+  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated materials: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
@@ -134,7 +147,16 @@ export function buildPacketHtml(packet = {}) {
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  ${liveRows ? `<h2>Live piece matches</h2><ul>${liveRows}</ul>` : ""}
+  ${
+    hardwareRows
+      ? `<h2>Connection hardware</h2>
+  <table>
+    <thead><tr><th>Qty</th><th>Hardware</th><th>Size</th><th>Material</th><th>Estimate</th><th>Source links</th></tr></thead>
+    <tbody>${hardwareRows}</tbody>
+  </table>`
+      : ""
+  }
+  ${liveRows ? `<h2>Live piece and hardware matches</h2><ul>${liveRows}</ul>` : ""}
   <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
   <p class="warning">${escapeHtml(bom.disclaimer || "")}</p>

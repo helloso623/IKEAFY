@@ -1,5 +1,5 @@
 import { getPart, listParts } from "./catalog.js";
-import { hasTavily, searchFurniturePieceOffers } from "./tavily.js";
+import { hasTavily, searchDiyOffers } from "./tavily.js";
 
 function mm(value) {
   const n = Math.round(Math.abs(Number(value) || 0));
@@ -20,6 +20,38 @@ function pieceDims(piece, part) {
     y: mm(part?.dimsMm?.y * Math.abs(Number(piece?.sz) || 1)),
     z: mm(part?.dimsMm?.z * Math.abs(Number(piece?.sy) || 1)),
   };
+}
+
+function rotationRad(value = {}) {
+  return {
+    x: Number(value.x ?? value.rx) || 0,
+    y: Number(value.y ?? value.ry) || 0,
+    z: Number(value.z ?? value.rz) || 0,
+  };
+}
+
+function orientedDimsMm(dims = {}, rotation = {}) {
+  const local = { x: mm(dims.x), y: mm(dims.z), z: mm(dims.y) };
+  const { x, y, z } = rotationRad(rotation);
+  const a = Math.cos(x);
+  const b = Math.sin(x);
+  const c = Math.cos(y);
+  const d = Math.sin(y);
+  const e = Math.cos(z);
+  const f = Math.sin(z);
+  const worldX =
+    Math.abs(c * e) * local.x +
+    Math.abs(-c * f) * local.y +
+    Math.abs(d) * local.z;
+  const worldY =
+    Math.abs(a * f + b * e * d) * local.x +
+    Math.abs(a * e - b * f * d) * local.y +
+    Math.abs(-b * c) * local.z;
+  const worldZ =
+    Math.abs(b * f - a * e * d) * local.x +
+    Math.abs(b * e + a * f * d) * local.y +
+    Math.abs(a * c) * local.z;
+  return { x: worldX, y: worldZ, z: worldY };
 }
 
 function clientModelComponents(model = []) {
@@ -58,6 +90,7 @@ function clientModelComponents(model = []) {
           y: Number(item.poseM?.y) || 0,
           z: Number(item.poseM?.z) || 0,
         },
+        rotationRad: rotationRad(item.rotationRad),
       };
     })
     .filter(Boolean);
@@ -91,6 +124,7 @@ export function modelComponents(project = {}, model = []) {
           y: Number(piece.y) || 0,
           z: Number(piece.z) || 0,
         },
+        rotationRad: rotationRad(piece),
       };
     })
     .filter(Boolean);
@@ -102,12 +136,13 @@ export function modelDimensionsMm(components = []) {
   const bounds = components.reduce(
     (box, component) => {
       const { dimsMm: dims, poseM: pose } = component;
-      box.minX = Math.min(box.minX, pose.x * 1000 - dims.x / 2);
-      box.maxX = Math.max(box.maxX, pose.x * 1000 + dims.x / 2);
-      box.minY = Math.min(box.minY, pose.z * 1000 - dims.y / 2);
-      box.maxY = Math.max(box.maxY, pose.z * 1000 + dims.y / 2);
-      box.minZ = Math.min(box.minZ, pose.y * 1000 - dims.z / 2);
-      box.maxZ = Math.max(box.maxZ, pose.y * 1000 + dims.z / 2);
+      const oriented = orientedDimsMm(dims, component.rotationRad);
+      box.minX = Math.min(box.minX, pose.x * 1000 - oriented.x / 2);
+      box.maxX = Math.max(box.maxX, pose.x * 1000 + oriented.x / 2);
+      box.minY = Math.min(box.minY, pose.z * 1000 - oriented.y / 2);
+      box.maxY = Math.max(box.maxY, pose.z * 1000 + oriented.y / 2);
+      box.minZ = Math.min(box.minZ, pose.y * 1000 - oriented.z / 2);
+      box.maxZ = Math.max(box.maxZ, pose.y * 1000 + oriented.z / 2);
       return box;
     },
     { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity },
@@ -128,6 +163,7 @@ export function modelSignature(components = []) {
       return (
         `${component.partId}:${component.shape || ""}:${dimsText(component.dimsMm)}@` +
         `${component.poseM.x.toFixed(3)},${component.poseM.y.toFixed(3)},${component.poseM.z.toFixed(3)}#` +
+        `${component.rotationRad?.x?.toFixed(4) || "0"},${component.rotationRad?.y?.toFixed(4) || "0"},${component.rotationRad?.z?.toFixed(4) || "0"}#` +
         `${component.material || ""}:${finish.color || ""}:${finish.texture || ""}:` +
         `${Number(finish.roughness) || 0}:${Number(finish.metalness) || 0}:` +
         `${analysis.geometryFingerprint || ""}:${analysis.silhouette || ""}:` +
@@ -216,6 +252,109 @@ function sourceLinks(query, ikeaArticle = null) {
     { store: "Home Depot", url: `https://www.homedepot.com/s/${encoded}` },
     { store: "Lowe's", url: `https://www.lowes.com/search?searchTerm=${encoded}` },
     { store: "Local lumber", url: `https://www.google.com/search?q=${encoded}+local+lumber` },
+  ];
+}
+
+function hardwareSourceLinks(query) {
+  const encoded = encodeURIComponent(query);
+  return [
+    { store: "Home Depot", url: `https://www.homedepot.com/s/${encoded}` },
+    { store: "Lowe's", url: `https://www.lowes.com/search?searchTerm=${encoded}` },
+    { store: "Amazon", url: `https://www.amazon.com/s?k=${encoded}` },
+  ];
+}
+
+function hardwareLine({ id, name, qty, dimensions, material = "zinc-plated steel", why, unitCost }) {
+  const searchQuery = `${name} ${dimensions} furniture connection hardware`.replace(/\s+/g, " ").trim();
+  return {
+    id,
+    role: "hardware",
+    name,
+    qty,
+    dimensions,
+    dimsMm: null,
+    shape: "connection hardware",
+    material,
+    category: "connection-hardware",
+    why,
+    estimatedUnitCost: Number(unitCost) || 0,
+    estimatedCost: Number(((Number(unitCost) || 0) * qty).toFixed(2)),
+    sources: hardwareSourceLinks(searchQuery),
+    searchQuery,
+  };
+}
+
+function connectionHardwareLines(profile) {
+  if (profile.roundPedestal) {
+    return [
+      hardwareLine({
+        id: "pedestal-mounting-plate",
+        name: "Pedestal mounting plate",
+        qty: 2,
+        dimensions: "120 mm heavy-duty plate",
+        why: "Connects the modeled pedestal to the top and base without changing its silhouette.",
+        unitCost: 9,
+      }),
+      hardwareLine({
+        id: "pedestal-connector-bolts",
+        name: "Pedestal connector bolts",
+        qty: 8,
+        dimensions: "M8 × 35 mm with washers",
+        why: "Clamps both mounting plates to the central support.",
+        unitCost: 0.9,
+      }),
+    ];
+  }
+  if (profile.tableLike) {
+    const supportCount = Math.max(1, profile.posts.length || 4);
+    return [
+      hardwareLine({
+        id: "table-leg-mounting-plate",
+        name: "Table-leg mounting plate",
+        qty: supportCount,
+        dimensions: "70 × 70 mm",
+        why: "Connects each modeled leg or support to the tabletop.",
+        unitCost: 4.5,
+      }),
+      hardwareLine({
+        id: "table-wood-screws",
+        name: "Wood screws for mounting plates",
+        qty: supportCount * 4,
+        dimensions: "#8 × 25 mm",
+        why: "Fastens the connection plates while staying within typical tabletop thickness.",
+        unitCost: 0.18,
+      }),
+    ];
+  }
+  if (profile.shelfLike) {
+    return [
+      hardwareLine({
+        id: "shelf-brackets",
+        name: "Shelf support brackets",
+        qty: 2,
+        dimensions: "matched to modeled board depth",
+        why: "Supports the modeled board at its current depth.",
+        unitCost: 7,
+      }),
+      hardwareLine({
+        id: "shelf-wall-fixings",
+        name: "Wall fixings for shelf brackets",
+        qty: 1,
+        dimensions: "fixing set matched to wall type",
+        why: "Connects the brackets to the real wall substrate.",
+        unitCost: 8,
+      }),
+    ];
+  }
+  return [
+    hardwareLine({
+      id: "furniture-angle-brackets",
+      name: "Furniture angle brackets",
+      qty: 4,
+      dimensions: "40 × 40 mm",
+      why: "Provides a searchable connection route for the current piece-for-piece model.",
+      unitCost: 2,
+    }),
   ];
 }
 
@@ -630,11 +769,12 @@ export function pieceBomForProject(project = {}, options = {}) {
     ikeaMatch,
     dimensions,
   );
-  const lines = [...cutList];
+  const hardwareLines = connectionHardwareLines(profile);
+  const lines = [...cutList, ...hardwareLines];
   return {
     ok: true,
     name: String(project.name || components[0]?.name || "Custom object").trim() || "Custom object",
-    scope: "Construction ways and geometry-derived visible pieces for this exact modeled shape",
+    scope: "Construction ways, geometry-derived furniture pieces, boards, and connection hardware for this exact modeled shape",
     components,
     modelDimensionsMm: dimensions,
     modelSignature: modelSignature(components),
@@ -653,6 +793,7 @@ export function pieceBomForProject(project = {}, options = {}) {
     similarity: ways[0]?.similarity || null,
     lines,
     cutList,
+    hardwareLines,
     estimatedTotal: Number(lines.reduce((sum, line) => sum + line.estimatedCost, 0).toFixed(2)),
     currency: "USD",
     disclaimer:
@@ -665,12 +806,13 @@ export const buildWaysForProject = pieceBomForProject;
 
 function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
+  const hardware = build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
   return [
     `1. Freeze this model revision at ${dimsText(build.modelDimensionsMm)} and verify its piece list: ${pieces}.`,
     `2. Choose the ${build.similarityScore}% closest construction route, then buy or cut every shaped piece to the listed finished millimetres.`,
-    "3. Label every geometry-derived piece; preserve its intended face, finish, and grain or brushing direction.",
+    `3. Source the connection hardware for this revision: ${hardware}.`,
     "4. Lay out the shaped pieces in the same positions as the current 3D model and dry-fit the complete object.",
-    "5. Assemble the selected pieces with joinery appropriate to their real material and thickness, preserving the modeled overhang and offsets.",
+    "5. Assemble the selected pieces with the listed connection hardware and joinery appropriate to their real material and thickness, preserving the modeled overhang and offsets.",
     "6. Place the object in its intended orientation, compare its silhouette and dimensions with this saved revision, and check stability before loading it.",
   ];
 }
@@ -694,6 +836,7 @@ export function buildPlanSource(build) {
     `Closest construction similarity: ${build.similarityScore}% (${build.similarity?.reason || "geometry-derived route"}).`,
     match,
     `Geometry-derived pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    `Connection hardware: ${build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ")}`,
     "Construction ways:",
     alternatives,
     "",
@@ -707,11 +850,11 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
   deps.onProgress?.(12, "Reading the model…");
   const build = pieceBomForProject(project, { model: deps.model });
   if (!build.ok) return build;
-  deps.onProgress?.(38, "Matching boards and construction…");
+  deps.onProgress?.(38, "Matching boards, hardware, and construction…");
   let liveSources = [];
   if (hasTavily()) {
     try {
-      liveSources = await searchFurniturePieceOffers(build, deps);
+      liveSources = await searchDiyOffers(build, deps);
     } catch {
       liveSources = [];
     }
@@ -723,7 +866,10 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
     const matched = target.split(/\s+/).filter((word) => word && text.includes(word)).length;
     return {
       ...source,
-      similarityScore: Math.min(build.similarityScore, 45 + matched * 12),
+      similarityScore:
+        source.group === "hardware"
+          ? null
+          : Math.min(build.similarityScore, 45 + matched * 12),
     };
   });
   deps.onProgress?.(86, "Writing the IKEAlive plan…");

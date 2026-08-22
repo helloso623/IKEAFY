@@ -271,21 +271,32 @@ let liveDiy = null;
 let currentDiyKey = "";
 let diyRefreshVersion = 0;
 
+function currentFinishModel() {
+  return finishModelSnapshot(
+    shop.getReconstructed?.() || [],
+    (id) => shop.getPieceMaterial?.(id),
+  );
+}
+
 function modelDiyKey() {
-  return JSON.stringify(
-    (project.pieces || [])
+  return JSON.stringify({
+    pieces: (project.pieces || [])
       .map((piece) => ({
         id: piece.id,
         partId: piece.partId,
         x: piece.x,
         y: piece.y,
         z: piece.z,
+        rx: piece.rx,
+        ry: piece.ry,
+        rz: piece.rz,
         sx: piece.sx,
         sy: piece.sy,
         sz: piece.sz,
       }))
       .sort((a, b) => String(a.id).localeCompare(String(b.id))),
-  );
+    mesh: currentFinishModel(),
+  });
 }
 
 async function refreshCurrentDiy() {
@@ -293,15 +304,16 @@ async function refreshCurrentDiy() {
   if (key === currentDiyKey) return liveDiy;
   currentDiyKey = key;
   const version = ++diyRefreshVersion;
-  if (!(project.pieces || []).length) {
+  const meshModel = currentFinishModel();
+  if (!(project.pieces || []).length && !meshModel.length) {
     liveDiy = null;
     renderDiyHistory();
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Reading geometry and refreshing the closest construction routes…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Reading geometry and refreshing boards, connection hardware, and construction routes…</span>`;
   try {
-    const packet = await api.diyCurrent();
+    const packet = await api.diyCurrent(meshModel);
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
     liveDiy = {
       name: packet.bom?.name || "Current model",
@@ -345,7 +357,7 @@ function renderDiyHistory(active = null) {
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
       <span>${escapeHtml(bom.similarityScore ?? 0)}% closest result · ${bom.ways?.length || 0} construction ways · ${
         bom.cutList?.length || 0
-      } geometry-derived pieces · estimated $${Number(
+      } geometry-derived pieces · ${bom.hardwareLines?.length || 0} hardware lines · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
         bom.live ? " · live piece matches" : " · catalog and cut links"
@@ -953,12 +965,14 @@ shop.onPoseCommit((pose) => {
 shop.onSculpt?.(({ mode, name, clientEdit }) => {
   void checkpointGeometryEdit(clientEdit).catch(() => {});
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  void refreshCurrentDiy();
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
 shop.onMeshEdit?.(({ tool, name, label, clientEdit }) => {
   void checkpointGeometryEdit(clientEdit).catch(() => {});
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  void refreshCurrentDiy();
   hud(`${label || tool} on ${name}. Undo takes it back.`);
 });
 
@@ -1407,10 +1421,7 @@ $("finish-model")?.addEventListener("click", async () => {
   }
   hud("Reading this exact model and finding the closest physical way to make it…");
   try {
-    const model = finishModelSnapshot(
-      shop.getReconstructed?.() || [],
-      (id) => shop.getPieceMaterial?.(id),
-    );
+    const model = currentFinishModel();
     const started = await api.startFinishProject(model);
     if (!started?.job?.id) throw new Error(started?.reason || "Could not start the similarity search.");
     paintFinishProgress(started.job);
@@ -1424,7 +1435,7 @@ $("finish-model")?.addEventListener("click", async () => {
     await studio?.openAssemblyView?.(packet.assembly, { label: "closest ways-to-make plan" });
     hud(
       `${packet.bom?.similarityScore || 0}% closest physical result · ${packet.bom?.ways?.length || 0} scored ways · ` +
-        `${packet.bom?.lines?.length || 0} geometry-derived pieces · PDF and IKEAlive todo ready.`,
+        `${packet.bom?.cutList?.length || 0} geometry-derived pieces · ${packet.bom?.hardwareLines?.length || 0} connection-hardware lines · PDF and IKEAlive todo ready.`,
     );
   } catch (error) {
     printWindow?.close();

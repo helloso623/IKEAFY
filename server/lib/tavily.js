@@ -148,6 +148,31 @@ export async function searchFurniturePieceOffers(build = {}, { fetchFn = fetch }
   return searchOfferQuery(query, key, fetchFn);
 }
 
+export async function searchHardwareOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (build.hardwareLines || [])
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `buy connection hardware for ${build.name || "custom furniture"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${items.join(" OR ")} furniture mounting plates brackets bolts screws`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+export async function searchDiyOffers(build = {}, options = {}) {
+  const [pieces, hardware] = await Promise.all([
+    searchFurniturePieceOffers(build, options),
+    searchHardwareOffers(build, options),
+  ]);
+  return [
+    ...pieces.map((offer) => ({ ...offer, group: "boards-and-stock" })),
+    ...hardware.map((offer) => ({ ...offer, group: "hardware" })),
+  ];
+}
+
 function extraLineFromId(id) {
   const part = getPart(id);
   if (part) {

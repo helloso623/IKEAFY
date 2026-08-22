@@ -955,10 +955,14 @@ app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
 });
 
-app.get("/api/project/diy", async (_req, res) => {
-  const packet = await finishFurnitureBuild(state.project);
+async function handleCurrentDiy(req, res) {
+  const model = Array.isArray(req.body?.model) ? structuredClone(req.body.model.slice(0, 64)) : [];
+  const packet = await finishFurnitureBuild(state.project, { model });
   res.status(packet.ok ? 200 : 400).json(packet);
-});
+}
+
+app.get("/api/project/diy", handleCurrentDiy);
+app.post("/api/project/diy", handleCurrentDiy);
 
 async function runFinishJob(job, projectSnapshot, model) {
   try {
@@ -1007,7 +1011,8 @@ async function runFinishJob(job, projectSnapshot, model) {
     ikealiveLog("build", "similarity construction way ready", {
       pieces: packet.bom.components.length,
       ways: packet.bom.ways.length,
-      cutLines: packet.bom.lines.length,
+      cutLines: packet.bom.cutList.length,
+      hardwareLines: packet.bom.hardwareLines.length,
       similarity: packet.bom.similarityScore,
       live: packet.bom.live,
       runId: assembly.run?.id || null,

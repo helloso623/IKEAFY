@@ -84,14 +84,19 @@ export function finishModelSnapshot(records = [], getMaterial = () => null) {
         name: record.part.name || (record.piece.generated ? "AI mesh" : "Scanned object"),
         partId: record.piece.partId,
         dimsMm: {
-          x: finite(record.part.dimsMm.x),
-          y: finite(record.part.dimsMm.y),
-          z: finite(record.part.dimsMm.z),
+          x: finite(record.part.dimsMm.x) * Math.abs(finite(record.piece.sx, 1)),
+          y: finite(record.part.dimsMm.y) * Math.abs(finite(record.piece.sz, 1)),
+          z: finite(record.part.dimsMm.z) * Math.abs(finite(record.piece.sy, 1)),
         },
         poseM: {
           x: finite(record.piece.x),
           y: finite(record.piece.y),
           z: finite(record.piece.z),
+        },
+        rotationRad: {
+          x: finite(record.piece.rx),
+          y: finite(record.piece.ry),
+          z: finite(record.piece.rz),
         },
         shape:
           analysis.silhouette === "round-pedestal"
