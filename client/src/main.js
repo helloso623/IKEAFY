@@ -10,6 +10,7 @@ import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
+import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");

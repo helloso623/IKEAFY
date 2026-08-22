@@ -210,8 +210,8 @@ test("lab tests stay behind a details fold", () => {
   assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
 });
 
-test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "scan-btn", "scan-out"]) {
+test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", () => {
+  for (const id of ["ar-camera", "ar-toggle", "ar-status", "room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);

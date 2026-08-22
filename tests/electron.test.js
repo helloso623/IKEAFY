@@ -54,6 +54,15 @@ test("Electron pipes BrowserWindow console-message events to process.stdout", ()
   assert.match(main, /from "\.\/log\.js"/);
 });
 
+test("Electron grants video-only media access to its local renderer", () => {
+  assert.match(main, /setPermissionCheckHandler/);
+  assert.match(main, /setPermissionRequestHandler/);
+  assert.match(main, /permission === "media"/);
+  assert.match(main, /mediaTypes\.includes\("video"\)/);
+  assert.match(main, /!mediaTypes\.includes\("audio"\)/);
+  assert.match(main, /127\.0\.0\.1|localhost/);
+});
+
 test(".env stays out of the repo", () => {
   const ignore = readFileSync(path.join(root, ".gitignore"), "utf8");
   assert.match(ignore, /^\.env$/m);

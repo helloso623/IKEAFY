@@ -4,7 +4,7 @@
  * the built UI from file://dist (falling back to the Express static origin).
  * Renderer console-message events are forwarded to the Electron terminal.
  */
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, session } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -25,6 +25,32 @@ const WAIT_MS = isDev ? 90_000 : 45_000;
 
 let serverProcess = null;
 let quitting = false;
+
+function trustedRenderer(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "file:") return true;
+    return (
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") &&
+      [String(SERVER_PORT), String(CLIENT_PORT)].includes(parsed.port)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function installCameraPermission() {
+  const appSession = session.defaultSession;
+  appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
+    return permission === "media" && trustedRenderer(requestingOrigin);
+  });
+  appSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const mediaTypes = details?.mediaTypes || [];
+    const videoOnly = !mediaTypes.length || (mediaTypes.includes("video") && !mediaTypes.includes("audio"));
+    callback(permission === "media" && videoOnly && trustedRenderer(webContents.getURL()));
+  });
+}
 
 export function distFileUrl(indexPath = DIST_INDEX) {
   if (!existsSync(indexPath)) return null;
@@ -123,6 +149,7 @@ if (launchedAsElectron) {
 
   app.whenReady().then(async () => {
     try {
+      installCameraPermission();
       const url = await clientUrl();
       createWindow(url);
     } catch (err) {

@@ -152,8 +152,9 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <canvas id="ar-photo" class="hidden"></canvas>
-        <canvas id="house-view" class="hidden" aria-label="The room rebuilt in 3D"></canvas>
+        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
+        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
+        <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
@@ -348,12 +349,22 @@
               This room
             </summary>
             <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">Add a few photos of the room — each one dresses a wall, together they make the floor. House shows the rebuilt 3D room; AR keeps the flat overlay.</p>
+              <p class="hint lab-hint house-caption">
+                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
+                Uploads still work when a camera is unavailable.
+              </p>
+              <div class="ar-capture">
+                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
+                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
               <label class="field file-field" for="room-photo">
-                <span>Room photos (several angles)</span>
-                <input id="room-photo" type="file" accept="image/*" multiple />
+                <span>Room photo</span>
+                <input id="room-photo" type="file" accept="image/*" />
               </label>
-              <div id="house-photos" class="house-photo-strip" aria-label="Photos read for the room"></div>
+              <label class="field file-field" for="room-photos">
+                <span>More room photos (3D rebuild)</span>
+                <input id="room-photos" type="file" accept="image/*" multiple />
+              </label>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
                   <span>Width (m)</span>
@@ -363,20 +374,15 @@
                   <span>Depth (m)</span>
                   <input id="room-d" type="number" step="0.1" value="3.8" />
                 </label>
-                <label class="field" for="room-h">
-                  <span>Height (m)</span>
-                  <input id="room-h" type="number" step="0.1" value="2.5" />
-                </label>
               </div>
               <label class="field" for="room-budget">
                 <span>Budget ($)</span>
                 <input id="room-budget" type="number" value="40" />
               </label>
-              <button id="house-build" class="house-go">Rebuild the 3D room</button>
-              <p id="house-out" class="hint house-status" aria-live="polite"></p>
               <button id="adapt-btn" class="primary house-go">Put a table in there</button>
               <div class="row wrap house-extra">
                 <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
+                <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
               </div>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>

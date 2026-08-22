@@ -1,14 +1,26 @@
 /**
- * Lab → House: room photos, measurements and a budget become a real 3D
- * scene. Every photo is read locally (no upload): the wall/floor horizon is
- * found, colours are pulled, and the photo bands become wall and floor
- * textures. room-builder.js decides the model, house3d.js builds the meshes,
- * and the adaptation plan drops furniture on the floor. AR still owns
- * #ar-photo as the flat room-camera overlay.
+ * Lab → House: a room photo, measurements and a budget become a placement
+ * plan. Photo + measurements sit in the Lab rails with the bench. AR owns
+ * #ar-photo as the room-camera overlay.
+ *
+ * After a table is popped into the photo, the house regenerates as a real 3D
+ * scene on #room-scene: the floor plane is textured from the photo, the walls
+ * are boxes sized by the vanishing-line/aspect heuristic in photogram.js, and
+ * the reconstructed/scanned furniture lands inside. Known width/depth scales
+ * the room mesh to metres.
  */
 
-import { WALL_IDS, analyzeRoomPhoto, buildRoomModel, layoutFurniture } from "./room-builder.js";
-import { createHouseScene } from "./house3d.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  assignSurfaces,
+  cropRegion,
+  estimateHorizon,
+  lumaRows,
+  placeFurniture,
+  roomFromPhotos,
+  wallBoxes,
+} from "./photogram.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -51,9 +63,11 @@ function sizeCanvas(canvas) {
 function drawPhoto(ctx, photo, width, height) {
   ctx.fillStyle = "#d8d4cc";
   ctx.fillRect(0, 0, width, height);
-  const scale = Math.min(width / photo.width, height / photo.height);
-  const dw = photo.width * scale;
-  const dh = photo.height * scale;
+  const sourceWidth = photo.videoWidth || photo.naturalWidth || photo.width;
+  const sourceHeight = photo.videoHeight || photo.naturalHeight || photo.height;
+  const scale = Math.max(width / sourceWidth, height / sourceHeight);
+  const dw = sourceWidth * scale;
+  const dh = sourceHeight * scale;
   const dx = (width - dw) / 2;
   const dy = (height - dh) / 2;
   ctx.drawImage(photo, dx, dy, dw, dh);
@@ -210,130 +224,74 @@ function fmtMm(dims) {
   return parts.length ? `${parts.map((n) => Math.round(n)).join(" × ")} mm` : "";
 }
 
-async function photoEntryFromFile(file) {
-  const bitmap = await createImageBitmap(file);
-  const maxSide = 1024;
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const full = document.createElement("canvas");
-  full.width = Math.max(16, Math.round(bitmap.width * scale));
-  full.height = Math.max(16, Math.round(bitmap.height * scale));
-  full.getContext("2d").drawImage(bitmap, 0, 0, full.width, full.height);
-  const small = document.createElement("canvas");
-  small.width = 128;
-  small.height = Math.max(16, Math.round((full.height / full.width) * 128));
-  const smallCtx = small.getContext("2d", { willReadFrequently: true });
-  smallCtx.drawImage(full, 0, 0, small.width, small.height);
-  const analysis = analyzeRoomPhoto(smallCtx.getImageData(0, 0, small.width, small.height));
-  return {
-    name: file.name || "room.jpg",
-    image: bitmap,
-    analysis,
-    wallCanvas: cropBand(full, Math.min(0.04, analysis.horizon * 0.2), analysis.horizon),
-    floorCanvas: cropBand(full, analysis.horizon, 1),
-  };
+function loadImage(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      resolve(img);
+    };
+    img.onerror = () => resolve(null);
+    img.src = URL.createObjectURL(file);
+  });
 }
 
-function cropBand(source, fromRatio, toRatio) {
-  const y = Math.round(source.height * fromRatio);
-  const h = Math.max(8, Math.round(source.height * (toRatio - fromRatio)));
-  const out = document.createElement("canvas");
-  out.width = source.width;
-  out.height = h;
-  out.getContext("2d").drawImage(source, 0, y, source.width, h, 0, 0, source.width, h);
-  return out;
+/** Sample the photo's row luminance and find the wall/floor vanishing line. */
+function horizonOf(img) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = 32;
+    c.height = 48;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    return estimateHorizon(lumaRows(data, c.width, c.height));
+  } catch {
+    return 0.55;
+  }
 }
 
-export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPart, onAdd } = {}) {
+export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSelectedPart, getPieces, onAdd } = {}) {
   if (!api?.adapt) throw new Error("initHouse requires api.adapt");
 
   const photoInput = $("room-photo");
+  const photosInput = $("room-photos");
   const adaptBtn = $("adapt-btn");
   const out = $("adapt-out");
   const scanBtn = $("scan-btn");
   const scanOut = $("scan-out");
+  const viewBtn = $("house-view-btn");
+  const cameraVideo = $("ar-camera");
+  const cameraBtn = $("ar-toggle");
+  const cameraStatus = $("ar-status");
   const canvas = $("ar-photo");
-  const houseCanvas = $("house-view");
-  const buildBtn = $("house-build");
-  const houseOut = $("house-out");
-  const photoStrip = $("house-photos");
+  const sceneCanvas = $("room-scene");
   if (!adaptBtn || !canvas) {
-    return { applyPlan() {}, draw() {}, setSpace() {}, hasPhoto: () => false };
+    return { applyPlan() {}, draw() {}, setActive() {}, hasPhoto: () => false, hasScene: () => false };
   }
 
   let photo = null;
-  let photos = [];
+  let extraPhotos = [];
   let lastPlan = null;
-  let scene = null;
-  let sceneBuilt = false;
+  let currentSpace = "desk";
+  let active = false;
+  let view3d = false;
+  let three = null;
+  let cameraStream = null;
+  let cameraStart = null;
+  let cameraOverlayRaf = 0;
+  let burstRun = 0;
+  let cameraRequestRun = 0;
+  let cameraDenied = false;
+  let capturedFrames = [];
+
+  function allPhotos() {
+    const list = [...capturedFrames, photo, ...extraPhotos].filter(Boolean);
+    return list.filter((img, i) => list.indexOf(img) === i);
+  }
 
   function markPhoto() {
-    $("app")?.classList.toggle("has-room-photo", Boolean(photo));
-  }
-
-  function roomDims() {
-    return {
-      widthM: readNumber("room-w", 3.2),
-      depthM: readNumber("room-d", 3.8),
-      heightM: readNumber("room-h", 2.5),
-    };
-  }
-
-  function renderPhotoStrip() {
-    if (!photoStrip) return;
-    if (!photos.length) {
-      photoStrip.innerHTML = "";
-      return;
-    }
-    photoStrip.innerHTML = photos
-      .map((entry, i) => {
-        const a = entry.analysis;
-        return `<span class="house-chip" title="${escapeHtml(entry.name)} — wall ${escapeHtml(a.wallColor)}, floor ${escapeHtml(a.floorColor)}">
-          <i style="background:${escapeHtml(a.wallColor)}"></i><i style="background:${escapeHtml(a.floorColor)}"></i>
-          ${escapeHtml(WALL_IDS[i % WALL_IDS.length])}
-        </span>`;
-      })
-      .join("");
-  }
-
-  function ensureScene() {
-    if (scene || !houseCanvas) return scene;
-    try {
-      scene = createHouseScene(houseCanvas);
-    } catch (err) {
-      hud(err?.message || "The 3D room needs WebGL.");
-    }
-    return scene;
-  }
-
-  function rebuildScene(reason = "rebuild") {
-    if (!ensureScene()) return null;
-    const model = buildRoomModel({ ...roomDims(), photos: photos.map((entry) => entry.analysis) });
-    const placements = layoutFurniture(lastPlan, model.room);
-    scene.rebuild({
-      model,
-      placements,
-      textures: {
-        walls: photos.map((entry) => entry.wallCanvas),
-        floor: photos[0]?.floorCanvas || null,
-      },
-    });
-    sceneBuilt = true;
-    if (houseOut) {
-      const fromPhotos = model.photoCount
-        ? `from ${model.photoCount} photo${model.photoCount === 1 ? "" : "s"}`
-        : "with a neutral finish — add photos for the real one";
-      const placed = placements.length
-        ? ` ${placements.length} piece${placements.length === 1 ? "" : "s"} placed.`
-        : "";
-      houseOut.textContent =
-        `Rebuilt the ${model.room.widthM} × ${model.room.depthM} m room ${fromPhotos}. ` +
-        `Floor ${model.floor.color}, ${model.walls.length} walls.${placed}`;
-    }
-    console.log("[ikealive:house]", reason, {
-      photos: photos.length,
-      placements: placements.length,
-    });
-    return model;
+    $("app")?.classList.toggle("has-room-photo", allPhotos().length > 0);
   }
 
   function draw(plan = lastPlan) {
@@ -343,10 +301,335 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
       widthM: readNumber("room-w", 3.2),
       depthM: readNumber("room-d", 3.8),
     };
-    const floor = photo ? drawPhoto(ctx, photo, width, height) : drawEmptyRoom(ctx, width, height, room);
+    const live =
+      cameraStream &&
+      cameraVideo?.readyState >= (globalThis.HTMLMediaElement?.HAVE_CURRENT_DATA ?? 2);
+    const backdrop = live ? cameraVideo : photo || capturedFrames.at(-1);
+    const floor = backdrop ? drawPhoto(ctx, backdrop, width, height) : drawEmptyRoom(ctx, width, height, room);
     if (plan?.ordered?.[0]) drawPiece(ctx, plan, floor);
     applyAtmosphere(ctx, width, height);
-    canvas.classList.remove("hidden");
+    if (!view3d) canvas.classList.remove("hidden");
+  }
+
+  function setCameraStatus(message) {
+    if (cameraStatus) cameraStatus.textContent = message;
+    if (cameraBtn) {
+      cameraBtn.textContent = cameraStream ? "AR off" : "AR on";
+      cameraBtn.setAttribute("aria-pressed", String(Boolean(cameraStream)));
+    }
+  }
+
+  function stopCameraOverlay() {
+    if (cameraOverlayRaf) cancelAnimationFrame(cameraOverlayRaf);
+    cameraOverlayRaf = 0;
+  }
+
+  function startCameraOverlay() {
+    if (cameraOverlayRaf || !cameraStream || !active || view3d) return;
+    const tick = () => {
+      cameraOverlayRaf = 0;
+      if (!cameraStream || !active || view3d) return;
+      draw(lastPlan);
+      cameraOverlayRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  function frameFromCamera() {
+    const sourceWidth = cameraVideo?.videoWidth || 0;
+    const sourceHeight = cameraVideo?.videoHeight || 0;
+    if (!sourceWidth || !sourceHeight) return null;
+    const scale = Math.min(1, 1024 / Math.max(sourceWidth, sourceHeight));
+    const frame = document.createElement("canvas");
+    frame.width = Math.max(16, Math.round(sourceWidth * scale));
+    frame.height = Math.max(16, Math.round(sourceHeight * scale));
+    frame.getContext("2d").drawImage(cameraVideo, 0, 0, frame.width, frame.height);
+    return frame;
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function captureBurst(count = 6) {
+    const run = ++burstRun;
+    capturedFrames = [];
+    let room = null;
+    for (let index = 0; index < count; index += 1) {
+      if (run !== burstRun || !cameraStream) return;
+      const frame = frameFromCamera();
+      if (frame) {
+        capturedFrames.push(frame);
+        capturedFrames = capturedFrames.slice(-6);
+        room = rebuildHouse3d();
+        markPhoto();
+        syncViews();
+        setCameraStatus(`Capturing room ${capturedFrames.length}/${count}`);
+      }
+      if (index < count - 1) await wait(320);
+    }
+    if (!room || run !== burstRun) return;
+    view3d = true;
+    syncViews();
+    onScene?.(room);
+    setCameraStatus(`${capturedFrames.length} frames · 3D room ready`);
+    hud(`Captured ${capturedFrames.length} room angles and rebuilt the 3D house with furniture.`);
+  }
+
+  function stopCamera({ quiet = false } = {}) {
+    burstRun += 1;
+    cameraRequestRun += 1;
+    stopCameraOverlay();
+    for (const track of cameraStream?.getTracks?.() || []) track.stop();
+    cameraStream = null;
+    cameraStart = null;
+    if (cameraVideo) cameraVideo.srcObject = null;
+    setCameraStatus(quiet ? "Camera off" : `${capturedFrames.length || 0} frames kept · camera off`);
+  }
+
+  async function startCamera({ explicit = false } = {}) {
+    if (cameraStream) return cameraStream;
+    if (cameraStart) return cameraStart;
+    if (cameraDenied && !explicit) return null;
+    if (!navigator.mediaDevices?.getUserMedia || !cameraVideo) {
+      cameraDenied = true;
+      setCameraStatus("Camera unavailable · use photo upload");
+      return null;
+    }
+    cameraDenied = false;
+    setCameraStatus("Opening camera…");
+    const requestRun = ++cameraRequestRun;
+    cameraStart = navigator.mediaDevices
+      .getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      })
+      .then(async (stream) => {
+        if (requestRun !== cameraRequestRun || !active) {
+          for (const track of stream.getTracks()) track.stop();
+          return null;
+        }
+        cameraStream = stream;
+        cameraVideo.srcObject = stream;
+        await cameraVideo.play();
+        view3d = false;
+        syncViews();
+        startCameraOverlay();
+        setCameraStatus("Camera live · capturing room");
+        void captureBurst();
+        return stream;
+      })
+      .catch((err) => {
+        if (requestRun !== cameraRequestRun) return null;
+        cameraDenied = true;
+        cameraStream = null;
+        setCameraStatus("Camera blocked · use photo upload");
+        hud(err?.message ? `Camera unavailable: ${err.message}` : "Camera unavailable — use room photos.");
+        return null;
+      })
+      .finally(() => {
+        if (requestRun === cameraRequestRun) cameraStart = null;
+      });
+    return cameraStart;
+  }
+
+  /* ------------------------------------------------ the regenerated house */
+
+  function ensureThree() {
+    if (three || !sceneCanvas) return three;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x14181e);
+    const camera = new THREE.PerspectiveCamera(52, 1, 0.02, 80);
+    const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    const orbit = new OrbitControls(camera, sceneCanvas);
+    orbit.enableDamping = true;
+    orbit.maxPolarAngle = Math.PI * 0.52;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x2c2c34, 1.05));
+    const sun = new THREE.DirectionalLight(0xfff2df, 1.1);
+    sun.position.set(3, 6, 2);
+    scene.add(sun);
+    const roomGroup = new THREE.Group();
+    const furnitureGroup = new THREE.Group();
+    scene.add(roomGroup, furnitureGroup);
+    three = { scene, camera, renderer, orbit, roomGroup, furnitureGroup, raf: 0, built: false, room: null };
+    return three;
+  }
+
+  function sizeScene() {
+    if (!three) return;
+    const host = sceneCanvas.parentElement || sceneCanvas;
+    const rect = host.getBoundingClientRect();
+    const width = Math.max(320, Math.round(rect.width || 900));
+    const height = Math.max(200, Math.round(rect.height || 560));
+    three.renderer.setSize(width, height, false);
+    three.camera.aspect = width / height;
+    three.camera.updateProjectionMatrix();
+  }
+
+  function startLoop() {
+    if (!three || three.raf) return;
+    const tick = () => {
+      three.raf = requestAnimationFrame(tick);
+      three.orbit.update();
+      three.renderer.render(three.scene, three.camera);
+    };
+    tick();
+  }
+
+  function stopLoop() {
+    if (three?.raf) cancelAnimationFrame(three.raf);
+    if (three) three.raf = 0;
+  }
+
+  function clearGroup(group) {
+    for (const child of [...group.children]) {
+      group.remove(child);
+      child.traverse?.((node) => {
+        node.geometry?.dispose?.();
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        for (const material of materials) {
+          material?.map?.dispose?.();
+          material?.dispose?.();
+        }
+      });
+    }
+  }
+
+  function textureFrom(img, region, horizon) {
+    const crop = cropRegion(region, horizon);
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 512;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(
+      img,
+      crop.x * img.width,
+      crop.y * img.height,
+      Math.max(1, crop.w * img.width),
+      Math.max(1, crop.h * img.height),
+      0,
+      0,
+      c.width,
+      c.height,
+    );
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function surfaceMaterial(surface, surfaces, imgs, horizon, fallbackColor) {
+    const pick = surfaces[surface];
+    const img = pick ? imgs[pick.photo] : null;
+    if (img) {
+      return new THREE.MeshStandardMaterial({ map: textureFrom(img, pick.region, horizon), roughness: 0.9 });
+    }
+    return new THREE.MeshStandardMaterial({ color: new THREE.Color(fallbackColor), roughness: 0.94 });
+  }
+
+  function furnitureMesh(item) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(item.color || "#f3efe6"), roughness: 0.62 });
+    if (item.positions instanceof Float32Array && item.positions.length >= 9) {
+      // The scanned visual hull is already metres, centred on its own origin.
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(item.positions.slice(), 3));
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.position.y = item.h / 2;
+      g.add(mesh);
+    } else if (item.shape === "slab" || item.h <= 0.12) {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(item.w, Math.max(0.03, item.h), item.d), mat);
+      slab.position.y = Math.max(0.03, item.h) / 2;
+      g.add(slab);
+    } else {
+      const topT = Math.min(0.05, item.h * 0.18);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(item.w, topT, item.d), mat);
+      top.position.y = item.h - topT / 2;
+      g.add(top);
+      const legMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(shade(item.color, -34)), roughness: 0.7 });
+      const legT = Math.max(0.03, Math.min(item.w, item.d) * 0.1);
+      const legH = item.h - topT;
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(legT, legH, legT), legMat);
+        leg.position.set(sx * (item.w / 2 - legT), legH / 2, sz * (item.d / 2 - legT));
+        g.add(leg);
+      }
+    }
+    g.position.set(item.x, 0, item.z);
+    return g;
+  }
+
+  /** Rebuild the whole house as a 3D scene from the loaded photos. */
+  function rebuildHouse3d() {
+    const ctx3 = ensureThree();
+    if (!ctx3) return null;
+    const imgs = allPhotos();
+    const primary = imgs[0] || null;
+    const horizon = primary ? horizonOf(primary) : 0.55;
+    const aspect = primary ? primary.width / Math.max(1, primary.height) : 4 / 3;
+    const room = roomFromPhotos({
+      aspect,
+      horizon,
+      widthM: lastPlan?.room?.widthM || readNumber("room-w", 0),
+      depthM: lastPlan?.room?.depthM || readNumber("room-d", 0),
+    });
+
+    clearGroup(ctx3.roomGroup);
+    clearGroup(ctx3.furnitureGroup);
+    const surfaces = assignSurfaces(imgs.length);
+
+    const floorMat = surfaceMaterial("floor", surfaces, imgs, horizon, "#c5b7a0");
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(room.widthM, room.depthM), floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(room.widthM / 2, 0, room.depthM / 2);
+    ctx3.roomGroup.add(floor);
+
+    for (const box of wallBoxes(room)) {
+      const mat = surfaceMaterial(box.side, surfaces, imgs, horizon, "#9aa8b6");
+      if (box.side === "front") {
+        // The camera-side wall stays see-through so the room reads from orbit.
+        mat.transparent = true;
+        mat.opacity = 0.22;
+      }
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(box.w, box.h, box.d), mat);
+      wall.position.set(box.x, box.h / 2, box.z);
+      ctx3.roomGroup.add(wall);
+    }
+
+    for (const item of placeFurniture({ plan: lastPlan, pieces: getPieces?.() || [], room })) {
+      ctx3.furnitureGroup.add(furnitureMesh(item));
+    }
+
+    ctx3.camera.position.set(room.widthM * 1.08, room.heightM * 1.2, room.depthM * 1.55);
+    ctx3.orbit.target.set(room.widthM / 2, room.heightM * 0.28, room.depthM / 2);
+    ctx3.built = true;
+    ctx3.room = room;
+    return room;
+  }
+
+  function syncViews() {
+    const showScene = active && view3d && Boolean(three?.built);
+    sceneCanvas?.classList.toggle("hidden", !showScene);
+    canvas.classList.toggle("hidden", !active || showScene);
+    if (viewBtn) {
+      viewBtn.classList.toggle("hidden", !(three?.built || allPhotos().length));
+      viewBtn.textContent = view3d && three?.built ? "Back to the photo" : "View the 3D house";
+    }
+    if (showScene) {
+      stopCameraOverlay();
+      sizeScene();
+      startLoop();
+    } else {
+      stopLoop();
+      if (active) {
+        draw(lastPlan);
+        startCameraOverlay();
+      }
+    }
   }
 
   function writeNotes(plan) {
@@ -358,21 +641,40 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
     lastPlan = plan;
     writeNotes(plan);
     draw(plan);
-    if (sceneBuilt || photos.length) rebuildScene("plan");
+    // The table has been popped into the photo — regenerate the house in 3D.
+    if (allPhotos().length) {
+      const room = rebuildHouse3d();
+      if (room) {
+        view3d = true;
+        syncViews();
+        hud(
+          `Rebuilt the house in 3D — ${room.widthM} × ${room.depthM} m${
+            room.metric ? " (your measurements)" : " (from the photo)"
+          }, walls ${room.heightM} m.`,
+        );
+      }
+    } else if (three?.built) {
+      rebuildHouse3d();
+      syncViews();
+    }
   }
 
   function setSpace(space) {
+    currentSpace = space;
+    active = space === "ar" || space === "house";
     markPhoto();
-    canvas.classList.toggle("hidden", space !== "ar");
-    if (space === "ar") draw(lastPlan);
-    houseCanvas?.classList.toggle("hidden", space !== "house");
     if (space === "house") {
-      if (!sceneBuilt) rebuildScene("first-open");
-      scene?.setActive(true);
-      scene?.resize();
-    } else {
-      scene?.setActive(false);
+      stopCamera({ quiet: true });
+      if (!three?.built && allPhotos().length) rebuildHouse3d();
+      view3d = Boolean(three?.built);
     }
+    syncViews();
+    if (space === "ar") void startCamera();
+    else if (space !== "house") stopCamera({ quiet: true });
+  }
+
+  function setActive(on) {
+    setSpace(on ? "ar" : "desk");
   }
 
   async function adaptRoom() {
@@ -392,7 +694,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
       });
       applyPlan(plan);
       onPlan?.(plan);
-      hud(`Placed ${plan.pick?.name || "a table"} in the room.`);
+      if (!allPhotos().length) hud(`Placed ${plan.pick?.name || "a table"} in the room.`);
     } catch (err) {
       const message = err?.message || "Could not place a piece in this room.";
       if (out) out.textContent = message;
@@ -477,60 +779,88 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
     scanFits();
   });
 
-  $("scan-fits-btn")?.addEventListener("click", () => {
-    scanFits();
-  });
-
   scanOut?.addEventListener("click", async (ev) => {
     const id = ev.target.closest("[data-add]")?.dataset.add;
     if (!id) return;
     try {
       if (onAdd) await onAdd(id);
       else await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
+      if (three?.built) rebuildHouse3d();
       hud(`Added to the bench.`);
     } catch (err) {
       hud(err?.message || "Could not add that piece.");
     }
   });
 
-  photoInput?.addEventListener("change", async (ev) => {
-    const files = [...(ev.target.files || [])];
-    if (!files.length) return;
-    hud(`Reading ${files.length} room photo${files.length === 1 ? "" : "s"}…`);
-    try {
-      photos = await Promise.all(files.map(photoEntryFromFile));
-    } catch (err) {
-      hud(err?.message || "Could not read those photos.");
-      return;
+  viewBtn?.addEventListener("click", () => {
+    if (!three?.built) {
+      const room = rebuildHouse3d();
+      if (!room) return hud("Add a room photo first.");
     }
-    photo = photos[0]?.image || null; // first photo doubles as the AR backdrop
-    markPhoto();
-    renderPhotoStrip();
-    rebuildScene("photos");
-    onPhoto?.(photos);
-    draw(lastPlan);
-    hud(
-      photos.length === 1
-        ? "Built the room from 1 photo. More angles dress more walls."
-        : `Built the room from ${photos.length} photos — one wall each.`,
-    );
+    view3d = !view3d;
+    syncViews();
+    if (view3d) {
+      onScene?.(three.room);
+      syncViews();
+      hud("The house in 3D — drag to orbit, scroll to zoom.");
+    } else {
+      hud("Back to the photo overlay.");
+    }
   });
 
-  buildBtn?.addEventListener("click", () => {
-    rebuildScene("button");
-    onPhoto?.(photos);
+  cameraBtn?.addEventListener("click", () => {
+    if (currentSpace !== "ar") {
+      document.querySelector('#lab-spaces [data-lab="ar"]')?.click();
+      return;
+    }
+    if (cameraStream) stopCamera();
+    else void startCamera({ explicit: true });
+  });
+
+  photoInput?.addEventListener("change", async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const img = await loadImage(file);
+    if (!img) return;
+    photo = img;
+    markPhoto();
+    onPhoto?.(img);
+    draw(lastPlan);
+    if (three?.built) {
+      rebuildHouse3d();
+    }
+    syncViews();
+  });
+
+  photosInput?.addEventListener("change", async (ev) => {
+    const files = [...(ev.target.files || [])].slice(0, 6);
+    if (!files.length) return;
+    const imgs = (await Promise.all(files.map(loadImage))).filter(Boolean);
+    if (!imgs.length) return;
+    extraPhotos = imgs;
+    if (!photo) photo = imgs[0];
+    markPhoto();
+    if (three?.built || lastPlan) rebuildHouse3d();
+    onPhoto?.(imgs);
+    syncViews();
+    hud(`${allPhotos().length} room photo${allPhotos().length === 1 ? "" : "s"} ready for the 3D rebuild.`);
   });
 
   window.addEventListener("resize", () => {
     const app = $("app");
-    if (app?.dataset.mode === "lab" && app?.dataset.lab === "ar") draw(lastPlan);
+    if (app?.dataset.mode !== "lab" || app?.dataset.lab !== "ar") return;
+    if (view3d && three?.built) sizeScene();
+    else draw(lastPlan);
   });
 
   return {
     applyPlan,
     draw,
+    setActive,
     setSpace,
-    hasPhoto: () => Boolean(photo),
-    photoCount: () => photos.length,
+    hasPhoto: () => allPhotos().length > 0,
+    hasScene: () => Boolean(three?.built),
+    cameraFrameCount: () => capturedFrames.length,
+    rebuildHouse3d,
   };
 }
