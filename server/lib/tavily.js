@@ -140,9 +140,11 @@ export async function searchFurniturePieceOffers(build = {}, { fetchFn = fetch }
     .filter(Boolean);
   if (!key || !items.length) return [];
   const dims = build.modelDimensionsMm || {};
+  const profile = build.profile || {};
   const query =
-    `furniture pieces for table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `cut-to-size tabletop legs apron stretcher board lumber ${items.join(" OR ")} -screw -bolt -fastener`;
+    `ways to physically build ${build.name || "custom object"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${profile.topShape || ""} ${profile.supportStyle || ""} ${profile.materialFamily || ""} silhouette ` +
+    `construction method cut list shaped stock ${items.join(" OR ")} -screws -bolts -fasteners -McMaster`;
   return searchOfferQuery(query, key, fetchFn);
 }
 

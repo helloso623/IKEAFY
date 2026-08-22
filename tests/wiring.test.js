@@ -546,18 +546,25 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
+test("finish shows progress, scores a physical way, prints it, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Hunt table pieces/);
-  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
-  assert.match(html, /Piece-plan history/);
-  assert.match(apiSource, /^\s{2}finishProject:/m);
+  assert.match(html, /Finish \/ Find a way/);
+  assert.match(html, /id="finish-progress-bar"/);
+  assert.match(html, /id="finish-progress-text"/);
+  assert.match(html, /visual and dimensional similarity/);
+  assert.match(html, /Ways-to-make history/);
+  assert.match(apiSource, /^\s{2}startFinishProject:/m);
+  assert.match(apiSource, /^\s{2}finishJob:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
-  assert.match(main, /api\.finishProject\(\)/);
+  assert.match(main, /api\.startFinishProject\(model\)/);
+  assert.match(main, /api\.finishJob\(id\)/);
+  assert.match(main, /finishModelSnapshot/);
+  assert.match(main, /Reading the model/);
+  assert.match(main, /closest physical result/);
   assert.match(main, /refreshCurrentDiy/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines|ways-to-make plan/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
