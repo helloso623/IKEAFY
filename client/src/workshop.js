@@ -2,8 +2,18 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
+import { analyzeStability, describeStability } from "./stability.js";
+import {
+  buildComponentDrawChain,
+  buildWeldedTopology,
+  componentMode as normalizeComponentMode,
+  selectedWeldVertices,
+  subdivideTriangleAttributes,
+  updateComponentSelection,
+} from "./mesh-components.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -54,8 +64,8 @@ function grayWoodMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) 
 
 const grainCanvasCache = new Map();
 
-function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true } = {}) {
-  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}`;
+function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true, blotches = false } = {}) {
+  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}:${blotches}`;
   const cached = grainCanvasCache.get(key);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
@@ -66,6 +76,34 @@ function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arc
   const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, size, size);
+  if (blotches) {
+    // Solid wood first reads as tone shifting across the board, then as
+    // streaks. Two low-frequency layers put that in before any line work:
+    // broad soft blotches (heartwood/sapwood drift) and wide vertical
+    // early/latewood bands running with the grain.
+    for (let i = 0; i < 7; i += 1) {
+      const cx = rand() * size;
+      const cy = rand() * size;
+      const radius = size * (0.22 + rand() * 0.3);
+      const dark = rand() > 0.42;
+      const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+      const tone = dark ? "96, 72, 44" : "255, 246, 226";
+      grad.addColorStop(0, `rgba(${tone}, ${(contrast * (dark ? 0.55 : 0.85)).toFixed(4)})`);
+      grad.addColorStop(1, `rgba(${tone}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+    }
+    for (let i = 0; i < 9; i += 1) {
+      const x = rand() * size;
+      const w = size * (0.03 + rand() * 0.09);
+      const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
+      grad.addColorStop(0, "rgba(104, 80, 50, 0)");
+      grad.addColorStop(0.5, `rgba(104, 80, 50, ${(contrast * (0.28 + rand() * 0.5)).toFixed(4)})`);
+      grad.addColorStop(1, "rgba(104, 80, 50, 0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - w, 0, w * 2, size);
+    }
+  }
   for (let i = 0; i < 46; i += 1) {
     const x = rand() * size;
     const drift = (rand() - 0.5) * size * 0.14;
@@ -110,6 +148,49 @@ function grainRepeat(mm) {
   return THREE.MathUtils.clamp((Number(mm) || 280) / 280, 1, 4);
 }
 
+/* Brushed-metal streaks: a mostly-white canvas scored by long horizontal
+   lines. Sampled as a roughness map it turns one flat roughness value into
+   fine gloss/dull lanes, and as a bump map it puts the same lanes into the
+   specular normal — the classic brushed look, procedurally, ~50 KB of canvas
+   instead of a texture download. Left in linear space (no colorSpace) since
+   both slots want raw values. */
+const brushedCanvasCache = new Map();
+
+function brushedCanvas(seed = 1, size = 512) {
+  const cached = brushedCanvasCache.get(seed);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  let s = (seed * 6151 + 92821) % 233280;
+  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  ctx.fillStyle = "#e9e9e9";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 640; i += 1) {
+    const y = rand() * size;
+    const bright = rand() > 0.5;
+    const tone = bright ? 255 : Math.round(120 + rand() * 70);
+    ctx.strokeStyle = `rgba(${tone}, ${tone}, ${tone}, ${(0.05 + rand() * 0.16).toFixed(3)})`;
+    ctx.lineWidth = 0.5 + rand();
+    ctx.beginPath();
+    ctx.moveTo(-4, y);
+    ctx.lineTo(size + 4, y + (rand() - 0.5) * 2);
+    ctx.stroke();
+  }
+  brushedCanvasCache.set(seed, canvas);
+  return canvas;
+}
+
+function brushedTexture(seed, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(brushedCanvas(seed));
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
+
 function seedFrom(part) {
   let n = 3;
   for (const ch of String(part?.id || "x")) n = (n * 31 + ch.charCodeAt(0)) % 997;
@@ -142,9 +223,12 @@ function contactShadowMap(size = 256) {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Foil sheen: a hash-noise jitter on roughness, injected into the foil
-// laminate shader. A few ALU ops per fragment, no extra textures, and the
-// constant cache key means every foil part shares one compiled program.
+// Foil sheen: roughness jitter injected into the foil laminate shader. Two
+// scales — an isotropic paper-fleck sparkle plus row-quantized streaks that
+// run with the printed grain, so highlights smear into brushed lines the way
+// melamine over particleboard really does. A few ALU ops per fragment, no
+// extra textures, and the constant cache key means every foil part shares
+// one compiled program.
 function addFoilGrain(mat) {
   mat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -152,11 +236,12 @@ function addFoilGrain(mat) {
       `#include <roughnessmap_fragment>
       #ifdef USE_MAP
       float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
-      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      float ikeaStreak = fract(sin(floor(vMapUv.x * 220.0) * 12.9898) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.06 + (ikeaStreak - 0.5) * 0.1, 0.04, 1.0);
       #endif`,
     );
   };
-  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  mat.customProgramCacheKey = () => "ikealive-foil-grain-v2";
   return mat;
 }
 
@@ -315,16 +400,53 @@ function foilMaterial(part, hex, kind) {
   // one extra sample of a texture already on the GPU — and jitter roughness.
   mat.bumpMap = map;
   mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  // Real anisotropic specular, rotated to stretch highlights along the
+  // printed grain (streaks run down V in the canvas). Reads against the
+  // scene environment, so the sheen slides as the camera orbits.
+  mat.anisotropy = kind === "white" ? 0.2 : 0.35;
+  mat.anisotropyRotation = Math.PI / 2;
   return addFoilGrain(mat);
 }
 
+/* Open-grain solid wood: blotchy tone drift and latewood bands under the
+   streaks, the same canvas reused as bump (pores catch raking light) and as
+   a roughness map (dark latewood reads slightly duller than sanded face).
+   Each part warms or cools a touch by seed so boards never match exactly. */
 function openWoodMaterial(part, hex) {
+  const seed = seedFrom(part);
   const map = grainTexture(
-    { contrast: 0.17, seed: seedFrom(part), flecks: true, arcs: true },
+    { contrast: 0.22, seed, flecks: true, arcs: true, blotches: true },
     grainRepeat(part.dimsMm?.x),
     grainRepeat(part.dimsMm?.y),
   );
-  return stdMat({ color: new THREE.Color(hex), map, roughness: 0.74, metalness: 0 });
+  const color = new THREE.Color(hex);
+  color.offsetHSL(((seed % 13) - 6) * 0.0016, 0, ((seed % 7) - 3) * 0.008);
+  const mat = stdMat({ color, map, roughness: 0.78, metalness: 0 });
+  mat.bumpMap = map;
+  mat.bumpScale = 0.55;
+  mat.roughnessMap = map;
+  return mat;
+}
+
+/* Brushed steel: full metalness against the room environment, streaked
+   roughness and bump so highlights draw out into brush lines, and real
+   anisotropic specular running with the brush direction. */
+function brushedMetalMaterial(part, hex) {
+  const streaks = brushedTexture(
+    seedFrom(part),
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(hex),
+    metalness: 0.92,
+    roughness: 0.38,
+    roughnessMap: streaks,
+    anisotropy: 0.55,
+  });
+  mat.bumpMap = streaks;
+  mat.bumpScale = 0.05;
+  return mat;
 }
 
 function materialFor(part, piece) {
@@ -335,15 +457,15 @@ function materialFor(part, piece) {
   if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
   if (texture === "white-foil") return foilMaterial(part, hex, "white");
   if (texture === "oak-open") return openWoodMaterial(part, hex);
+  if (texture === "metal" || part.material === "steel") return brushedMetalMaterial(part, hex);
   if (texture === "powder-coat")
     return stdMat({ color: new THREE.Color(hex), roughness: 0.42, metalness: 0.35 });
   const color = new THREE.Color(hex);
-  const metal = texture === "metal" || part.material === "steel";
   const pcb = /^pcb-/.test(texture || "");
   const mat = stdMat({
     color,
-    roughness: metal ? 0.28 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
-    metalness: metal ? 0.72 : pcb ? 0.12 : 0.05,
+    roughness: pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
+    metalness: pcb ? 0.12 : 0.05,
     emissive: part.firmwareRole === "led" ? new THREE.Color(0x2a2a2a) : 0x000000,
   });
   if (pcb) mat.map = pcbMap(hex);
@@ -1123,11 +1245,23 @@ export function createWorkshop(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+  // Image-based specular: a prefiltered procedural room (no downloads) so
+  // metals mirror something instead of reading as grey plastic, foil
+  // laminate catches window-shaped sheen, and the roughness slider visibly
+  // travels from mirror to matte. Look mode is untouched — its unlit
+  // MeshBasicMaterial overrides ignore scene.environment by design.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.45;
+  pmrem.dispose();
+
   const orbit = new OrbitControls(camera, canvas);
   orbit.target.set(0, 0.2, 0);
   orbit.enableDamping = true;
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.9);
+  // The environment now carries part of the ambient term, so the hemisphere
+  // light steps back to keep overall exposure where it was.
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.55);
   scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffffff, 1.3);
   key.position.set(2, 3, 1);
@@ -1225,6 +1359,16 @@ export function createWorkshop(canvas) {
   const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
+  let componentMode = null;
+  let componentSelection = new Set();
+  let componentRows = [];
+  let componentDrawOn = false;
+  let componentDrawPoints = [];
+  let componentDrawTarget = null;
+  let componentDrawMaterialIndex = 0;
+  let onComponentSelect = () => {};
+  let onDimensions = () => {};
+  let lastDimensionKey = "";
   let snapOn = true;
   let editMode = "translate";
   let simOn = false;
@@ -1424,16 +1568,24 @@ export function createWorkshop(canvas) {
   }
 
   function attach(mesh, quiet = false) {
+    const changedBody = selected !== (mesh || null);
+    if (changedBody) {
+      componentSelection = new Set();
+      componentDrawPoints = [];
+      componentDrawTarget = null;
+    }
     selected = mesh || null;
     if (!mesh) {
       transform.detach();
       markSelected(null);
+      refreshComponentOverlay();
       if (!quiet) onSelect(null);
       return false;
     }
-    if (sculptMode || cadTool || meshTool) transform.detach();
+    if (sculptMode || cadTool || meshTool || componentMode) transform.detach();
     else transform.attach(mesh);
     markSelected(mesh);
+    refreshComponentOverlay();
     if (!quiet) onSelect(mesh.userData);
     return true;
   }
@@ -1458,6 +1610,7 @@ export function createWorkshop(canvas) {
     mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
     mesh.scale.set(piece.sx || 1, piece.sy || 1, piece.sz || 1);
     markSelected(mesh);
+    if (mesh === selected) refreshComponentOverlay();
     return true;
   }
 
@@ -1470,11 +1623,11 @@ export function createWorkshop(canvas) {
   });
   scene.add(transform.getHelper());
 
-  /* ---- Materials panel: per-piece color + roughness, applied live --------
+  /* ---- Materials panel: per-piece color + roughness + metalness, live ----
      Color and texture persist through the project API (the server keeps
-     them on the piece); roughness is a client-side dressing kept in a map
-     so sync() can re-apply it after every rebuild. */
-  const matOverrides = new Map(); // pieceId -> { roughness }
+     them on the piece); roughness and metalness are client-side dressing
+     kept in a map so sync() can re-apply them after every rebuild. */
+  const matOverrides = new Map(); // pieceId -> { roughness, metalness }
 
   function eachTintableMaterial(root, fn) {
     root.traverse((child) => {
@@ -1489,7 +1642,7 @@ export function createWorkshop(canvas) {
     });
   }
 
-  function setPieceMaterial(id, { color, roughness } = {}) {
+  function setPieceMaterial(id, { color, roughness, metalness } = {}) {
     const mesh = meshes.get(id);
     if (!mesh) return false;
     if (roughness != null && Number.isFinite(Number(roughness))) {
@@ -1497,6 +1650,13 @@ export function createWorkshop(canvas) {
       matOverrides.set(id, { ...(matOverrides.get(id) || {}), roughness: value });
       eachTintableMaterial(mesh, (mat) => {
         if (mat.roughness !== undefined) mat.roughness = value;
+      });
+    }
+    if (metalness != null && Number.isFinite(Number(metalness))) {
+      const value = THREE.MathUtils.clamp(Number(metalness), 0, 1);
+      matOverrides.set(id, { ...(matOverrides.get(id) || {}), metalness: value });
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.metalness !== undefined) mat.metalness = value;
       });
     }
     if (color) {
@@ -1520,34 +1680,36 @@ export function createWorkshop(canvas) {
     const piece = mesh.userData.piece || {};
     const part = mesh.userData.part || {};
     let roughness = matOverrides.get(id)?.roughness;
-    if (roughness == null) {
-      eachTintableMaterial(mesh, (mat) => {
-        if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
-      });
-    }
+    let metalness = matOverrides.get(id)?.metalness;
+    eachTintableMaterial(mesh, (mat) => {
+      if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
+      if (metalness == null && mat.metalness !== undefined) metalness = mat.metalness;
+    });
     return {
       color: `#${new THREE.Color(piece.color || part.color || PALE).getHexString()}`,
       texture: piece.texture || part.texture || null,
       roughness: roughness ?? 0.6,
+      metalness: metalness ?? 0.05,
     };
   }
 
   function applyMatOverrides() {
     for (const [id, override] of matOverrides) {
       const mesh = meshes.get(id);
-      if (!mesh || override.roughness == null) continue;
+      if (!mesh) continue;
       eachTintableMaterial(mesh, (mat) => {
-        if (mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.roughness != null && mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.metalness != null && mat.metalness !== undefined) mat.metalness = override.metalness;
       });
     }
   }
 
-  /* ---- Sculpt-lite: grab / smooth / inflate + one-shot subdivide ---------
+  /* ---- Sculpt-lite: grab / smooth / inflate / draw / pinch / flatten -----
      Blender-flavored vertex editing on the selected body. Deformed geometry
      is client-side dressing: sculptStore keeps the edited BufferGeometry per
      piece so sync() rebuilds put it back, exactly like matOverrides. */
   const sculptStore = new Map(); // pieceId -> [geometry per sculptable child]
-  let sculptMode = null; // null | "grab" | "smooth" | "inflate"
+  let sculptMode = null;
   let sculptStroke = null;
   let onSculpt = () => {};
 
@@ -1593,11 +1755,21 @@ export function createWorkshop(canvas) {
     return Math.max(0.025, size.length() * 0.16);
   }
 
-  function sculptHit(ev) {
+  function sculptIntersection(ev) {
     if (!selected) return null;
     pointAt(ev);
     const hits = ray.intersectObject(selected, true).filter((h) => !h.object.isSprite);
-    return hits.length ? hits[0].point.clone() : null;
+    if (!hits.length) return null;
+    const hit = hits[0];
+    const normal = hit.face?.normal
+      ?.clone()
+      .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld))
+      .normalize() || camera.getWorldDirection(new THREE.Vector3()).negate();
+    return { point: hit.point.clone(), normal, object: hit.object, faceIndex: hit.faceIndex };
+  }
+
+  function sculptHit(ev) {
+    return sculptIntersection(ev)?.point || null;
   }
 
   function prepSculptTarget(child) {
@@ -1644,10 +1816,22 @@ export function createWorkshop(canvas) {
     return out.divideScalar(group.length);
   }
 
+  function saveSculptFor(id, root) {
+    if (!id || !root) return;
+    const geometries = sculptTargets(root).map((child) => child.geometry);
+    sculptStore.set(id, geometries);
+    const record = reconstructed.get(id);
+    if (record && geometries.length === 1) {
+      const geometry = geometries[0];
+      record.positions = new Float32Array(geometry.getAttribute("position").array);
+      const color = geometry.getAttribute("color")?.array;
+      record.colors = color ? new Float32Array(color) : null;
+      record.triangleCount = record.positions.length / 9;
+    }
+  }
+
   function saveSculpt() {
-    const id = selected?.userData?.piece?.id;
-    if (!id) return;
-    sculptStore.set(id, sculptTargets(selected).map((child) => child.geometry));
+    saveSculptFor(selected?.userData?.piece?.id, selected);
   }
 
   function applySculptStore() {
@@ -1668,12 +1852,99 @@ export function createWorkshop(canvas) {
     }
   }
 
+  /* Geometry edits reserve an entry in the same server history used by Move.
+     The server returns this token from undo/redo; these snapshots then restore
+     the browser-owned BufferGeometry at the matching point in that stack. */
+  const geometryEdits = new Map();
+  const geometryEditOrder = [];
+  let geometryEditSequence = 0;
+
+  function geometrySnapshot(root) {
+    return sculptTargets(root).map((child) => sculptGeometry(child).clone());
+  }
+
+  function disposeGeometrySnapshot(snapshot) {
+    for (const geometry of snapshot || []) geometry.dispose();
+  }
+
+  function beginGeometryEdit() {
+    const pieceId = selected?.userData?.piece?.id;
+    if (!pieceId) return null;
+    const clientEdit = `mesh-${Date.now().toString(36)}-${(++geometryEditSequence).toString(36)}`;
+    geometryEdits.set(clientEdit, {
+      clientEdit,
+      pieceId,
+      before: geometrySnapshot(selected),
+      after: null,
+    });
+    geometryEditOrder.push(clientEdit);
+    while (geometryEditOrder.length > 40) {
+      const expired = geometryEdits.get(geometryEditOrder.shift());
+      if (!expired) continue;
+      disposeGeometrySnapshot(expired.before);
+      disposeGeometrySnapshot(expired.after);
+      geometryEdits.delete(expired.clientEdit);
+    }
+    return clientEdit;
+  }
+
+  function cancelGeometryEdit(clientEdit) {
+    const edit = geometryEdits.get(clientEdit);
+    if (!edit) return;
+    disposeGeometrySnapshot(edit.before);
+    disposeGeometrySnapshot(edit.after);
+    geometryEdits.delete(clientEdit);
+    const index = geometryEditOrder.indexOf(clientEdit);
+    if (index >= 0) geometryEditOrder.splice(index, 1);
+  }
+
+  function completeGeometryEdit(clientEdit) {
+    const edit = geometryEdits.get(clientEdit);
+    const mesh = edit && meshes.get(edit.pieceId);
+    if (!edit || !mesh) {
+      cancelGeometryEdit(clientEdit);
+      return null;
+    }
+    disposeGeometrySnapshot(edit.after);
+    edit.after = geometrySnapshot(mesh);
+    return clientEdit;
+  }
+
+  function applyGeometryEdit(clientEdit, direction) {
+    const edit = geometryEdits.get(clientEdit);
+    const mesh = edit && meshes.get(edit.pieceId);
+    const snapshot = direction === "redo" ? edit?.after : edit?.before;
+    if (!edit || !mesh || !snapshot) return false;
+    const targets = sculptTargets(mesh);
+    if (targets.length !== snapshot.length) return false;
+    targets.forEach((child, index) => {
+      child.geometry = snapshot[index].clone();
+    });
+    saveSculptFor(edit.pieceId, mesh);
+    componentSelection = new Set();
+    resetComponentDrawChain();
+    refreshComponentOverlay();
+    markSelected(selected);
+    return true;
+  }
+
   function beginSculptStroke(ev) {
-    const hit = sculptHit(ev);
-    if (!hit) return false;
+    const intersection = sculptIntersection(ev);
+    if (!intersection) return false;
+    const hit = intersection.point;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map(prepSculptTarget);
     const radius = brushRadius(selected);
-    const stroke = { hit, targets, radius, moved: false };
+    const stroke = {
+      hit,
+      targets,
+      radius,
+      moved: false,
+      clientEdit,
+      flattenOrigin: hit.clone(),
+      flattenNormal: intersection.normal.clone(),
+    };
     if (sculptMode === "grab") {
       const planeNormal = camera.getWorldDirection(new THREE.Vector3());
       stroke.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, hit);
@@ -1698,6 +1969,7 @@ export function createWorkshop(canvas) {
     const { radius } = stroke;
     const c = new THREE.Vector3();
     const n = new THREE.Vector3();
+    const surfaceNormal = new THREE.Vector3();
     for (const target of stroke.targets) {
       const normal = target.geo.getAttribute("normal");
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(target.child.matrixWorld);
@@ -1707,10 +1979,20 @@ export function createWorkshop(canvas) {
         if (d >= radius) continue;
         const w = (1 - d / radius) ** 2;
         touched = true;
-        if (sculptMode === "inflate") {
-          n.set(0, 0, 0);
-          for (const i of group) n.add(new THREE.Vector3().fromBufferAttribute(normal, i));
-          n.applyMatrix3(normalMatrix).normalize().multiplyScalar(radius * 0.05 * w);
+        surfaceNormal.set(0, 0, 0);
+        for (const i of group) {
+          surfaceNormal.add(new THREE.Vector3().fromBufferAttribute(normal, i));
+        }
+        surfaceNormal.applyMatrix3(normalMatrix).normalize();
+        if (sculptMode === "inflate" || sculptMode === "draw") {
+          const strength = sculptMode === "draw" ? 0.028 : 0.05;
+          n.copy(surfaceNormal).multiplyScalar(radius * strength * w);
+        } else if (sculptMode === "pinch") {
+          n.copy(hit).sub(c);
+          n.addScaledVector(surfaceNormal, -n.dot(surfaceNormal)).multiplyScalar(0.16 * w);
+        } else if (sculptMode === "flatten") {
+          const distance = c.clone().sub(stroke.flattenOrigin).dot(stroke.flattenNormal);
+          n.copy(stroke.flattenNormal).multiplyScalar(-distance * 0.22 * w);
         } else {
           // smooth: relax the welded vertex toward the brush center
           n.copy(hit).sub(c).multiplyScalar(0.12 * w);
@@ -1762,24 +2044,32 @@ export function createWorkshop(canvas) {
   function endSculptStroke() {
     if (!sculptStroke) return;
     const moved = sculptStroke.moved;
+    const clientEdit = sculptStroke.clientEdit;
     sculptStroke = null;
     orbit.enabled = true;
-    if (!moved) return;
+    if (!moved) {
+      cancelGeometryEdit(clientEdit);
+      return;
+    }
     saveSculpt();
+    completeGeometryEdit(clientEdit);
     const name = selected?.userData?.part?.name || "body";
     pushOp("S", `Sculpt ${sculptMode} · ${name}`);
-    onSculpt({ mode: sculptMode, name });
+    onSculpt({ mode: sculptMode, name, clientEdit });
   }
 
   function setSculptMode(next) {
-    const mode = ["grab", "smooth", "inflate"].includes(next) ? next : null;
+    const mode = ["grab", "smooth", "inflate", "draw", "pinch", "flatten"].includes(next)
+      ? next
+      : null;
     sculptMode = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (meshTool) setMeshTool(null);
       transform.detach();
-    } else if (selected && !meshTool) {
+    } else if (selected && !meshTool && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("sculpting", Boolean(mode));
@@ -1789,57 +2079,600 @@ export function createWorkshop(canvas) {
     return sculptMode;
   }
 
+  /* ---- Blender-like vertex / edge / face component selection -------------
+     The overlay is world-space and disposable; the furniture geometry remains
+     the source of truth. Topology welds duplicate triangle corners so scaling
+     and selective subdivision always move/split every copy together. */
+  const componentOverlay = new THREE.Group();
+  scene.add(componentOverlay);
+  let componentPickObjects = [];
+  const componentPointMat = new THREE.PointsMaterial({
+    color: 0x62b7ff,
+    size: 6,
+    sizeAttenuation: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentPointSelectedMat = new THREE.PointsMaterial({
+    color: 0xffda1a,
+    size: 10,
+    sizeAttenuation: false,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeMat = new THREE.LineBasicMaterial({
+    color: 0x62b7ff,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeSelectedMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentFaceMat = new THREE.MeshBasicMaterial({
+    color: 0x3d9cf0,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    toneMapped: false,
+  });
+  const componentFaceSelectedMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentDrawFx = new THREE.Group();
+  scene.add(componentDrawFx);
+  const componentDrawFaceMat = componentFaceSelectedMat.clone();
+  componentDrawFaceMat.opacity = 0.2;
+
+  function qualifiedComponentKey(targetIndex, localId) {
+    return `${targetIndex}|${localId}`;
+  }
+
+  function localComponentSelection(targetIndex) {
+    const prefix = `${targetIndex}|`;
+    return [...componentSelection]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length));
+  }
+
+  function clearComponentOverlay() {
+    componentOverlay.traverse((child) => child.geometry?.dispose?.());
+    componentOverlay.clear();
+    componentPickObjects = [];
+    componentRows = [];
+  }
+
+  function worldPosition(child, point) {
+    return new THREE.Vector3(point[0], point[1], point[2]).applyMatrix4(child.matrixWorld);
+  }
+
+  function positionGeometry(values) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(values, 3));
+    return geometry;
+  }
+
+  function resetComponentDrawChain() {
+    componentDrawPoints = [];
+    componentDrawTarget = null;
+    componentDrawMaterialIndex = 0;
+    componentDrawFx.traverse((child) => child.geometry?.dispose?.());
+    componentDrawFx.clear();
+  }
+
+  function refreshComponentDrawOverlay() {
+    componentDrawFx.traverse((child) => child.geometry?.dispose?.());
+    componentDrawFx.clear();
+    if (!componentDrawOn || !componentDrawPoints.length) return;
+    const chain = buildComponentDrawChain(
+      componentDrawPoints.map((point) => [point.x, point.y, point.z]),
+      { closed: componentDrawPoints.length >= 3 },
+    );
+    componentDrawFx.add(
+      new THREE.Points(positionGeometry(chain.points.flat()), componentPointSelectedMat),
+    );
+    if (chain.edges.length) {
+      const values = chain.edges.flatMap(([a, b]) => [...chain.points[a], ...chain.points[b]]);
+      componentDrawFx.add(new THREE.LineSegments(positionGeometry(values), componentEdgeSelectedMat));
+    }
+    if (chain.faces.length) {
+      const values = chain.faces.flatMap((face) => face.flatMap((index) => chain.points[index]));
+      componentDrawFx.add(new THREE.Mesh(positionGeometry(values), componentDrawFaceMat));
+    }
+  }
+
+  function drawClosesAtPointer(ev) {
+    if (componentDrawPoints.length < 3) return false;
+    const projected = componentDrawPoints[0].clone().project(camera);
+    const rect = canvas.getBoundingClientRect();
+    const x = rect.left + (projected.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-projected.y * 0.5 + 0.5) * rect.height;
+    return Math.hypot(ev.clientX - x, ev.clientY - y) <= 14;
+  }
+
+  function drawnFaceMaterial(geometry, faceIndex) {
+    const offset = Math.max(0, Number(faceIndex) || 0) * 3;
+    const entry = geometry.groups.find(
+      (groupEntry) => offset >= groupEntry.start && offset < groupEntry.start + groupEntry.count,
+    );
+    return entry?.materialIndex ?? 0;
+  }
+
+  function appendDrawnFaces(child, points) {
+    const oldGeometry = sculptGeometry(child);
+    const position = oldGeometry.getAttribute("position");
+    const inverse = child.matrixWorld.clone().invert();
+    const localPoints = points.map((point) => point.clone().applyMatrix4(inverse));
+    const chain = buildComponentDrawChain(
+      localPoints.map((point) => [point.x, point.y, point.z]),
+      { closed: true },
+    );
+    if (!chain.faces.length) return null;
+    const cornerIndices = chain.faces.flat();
+    const nearest = localPoints.map((point) => {
+      let best = 0;
+      let bestDistance = Infinity;
+      const candidate = new THREE.Vector3();
+      for (let index = 0; index < position.count; index += 1) {
+        candidate.fromBufferAttribute(position, index);
+        const distance = candidate.distanceToSquared(point);
+        if (distance < bestDistance) {
+          best = index;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    });
+    const next = new THREE.BufferGeometry();
+    for (const [name, attribute] of Object.entries(oldGeometry.attributes)) {
+      if (name === "normal" || name === "tangent") continue;
+      const ArrayType = attribute.array.constructor;
+      const added = new ArrayType(cornerIndices.length * attribute.itemSize);
+      if (name === "position") {
+        cornerIndices.forEach((pointIndex, corner) => {
+          const point = localPoints[pointIndex];
+          const offset = corner * 3;
+          added[offset] = point.x;
+          added[offset + 1] = point.y;
+          added[offset + 2] = point.z;
+        });
+      } else {
+        cornerIndices.forEach((pointIndex, corner) => {
+          const source = nearest[pointIndex] * attribute.itemSize;
+          const offset = corner * attribute.itemSize;
+          for (let axis = 0; axis < attribute.itemSize; axis += 1) {
+            added[offset + axis] = attribute.array[source + axis];
+          }
+        });
+      }
+      const values = new ArrayType(attribute.array.length + added.length);
+      values.set(attribute.array);
+      values.set(added, attribute.array.length);
+      next.setAttribute(
+        name,
+        new THREE.BufferAttribute(values, attribute.itemSize, attribute.normalized),
+      );
+    }
+    for (const entry of oldGeometry.groups) {
+      next.addGroup(entry.start, entry.count, entry.materialIndex);
+    }
+    if (oldGeometry.groups.length) {
+      next.addGroup(position.count, cornerIndices.length, componentDrawMaterialIndex);
+    }
+    next.name = oldGeometry.name;
+    next.computeVertexNormals();
+    next.computeBoundingBox();
+    next.computeBoundingSphere();
+    return { geometry: next, addedFaces: chain.faces.length, beforeFaces: position.count / 3 };
+  }
+
+  function commitComponentDrawFace() {
+    if (!componentDrawTarget || componentDrawPoints.length < 3) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
+    const targetIndex = sculptTargets(selected).indexOf(componentDrawTarget);
+    const oldGeometry = componentDrawTarget.geometry;
+    const result = appendDrawnFaces(componentDrawTarget, componentDrawPoints);
+    if (!result || targetIndex < 0) {
+      result?.geometry.dispose();
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
+    componentDrawTarget.geometry = result.geometry;
+    oldGeometry.dispose();
+    saveSculpt();
+    completeGeometryEdit(clientEdit);
+    componentDrawPoints = [];
+    componentDrawTarget = null;
+    componentDrawMaterialIndex = 0;
+    componentMode = "face";
+    componentSelection = new Set(
+      Array.from(
+        { length: result.addedFaces },
+        (_, index) => qualifiedComponentKey(targetIndex, `f:${result.beforeFaces + index}`),
+      ),
+    );
+    for (const button of document.querySelectorAll("[data-component-mode]")) {
+      const active = button.dataset.componentMode === "face";
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    refreshComponentOverlay();
+    emitComponentSelection();
+    const name = selected?.userData?.part?.name || "body";
+    pushOp("D", `Draw ${result.addedFaces} face${result.addedFaces === 1 ? "" : "s"} · ${name}`);
+    onMeshEdit({
+      tool: "component-draw",
+      name,
+      label: `Drew ${result.addedFaces} point-chain face${result.addedFaces === 1 ? "" : "s"}`,
+      clientEdit,
+    });
+    return true;
+  }
+
+  function addComponentDrawPoint(ev) {
+    if (!componentDrawOn || !selected) return false;
+    if (drawClosesAtPointer(ev)) return commitComponentDrawFace();
+    const intersection = sculptIntersection(ev);
+    if (!intersection) return true;
+    if (!componentDrawTarget) {
+      componentDrawTarget = intersection.object;
+      componentDrawMaterialIndex = drawnFaceMaterial(
+        intersection.object.geometry,
+        intersection.faceIndex,
+      );
+    }
+    const previous = componentDrawPoints.at(-1);
+    if (previous?.distanceTo(intersection.point) < 0.001) return true;
+    if (componentDrawPoints.length >= 64) return true;
+    componentDrawPoints.push(intersection.point);
+    refreshComponentDrawOverlay();
+    return true;
+  }
+
+  function addComponentPoints(row) {
+    const all = [];
+    const selectedPoints = [];
+    const keys = [];
+    for (const vertex of row.topology.vertices) {
+      const key = qualifiedComponentKey(row.index, vertex.id);
+      const point = worldPosition(row.child, vertex.position);
+      all.push(point.x, point.y, point.z);
+      keys.push(key);
+      if (componentSelection.has(key)) selectedPoints.push(point.x, point.y, point.z);
+    }
+    const points = new THREE.Points(positionGeometry(all), componentPointMat);
+    points.userData.componentKeys = keys;
+    points.userData.componentKind = "vertex";
+    componentOverlay.add(points);
+    componentPickObjects.push(points);
+    if (selectedPoints.length) {
+      componentOverlay.add(new THREE.Points(positionGeometry(selectedPoints), componentPointSelectedMat));
+    }
+  }
+
+  function edgePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const edge of row.topology.edges) {
+      const key = qualifiedComponentKey(row.index, edge.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      const [a, b] = edge.vertices.map((index) => worldPosition(row.child, row.topology.vertices[index].position));
+      values.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentEdges(row) {
+    const all = edgePositions(row);
+    const lines = new THREE.LineSegments(positionGeometry(all.values), componentEdgeMat);
+    lines.userData.componentKeys = all.keys;
+    lines.userData.componentKind = "edge";
+    componentOverlay.add(lines);
+    componentPickObjects.push(lines);
+    const highlighted = edgePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(
+        new THREE.LineSegments(positionGeometry(highlighted.values), componentEdgeSelectedMat),
+      );
+    }
+  }
+
+  function facePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const face of row.topology.faces) {
+      const key = qualifiedComponentKey(row.index, face.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      for (const vertexIndex of face.vertices) {
+        const point = worldPosition(row.child, row.topology.vertices[vertexIndex].position);
+        values.push(point.x, point.y, point.z);
+      }
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentFaces(row) {
+    const all = facePositions(row);
+    const faces = new THREE.Mesh(positionGeometry(all.values), componentFaceMat);
+    faces.userData.componentKeys = all.keys;
+    faces.userData.componentKind = "face";
+    componentOverlay.add(faces);
+    componentPickObjects.push(faces);
+    const highlighted = facePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(new THREE.Mesh(positionGeometry(highlighted.values), componentFaceSelectedMat));
+    }
+  }
+
+  function refreshComponentOverlay() {
+    clearComponentOverlay();
+    if (!componentMode || !selected) {
+      refreshComponentDrawOverlay();
+      return;
+    }
+    componentRows = sculptTargets(selected).map((child, index) => {
+      const geometry = sculptGeometry(child);
+      child.updateMatrixWorld(true);
+      return {
+        index,
+        child,
+        topology: buildWeldedTopology(geometry.getAttribute("position").array),
+      };
+    });
+    for (const row of componentRows) {
+      if (componentMode === "vertex") addComponentPoints(row);
+      else if (componentMode === "edge") addComponentEdges(row);
+      else addComponentFaces(row);
+    }
+    refreshComponentDrawOverlay();
+  }
+
+  function componentKeyFromHit(hit) {
+    const keys = hit.object.userData.componentKeys || [];
+    if (hit.object.userData.componentKind === "face") return keys[hit.faceIndex] || null;
+    if (hit.object.userData.componentKind === "edge") return keys[Math.floor(hit.index / 2)] || null;
+    return keys[hit.index] || null;
+  }
+
+  function emitComponentSelection() {
+    const detail = {
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+      name: selected?.userData?.part?.name || "body",
+    };
+    onComponentSelect(detail);
+    canvas.dispatchEvent(new CustomEvent("ikealive-components", { detail }));
+  }
+
+  function pickComponent(ev) {
+    if (!componentMode || !selected) return false;
+    pointAt(ev);
+    ray.params.Points.threshold = 0.014;
+    ray.params.Line.threshold = 0.009;
+    const hits = ray.intersectObjects(componentPickObjects, false);
+    const key = hits.length ? componentKeyFromHit(hits[0]) : null;
+    componentSelection = updateComponentSelection(componentSelection, key, {
+      shiftKey: ev.shiftKey,
+      empty: !key,
+    });
+    transform.detach();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function setComponentMode(next) {
+    const mode = normalizeComponentMode(next);
+    if (componentMode !== mode) {
+      componentSelection = new Set();
+      resetComponentDrawChain();
+    }
+    if (!mode && componentDrawOn) setComponentDraw(false);
+    componentMode = mode;
+    if (mode) {
+      if (cadTool) setCadTool(null);
+      if (measureOn) setMeasure(false);
+      if (meshTool) setMeshTool(null);
+      if (sculptMode) setSculptMode(null);
+      transform.detach();
+    } else if (selected && !cadTool && !measureOn && !meshTool && !sculptMode) {
+      transform.attach(selected);
+    }
+    canvas.classList.toggle("component-editing", Boolean(mode));
+    for (const button of document.querySelectorAll("[data-component-mode]")) {
+      const active = Boolean(mode) && button.dataset.componentMode === mode;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return componentMode;
+  }
+
+  function setComponentDraw(on) {
+    const enabled = Boolean(on && selected);
+    componentDrawOn = enabled;
+    resetComponentDrawChain();
+    if (enabled && !componentMode) setComponentMode("vertex");
+    canvas.classList.toggle("component-drawing", enabled);
+    const button = document.querySelector("[data-component-draw]");
+    button?.classList.toggle("on", enabled);
+    button?.setAttribute("aria-pressed", String(enabled));
+    refreshComponentDrawOverlay();
+    return componentDrawOn;
+  }
+
+  function clearComponentSelection() {
+    if (!componentSelection.size) return false;
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function scaleComponentSelection(factor) {
+    const amount = Number(factor);
+    if (!selected || !componentMode || !componentSelection.size) return null;
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const picked = [];
+    for (const row of componentRows) {
+      const local = localComponentSelection(row.index);
+      const vertices = selectedWeldVertices(row.topology, componentMode, local);
+      for (const index of vertices) {
+        picked.push({ row, index, world: worldPosition(row.child, row.topology.vertices[index].position) });
+      }
+    }
+    if (!picked.length) return null;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return null;
+    const center = picked.reduce((sum, entry) => sum.add(entry.world), new THREE.Vector3())
+      .divideScalar(picked.length);
+    const byRow = new Map();
+    for (const entry of picked) {
+      let edits = byRow.get(entry.row);
+      if (!edits) byRow.set(entry.row, (edits = []));
+      edits.push(entry);
+    }
+    for (const [row, edits] of byRow) {
+      const geometry = row.child.geometry;
+      const position = geometry.getAttribute("position");
+      const inverse = row.child.matrixWorld.clone().invert();
+      for (const entry of edits) {
+        const localPoint = entry.world.clone().sub(center).multiplyScalar(amount).add(center).applyMatrix4(inverse);
+        for (const occurrence of row.topology.vertices[entry.index].indices) {
+          position.setXYZ(occurrence, localPoint.x, localPoint.y, localPoint.z);
+        }
+      }
+      position.needsUpdate = true;
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    }
+    saveSculpt();
+    completeGeometryEdit(clientEdit);
+    const name = selected.userData.part?.name || "body";
+    pushOp("S", `Scale ${componentSelection.size} ${componentMode} components · ${name}`);
+    onMeshEdit({
+      tool: "component-scale",
+      name,
+      label: `Scaled ${componentSelection.size} selected ${componentMode} components`,
+      clientEdit,
+    });
+    refreshComponentOverlay();
+    return { scope: "components", count: componentSelection.size, mode: componentMode };
+  }
+
+  function geometryAttributeInput(geometry) {
+    return Object.fromEntries(
+      Object.entries(geometry.attributes)
+        .filter(([name]) => name !== "normal" && name !== "tangent")
+        .map(([name, attribute]) => [
+          name,
+          {
+            array: attribute.array,
+            itemSize: attribute.itemSize,
+            normalized: attribute.normalized,
+          },
+        ]),
+    );
+  }
+
+  function geometryFromSubdivision(oldGeometry, result) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.name = oldGeometry.name;
+    for (const [name, attribute] of Object.entries(result.attributes)) {
+      geometry.setAttribute(
+        name,
+        new THREE.BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized),
+      );
+    }
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    if (oldGeometry.groups.length) {
+      let startFace = 0;
+      while (startFace < result.faceMaterials.length) {
+        const materialIndex = result.faceMaterials[startFace];
+        let endFace = startFace + 1;
+        while (
+          endFace < result.faceMaterials.length &&
+          result.faceMaterials[endFace] === materialIndex
+        ) {
+          endFace += 1;
+        }
+        geometry.addGroup(startFace * 3, (endFace - startFace) * 3, materialIndex);
+        startFace = endFace;
+      }
+    }
+    return geometry;
+  }
+
   function subdivideSelected() {
     const id = selected?.userData?.piece?.id;
     if (!id) return false;
     const targets = sculptTargets(selected);
+    const selective =
+      (componentMode === "edge" || componentMode === "face") && componentSelection.size > 0;
     let total = 0;
     for (const child of targets) total += sculptGeometry(child).getAttribute("position").count;
-    if (total > 60000) return false; // once around the loop is plenty
-    for (const child of targets) {
-      const geo = child.geometry;
-      const pos = geo.getAttribute("position");
-      const uv = geo.getAttribute("uv");
-      const nextPos = new Float32Array(pos.count * 4 * 3);
-      const nextUv = uv ? new Float32Array(pos.count * 4 * 2) : null;
-      let w = 0;
-      let wUv = 0;
-      const P = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)];
-      const U = (i) => (uv ? [uv.getX(i), uv.getY(i)] : null);
-      const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
-      const push = (p, t) => {
-        nextPos.set(p, w);
-        w += 3;
-        if (nextUv && t) {
-          nextUv.set(t, wUv);
-          wUv += 2;
-        }
-      };
-      for (let i = 0; i < pos.count; i += 3) {
-        const [a, b, cV] = [P(i), P(i + 1), P(i + 2)];
-        const [ta, tb, tc] = [U(i), U(i + 1), U(i + 2)];
-        const ab = mid(a, b);
-        const bc = mid(b, cV);
-        const ca = mid(cV, a);
-        const tab = ta && mid(ta, tb);
-        const tbc = tb && mid(tb, tc);
-        const tca = tc && mid(tc, ta);
-        push(a, ta); push(ab, tab); push(ca, tca);
-        push(ab, tab); push(b, tb); push(bc, tbc);
-        push(ca, tca); push(bc, tbc); push(cV, tc);
-        push(ab, tab); push(bc, tbc); push(ca, tca);
-      }
-      const nextGeo = new THREE.BufferGeometry();
-      nextGeo.setAttribute("position", new THREE.BufferAttribute(nextPos, 3));
-      if (nextUv) nextGeo.setAttribute("uv", new THREE.BufferAttribute(nextUv, 2));
-      nextGeo.computeVertexNormals();
-      child.geometry = nextGeo;
-      geo.dispose();
+    if ((!selective && total > 60000) || total > 240000) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
+    const pending = [];
+    let beforeFaces = 0;
+    let afterFaces = 0;
+    for (let index = 0; index < targets.length; index += 1) {
+      const child = targets[index];
+      const local = selective ? localComponentSelection(index) : [];
+      if (selective && !local.length) continue;
+      const geometry = child.geometry;
+      const result = subdivideTriangleAttributes(geometryAttributeInput(geometry), {
+        mode: selective ? componentMode : null,
+        selection: local,
+        groups: geometry.groups,
+      });
+      beforeFaces += result.beforeFaces;
+      afterFaces += result.afterFaces;
+      pending.push({ child, geometry, next: geometryFromSubdivision(geometry, result) });
+    }
+    if (!pending.length || afterFaces * 3 > 240000) {
+      pending.forEach(({ next }) => next.dispose());
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
+    for (const { child, geometry, next } of pending) {
+      child.geometry = next;
+      geometry.dispose();
     }
     saveSculpt();
+    completeGeometryEdit(clientEdit);
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
     const name = selected?.userData?.part?.name || "body";
-    pushOp("S", `Subdivide · ${name}`);
-    return true;
+    const scope = selective ? `${componentMode} selection` : "whole mesh";
+    pushOp("S", `Subdivide ${scope} · ${name}`);
+    onMeshEdit({ tool: "subdivide", name, label: `Subdivide ${scope}`, clientEdit });
+    return { scope: selective ? "selection" : "all", beforeFaces, afterFaces };
   }
 
   /* ---- Mesh tools: extrude / inset / bevel / knife-lite / loop cut --------
@@ -1973,6 +2806,8 @@ export function createWorkshop(canvas) {
 
   function beginFaceStroke(hit) {
     const normal = worldFaceNormal(hit);
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map(prepSculptTarget);
     const center = new THREE.Vector3();
     const c = new THREE.Vector3();
@@ -1991,7 +2826,10 @@ export function createWorkshop(canvas) {
         picked += 1;
       }
     }
-    if (!picked) return false;
+    if (!picked) {
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
     center.divideScalar(picked);
     for (const target of targets) {
       for (const pick of target.facePicks) {
@@ -2009,6 +2847,7 @@ export function createWorkshop(canvas) {
       dragPlane: cameraPlaneThrough(hit.point),
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2111,6 +2950,8 @@ export function createWorkshop(canvas) {
     if (box.isEmpty()) return false;
     const edge = nearestBoxEdge(box, hit.point);
     if (!edge || !(edge.maxW > 0.001)) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map((child) => {
       const geo = sculptGeometry(child);
       return {
@@ -2128,6 +2969,7 @@ export function createWorkshop(canvas) {
       width: 0,
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2184,6 +3026,8 @@ export function createWorkshop(canvas) {
   }
 
   function beginKnifeStroke(hit) {
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     meshStroke = {
       kind: "knife",
       hit: hit.point.clone(),
@@ -2191,6 +3035,7 @@ export function createWorkshop(canvas) {
       dragPlane: cameraPlaneThrough(hit.point),
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2240,10 +3085,16 @@ export function createWorkshop(canvas) {
     const at = snapOn ? snap10(hit.point.getComponent(bestAxis)) : hit.point.getComponent(bestAxis);
     const point = hit.point.clone().setComponent(bestAxis, at);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axes[bestAxis], point);
-    if (!cutSelectedWithPlane(plane)) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
+    if (!cutSelectedWithPlane(plane)) {
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
+    completeGeometryEdit(clientEdit);
     const name = selected?.userData?.part?.name || "body";
     pushOp("L", `Loop cut · ${name}`);
-    onMeshEdit({ tool: "loopcut", name });
+    onMeshEdit({ tool: "loopcut", name, clientEdit });
     return true;
   }
 
@@ -2275,23 +3126,28 @@ export function createWorkshop(canvas) {
     meshStroke = null;
     orbit.enabled = true;
     dimsEl?.classList.remove("on");
-    if (!moved) return;
+    if (!moved) {
+      cancelGeometryEdit(stroke.clientEdit);
+      return;
+    }
     saveSculpt();
+    completeGeometryEdit(stroke.clientEdit);
     const name = selected?.userData?.part?.name || "body";
     const chips = { extrude: "E", inset: "I", bevel: "B", knife: "K" };
     pushOp(chips[stroke.kind] || "M", `${stroke.label || stroke.kind} · ${name}`);
-    onMeshEdit({ tool: stroke.kind, name, label: stroke.label });
+    onMeshEdit({ tool: stroke.kind, name, label: stroke.label, clientEdit: stroke.clientEdit });
   }
 
   function setMeshTool(next) {
     const mode = MESH_TOOLS.includes(next) ? next : null;
     meshTool = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (sculptMode) setSculptMode(null);
       transform.detach();
-    } else if (selected && !sculptMode && !cadTool && !measureOn) {
+    } else if (selected && !sculptMode && !cadTool && !measureOn && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("modeling", Boolean(mode));
@@ -2519,6 +3375,7 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && componentMode) setComponentMode(null);
     if (cadTool && sculptMode) setSculptMode(null);
     if (cadTool && meshTool) setMeshTool(null);
     if (cadTool && measureOn) {
@@ -2529,7 +3386,7 @@ export function createWorkshop(canvas) {
     }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected && !measureOn) transform.attach(selected);
+    else if (selected && !measureOn && !componentMode) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -2554,6 +3411,29 @@ export function createWorkshop(canvas) {
 
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
+  const dimSize = new THREE.Vector3();
+
+  function getSelectedDimensionsMm() {
+    if (!selected?.parent) return null;
+    dimBox.setFromObject(selected);
+    if (dimBox.isEmpty()) return null;
+    dimBox.getSize(dimSize);
+    return {
+      x: Math.round(dimSize.x * 10000) / 10,
+      y: Math.round(dimSize.y * 10000) / 10,
+      z: Math.round(dimSize.z * 10000) / 10,
+    };
+  }
+
+  function emitDimensions() {
+    const dimensions = getSelectedDimensionsMm();
+    const key = dimensions
+      ? `${selected?.userData?.piece?.id || ""}:${dimensions.x}:${dimensions.y}:${dimensions.z}`
+      : "";
+    if (key === lastDimensionKey) return;
+    lastDimensionKey = key;
+    onDimensions(dimensions);
+  }
   function updateDims() {
     if (!dimsEl || sketch || measureOn || meshStroke) return;
     const data = selected?.userData;
@@ -2568,10 +3448,10 @@ export function createWorkshop(canvas) {
     }
     dimBox.getCenter(dimCenter);
     dimCenter.y = dimBox.max.y + 0.025;
-    const d = data.part.dimsMm;
-    const w = Math.max(1, Math.round(d.x * selected.scale.x));
-    const dep = Math.max(1, Math.round(d.y * selected.scale.z));
-    const h = Math.max(1, Math.round(d.z * selected.scale.y));
+    dimBox.getSize(dimSize);
+    const w = Math.max(1, Math.round(dimSize.x * 1000));
+    const dep = Math.max(1, Math.round(dimSize.z * 1000));
+    const h = Math.max(1, Math.round(dimSize.y * 1000));
     placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
   }
 
@@ -2627,12 +3507,147 @@ export function createWorkshop(canvas) {
     const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
     const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
     const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
-    readEl.textContent = `${fmtMm(measureA.distanceTo(measureB))} · Δ ${dx} × ${dy} × ${dz} mm`;
+    readEl.textContent = `${fmtMm(measureA.distanceTo(measureB))} · Δ ${dx} × ${dy} × ${dz} mm · ticks 10 mm`;
   }
 
   function getMeasuredMm() {
     if (!measureA || !measureB) return 0;
     return measureA.distanceTo(measureB) * 1000;
+  }
+
+  /* ---- Physics preview: would it hold or break? ---------------------------
+     Runs the pure stability analyzer over the bench bodies' world boxes and
+     acts the verdict out with ghost clones — green ghosts settle, red ghosts
+     fall or tip over. The editable meshes are never touched: ghosts share
+     geometry read-only and toggling the preview just empties the overlay. */
+  const physicsFx = new THREE.Group();
+  scene.add(physicsFx);
+  let physicsAnim = null;
+  let onPhysicsCleared = () => {};
+
+  function collectPhysicsPieces() {
+    const out = [];
+    for (const [id, mesh] of meshes) {
+      if (!mesh.visible) continue;
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) continue;
+      out.push({
+        id,
+        name: mesh.userData.part?.name || id,
+        mesh,
+        box: {
+          min: { x: box.min.x, y: box.min.y, z: box.min.z },
+          max: { x: box.max.x, y: box.max.y, z: box.max.z },
+        },
+      });
+    }
+    return out;
+  }
+
+  function ghostOf(mesh, color) {
+    const ghost = mesh.clone(true);
+    ghost.traverse((node) => {
+      if (node.isMesh) {
+        node.material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.44, depthWrite: false });
+        node.castShadow = false;
+        node.receiveShadow = false;
+      }
+    });
+    mesh.getWorldPosition(ghost.position);
+    mesh.getWorldQuaternion(ghost.quaternion);
+    mesh.getWorldScale(ghost.scale);
+    return ghost;
+  }
+
+  function runPhysicsPreview() {
+    clearPhysicsPreview(true);
+    const pieces = collectPhysicsPieces();
+    const report = analyzeStability(pieces);
+    report.note = describeStability(report);
+    if (!pieces.length) return report;
+
+    const failing = new Map();
+    for (const issue of report.issues) {
+      if (issue.pieceId) failing.set(issue.pieceId, issue.kind);
+    }
+    const assemblyTips = report.issues.some((issue) => issue.kind === "tip" && !issue.pieceId);
+
+    // A whole-build tip rotates every ghost over the base edge nearest the weight.
+    let pivot = null;
+    let axis = null;
+    if (assemblyTips && report.baseHullMm.length) {
+      const com = new THREE.Vector3(report.comMm.x / 1000, 0, report.comMm.z / 1000);
+      for (const p of report.baseHullMm) {
+        const v = new THREE.Vector3(p.x / 1000, 0, p.z / 1000);
+        if (!pivot || v.distanceTo(com) < pivot.distanceTo(com)) pivot = v;
+      }
+      const lean = com.clone().sub(pivot).setY(0);
+      if (lean.lengthSq() < 1e-10) lean.set(1, 0, 0);
+      axis = new THREE.Vector3(0, 1, 0).cross(lean).normalize();
+    }
+
+    const items = pieces.map((piece) => {
+      const kind = failing.get(piece.id) || (assemblyTips ? "tipAll" : report.holds ? "ok" : "okBut");
+      const color = kind === "ok" ? 0x39d98a : kind === "okBut" ? 0x9aa7b0 : 0xff5340;
+      const ghost = ghostOf(piece.mesh, color);
+      physicsFx.add(ghost);
+      const seed = Math.random() * Math.PI * 2;
+      return {
+        ghost,
+        kind,
+        basePos: ghost.position.clone(),
+        baseQuat: ghost.quaternion.clone(),
+        dropM: Math.max(0, piece.box.min.y),
+        wobbleAxis: new THREE.Vector3(Math.cos(seed), 0, Math.sin(seed)).normalize(),
+        seed,
+      };
+    });
+    physicsAnim = { t0: performance.now(), items, pivot, axis, report };
+    return report;
+  }
+
+  function updatePhysicsPreview() {
+    if (!physicsAnim) return;
+    const t = Math.max(0, (performance.now() - physicsAnim.t0) / 1000 - 0.35);
+    const q = new THREE.Quaternion();
+    for (const it of physicsAnim.items) {
+      if (it.kind === "ok" || it.kind === "okBut") {
+        const pulse = it.kind === "ok" ? 0.44 + Math.sin(performance.now() / 260 + it.seed) * 0.14 : 0.28;
+        it.ghost.traverse((node) => {
+          if (node.isMesh) node.material.opacity = pulse;
+        });
+        continue;
+      }
+      if (it.kind === "tipAll" && physicsAnim.pivot) {
+        const angle = Math.min(Math.PI / 2, 1.8 * t * t);
+        q.setFromAxisAngle(physicsAnim.axis, -angle);
+        it.ghost.quaternion.copy(q).multiply(it.baseQuat);
+        it.ghost.position.copy(it.basePos).sub(physicsAnim.pivot).applyQuaternion(q).add(physicsAnim.pivot);
+        continue;
+      }
+      // floating / tip / joint: the body lets go, tumbles, and falls.
+      const delay = it.kind === "joint" ? 0.5 : it.kind === "tip" ? 0.25 : 0;
+      const tt = Math.max(0, t - delay);
+      const drop = Math.min(it.dropM, 4.9 * tt * tt);
+      it.ghost.position.set(it.basePos.x, it.basePos.y - drop, it.basePos.z);
+      q.setFromAxisAngle(it.wobbleAxis, Math.min(0.5, tt * 1.2));
+      it.ghost.quaternion.copy(q).multiply(it.baseQuat);
+    }
+  }
+
+  function clearPhysicsPreview(silent = false) {
+    const had = Boolean(physicsAnim) || physicsFx.children.length > 0;
+    physicsAnim = null;
+    for (const child of [...physicsFx.children]) {
+      physicsFx.remove(child);
+      // Ghosts borrow the bodies' geometry read-only — only the overlay
+      // materials belong to the preview, so only those are disposed.
+      child.traverse((node) => {
+        if (node.isMesh) node.material?.dispose?.();
+      });
+    }
+    if (had && !silent) onPhysicsCleared();
+    return had;
   }
 
   function clearMeasure() {
@@ -2656,6 +3671,27 @@ export function createWorkshop(canvas) {
     b.position.copy(measureB);
     measureFx.add(b);
     measureFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([measureA, measureB]), measureLineMat));
+    const span = measureB.clone().sub(measureA);
+    const length = span.length();
+    if (length > 1e-6) {
+      const direction = span.clone().divideScalar(length);
+      const side = direction.clone().cross(camera.getWorldDirection(new THREE.Vector3()));
+      if (side.lengthSq() < 1e-8) side.copy(direction).cross(new THREE.Vector3(0, 1, 0));
+      if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+      side.normalize();
+      const totalMm = Math.floor(length * 1000);
+      const tickStepMm = Math.max(10, Math.ceil(totalMm / 200 / 10) * 10);
+      const values = [];
+      for (let mm = 0; mm <= totalMm; mm += tickStepMm) {
+        const center = measureA.clone().addScaledVector(direction, mm / 1000);
+        const offset = side.clone().multiplyScalar(mm % 50 === 0 ? 0.006 : 0.0035);
+        values.push(
+          center.x - offset.x, center.y - offset.y, center.z - offset.z,
+          center.x + offset.x, center.y + offset.y, center.z + offset.z,
+        );
+      }
+      measureFx.add(new THREE.LineSegments(positionGeometry(values), measureLineMat));
+    }
   }
 
   function fmtMm(meters) {
@@ -2716,13 +3752,16 @@ export function createWorkshop(canvas) {
     measureOn = next;
     canvas.classList.toggle("measuring", measureOn);
     if (measureOn) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (meshTool) setMeshTool(null);
       if (sculptMode) setSculptMode(null);
       transform.detach();
     } else {
       clearMeasure();
-      if (selected && !cadTool && !meshTool && !sculptMode) transform.attach(selected);
+      if (selected && !cadTool && !meshTool && !sculptMode && !componentMode) {
+        transform.attach(selected);
+      }
     }
     syncMeasureRead();
     emitViewport();
@@ -3086,9 +4125,19 @@ export function createWorkshop(canvas) {
       setMeasure(false);
       return;
     }
+    if (ev.key === "Escape" && componentDrawOn) {
+      if (componentDrawPoints.length) resetComponentDrawChain();
+      else setComponentDraw(false);
+      return;
+    }
+    if (ev.key === "Escape" && componentMode) {
+      if (!clearComponentSelection()) setComponentMode(null);
+      return;
+    }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
     if (ev.key === "Escape" && meshTool) setMeshTool(null);
     if (ev.key === "Escape" && sculptMode) setSculptMode(null);
+    if (ev.key === "Escape" && physicsAnim) clearPhysicsPreview();
   });
 
   function meshFor(piece, part) {
@@ -3191,6 +4240,8 @@ export function createWorkshop(canvas) {
   function sync(project, partsById) {
     knownParts = partsById;
     trackPieces(project, partsById);
+    clearPhysicsPreview(); // the ghosts describe the old layout — drop them
+
     const keepId = selected?.userData?.piece?.id || project.selection || null;
     transform.detach();
     group.clear();
@@ -3323,6 +4374,8 @@ export function createWorkshop(canvas) {
       jointPick(ev);
       return;
     }
+    if (componentDrawOn && selected && addComponentDrawPoint(ev)) return;
+    if (componentMode && selected && pickComponent(ev)) return;
     if (meshTool && selected && beginMeshStroke(ev)) return;
     if (sculptMode && selected && beginSculptStroke(ev)) {
       if (sculptMode !== "grab") sculptStep(sculptStroke.hit);
@@ -3502,7 +4555,9 @@ export function createWorkshop(canvas) {
     if (boxHelper && selected) boxHelper.update();
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
+    emitDimensions();
     updateMeasureLabel();
+    updatePhysicsPreview();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -3689,11 +4744,27 @@ export function createWorkshop(canvas) {
       onJointCommit = fn;
     },
     noteHistory,
+    applyGeometryEdit,
     setCadTool,
     getCadTool: () => cadTool,
     setSculptMode,
     getSculptMode: () => sculptMode,
     subdivideSelected,
+    setComponentMode,
+    getComponentMode: () => componentMode,
+    setComponentDraw,
+    getComponentDraw: () => componentDrawOn,
+    getComponentSelection: () => ({
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+    }),
+    hasComponentSelection: () => componentSelection.size > 0,
+    clearComponentSelection,
+    scaleComponentSelection,
+    onComponentSelect: (fn) => {
+      onComponentSelect = fn;
+    },
     onSculpt: (fn) => {
       onSculpt = fn;
     },
@@ -3708,6 +4779,17 @@ export function createWorkshop(canvas) {
     isPieceHidden: (id) => hiddenIds.has(id),
     hiddenCount: () => hiddenIds.size,
     getMeasuredMm,
+    getSelectedDimensionsMm,
+    onDimensions: (fn) => {
+      onDimensions = fn;
+      onDimensions(getSelectedDimensionsMm());
+    },
+    runPhysicsPreview,
+    clearPhysicsPreview: () => clearPhysicsPreview(true),
+    physicsActive: () => Boolean(physicsAnim),
+    onPhysicsCleared: (fn) => {
+      onPhysicsCleared = fn;
+    },
     setMode: (mode) => {
       if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
       if (cadTool) setCadTool(null);
@@ -3715,7 +4797,7 @@ export function createWorkshop(canvas) {
       if (meshTool) setMeshTool(null);
       editMode = mode;
       transform.setMode(mode);
-      if (selected) transform.attach(selected);
+      if (selected && !componentMode) transform.attach(selected);
       return editMode;
     },
     getMode: () => editMode,

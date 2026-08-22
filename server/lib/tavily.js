@@ -2,6 +2,10 @@ import { getPart, retailerOffers, searchParts } from "./catalog.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const SEARCH_URL = "https://api.tavily.com/search";
+const MANUAL_SEARCH_TIMEOUT_MS = 8_000;
+const MANUAL_PDF_TIMEOUT_MS = 12_000;
+const MANUAL_FETCH_RETRIES = 1;
+const RETRYABLE_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 const SEARCH_TIMEOUT_MS = 8000;
 const PDF_TIMEOUT_MS = 20000;
@@ -608,50 +612,60 @@ export async function searchToolOffers(name, deps = {}) {
 }
 
 /**
- * One legal search for construction methods around the current model. Results
- * may be plans, cut stock, tops, or legs; loose fasteners are excluded.
+ * One search for construction methods and shaped stock around the current
+ * model. Ranked in plan mode: here a write-up carrying a cut list is the
+ * point, unlike a retail lookup where an article is noise.
  */
-export async function searchBuildWayOffersDetailed(build = {}, deps = {}) {
-  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
-  const items = [...(build.lines || []), ...methodCuts]
+async function searchOfferQuery(query, _key, fetchFn, deps = {}) {
+  const found = await tavilySearch(
+    { query, search_depth: "basic", max_results: 8, include_answer: false },
+    { ...deps, fetchFn },
+  );
+  if (!found.ok) return [];
+  return offersFromResults(found.results, { query, limit: 6, mode: "plan" });
+}
+
+/** One dimensions-bearing search for pieces that can make the current table. */
+export async function searchFurniturePieceOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const routePieces = (build.ways || []).flatMap((way) => way.additionalPieces || []);
+  const items = [...(build.cutList || []), ...routePieces]
     .slice(0, 10)
     .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
     .filter(Boolean);
-  if (!usableTavilyKey()) {
-    return { ok: false, offers: [], reason: "no-key", status: null, cached: false, query: null };
-  }
-  if (!items.length) {
-    return { ok: false, offers: [], reason: "empty-query", status: null, cached: false, query: null };
-  }
+  if (!key || !items.length) return [];
   const dims = build.modelDimensionsMm || {};
+  const profile = build.profile || {};
   const query =
-    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
-  const found = await tavilySearch(
-    { query, search_depth: "basic", max_results: 8, include_answer: false },
-    deps,
-  );
-  if (!found.ok) {
-    return { ok: false, offers: [], reason: found.reason, status: found.status, cached: false, query };
-  }
-  const offers = offersFromResults(found.results, {
-    query: `table ${items.join(" ")}`,
-    limit: 6,
-    mode: "plan",
-  });
-  return {
-    ok: offers.length > 0,
-    offers,
-    reason: offers.length ? null : "no-results",
-    status: found.status,
-    cached: found.cached,
-    query,
-  };
+    `ways to physically build ${build.name || "custom object"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${profile.topShape || ""} ${profile.supportStyle || ""} ${profile.materialFamily || ""} silhouette ` +
+    `construction method cut list shaped stock ${items.join(" OR ")} -screws -bolts -fasteners -McMaster`;
+  return searchOfferQuery(query, key, fetchFn);
 }
 
-export async function searchBuildWayOffers(build = {}, deps = {}) {
-  const found = await searchBuildWayOffersDetailed(build, deps);
-  return found.offers;
+export async function searchHardwareOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (build.hardwareLines || [])
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `buy connection hardware for ${build.name || "custom furniture"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${items.join(" OR ")} furniture mounting plates brackets bolts screws`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+export async function searchDiyOffers(build = {}, options = {}) {
+  const [pieces, hardware] = await Promise.all([
+    searchFurniturePieceOffers(build, options),
+    searchHardwareOffers(build, options),
+  ]);
+  return [
+    ...pieces.map((offer) => ({ ...offer, group: "boards-and-stock" })),
+    ...hardware.map((offer) => ({ ...offer, group: "hardware" })),
+  ];
 }
 
 function extraLineFromId(id) {
@@ -838,21 +852,39 @@ function catalogHitsForProduct(name) {
     }));
 }
 
-export function pickManualPdfHit(results = []) {
-  const rows = (results || []).filter((hit) => hit?.url);
+function ikeaCatalogSearchUrl(name) {
+  return `https://www.ikea.com/us/en/search/?q=${encodeURIComponent(String(name || "").trim())}`;
+}
+
+export function isOfficialIkeaPdfUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    const officialHost = url.hostname === "ikea.com" || url.hostname.endsWith(".ikea.com");
+    return url.protocol === "https:" && officialHost && /\.pdf$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function pickManualPdfHit(results = [], productName = "") {
+  const productTerms = String(productName || "")
+    .toLowerCase()
+    .match(/[a-z0-9]{4,}/g) || [];
+  const rows = (results || []).filter((hit) => isOfficialIkeaPdfUrl(hit?.url));
   const scored = rows.map((hit) => {
     const url = String(hit.url);
     const blob = `${url} ${hit.title || ""} ${hit.content || ""}`.toLowerCase();
     let score = 0;
     if (/\.pdf(\?|$)/i.test(url)) score += 8;
     if (/assembly_instructions|assembly-instructions/i.test(url)) score += 6;
-    if (/ikea\./i.test(url)) score += 3;
+    if (isOfficialIkeaPdfUrl(url)) score += 5;
     if (/assembly instructions|instruction (pdf|sheet)|building instruction/i.test(blob)) score += 4;
     if (/filetype:pdf|\.pdf/i.test(blob)) score += 2;
+    if (productTerms.some((term) => blob.includes(term))) score += 4;
     return { hit, score };
   });
   scored.sort((a, b) => b.score - a.score);
-  const best = scored.find((row) => row.score >= 6);
+  const best = scored.find((row) => row.score >= 13);
   return best?.hit || null;
 }
 
@@ -866,12 +898,140 @@ function filenameFromUrl(url, fallback = "ikea-manual.pdf") {
   return fallback;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fetchErrorDetail(error, timedOut = false) {
+  const causes = [error, error?.cause, ...(Array.isArray(error?.cause?.errors) ? error.cause.errors : [])].filter(Boolean);
+  const codes = causes.map((item) => String(item?.code || "")).filter(Boolean);
+  const messages = causes.map((item) => String(item?.message || "")).filter(Boolean);
+  const haystack = [...codes, ...messages].join(" ").toLowerCase();
+
+  let category = "network";
+  let cause = "Network request failed";
+  if (timedOut || /abort|timeout|timedout|etimedout|und_err_connect_timeout/.test(haystack)) {
+    category = "timeout";
+    cause = "Request timed out";
+  } else if (/enotfound|eai_again|getaddrinfo|dns/.test(haystack)) {
+    category = "dns";
+    cause = "DNS lookup failed";
+  } else if (/err_invalid_url|invalid url|failed to parse url/.test(haystack)) {
+    category = "invalid-url";
+    cause = "Invalid request URL";
+  } else if (/certificate|cert_|tls|ssl|unable_to_verify|self_signed|depth_zero/.test(haystack)) {
+    category = "tls";
+    cause = "TLS validation failed";
+  } else if (/proxy|tunnel/.test(haystack)) {
+    category = "proxy";
+    cause = "Proxy connection failed";
+  } else if (/econnrefused|econnreset|enetwork|ehostunreach|socket/.test(haystack)) {
+    category = "connection";
+    cause = "Connection failed";
+  }
+
+  return {
+    category,
+    cause,
+    code: codes[0] || null,
+    retryable: category !== "invalid-url" && category !== "tls",
+  };
+}
+
+async function fetchWithRetry(
+  url,
+  init,
+  {
+    fetchFn,
+    operation,
+    timeoutMs,
+    retries = MANUAL_FETCH_RETRIES,
+    sleepFn = delay,
+  },
+) {
+  const maxAttempts = Math.max(1, retries + 1);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetchFn(url, { ...init, signal: controller.signal });
+      if (response.ok || !RETRYABLE_HTTP_STATUS.has(response.status) || attempt === maxAttempts) {
+        return { response, attempts: attempt, error: null };
+      }
+      ikealiveWarn("tavily", `${operation} retry`, {
+        endpoint: String(url),
+        status: response.status,
+        attempt,
+        maxAttempts,
+      });
+    } catch (error) {
+      const detail = fetchErrorDetail(error, timedOut);
+      ikealiveWarn("tavily", `${operation} network error`, {
+        endpoint: String(url),
+        category: detail.category,
+        code: detail.code,
+        cause: detail.cause,
+        attempt,
+        maxAttempts,
+      });
+      if (!detail.retryable || attempt === maxAttempts) {
+        return { response: null, attempts: attempt, error: detail };
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    await sleepFn(Math.min(150 * attempt, 300));
+  }
+
+  return {
+    response: null,
+    attempts: maxAttempts,
+    error: { category: "network", cause: "Network request failed", code: null, retryable: true },
+  };
+}
+
+async function httpErrorDetail(response) {
+  if (!response) return null;
+  try {
+    const text = typeof response.text === "function" ? await response.text() : "";
+    if (!text) return null;
+    const parsed = JSON.parse(text);
+    const detail = parsed?.detail?.error || parsed?.detail || parsed?.error || parsed?.message;
+    return String(detail || "").replace(/\s+/g, " ").slice(0, 180) || null;
+  } catch {
+    return null;
+  }
+}
+
+function fallbackResult(standin, reason, extra = {}) {
+  return {
+    ...standin,
+    ...extra,
+    manualSearchUrl: ikeaCatalogSearchUrl(standin.query),
+    reason: `${reason} Search IKEA’s official catalog for the manual: ${ikeaCatalogSearchUrl(standin.query)}`,
+  };
+}
+
 /**
  * Look up an IKEA product's official instructions PDF via Tavily, then fetch
  * the PDF Tavily returned. Without a key, return catalog furniture stand-ins.
  */
-export async function findIkeaManual(productName, deps = {}) {
-  const { fetchFn = fetch, pdfTimeoutMs = PDF_TIMEOUT_MS } = deps;
+export async function findIkeaManual(
+  productName,
+  {
+    fetchFn = fetch,
+    searchTimeoutMs = MANUAL_SEARCH_TIMEOUT_MS,
+    pdfTimeoutMs = MANUAL_PDF_TIMEOUT_MS,
+    retries = MANUAL_FETCH_RETRIES,
+    sleepFn = delay,
+  } = {},
+) {
   const name = String(productName || "").trim();
   if (!name) {
     return { ok: false, reason: "Type an IKEA product name." };
@@ -888,85 +1048,139 @@ export async function findIkeaManual(productName, deps = {}) {
     pdfBase64: null,
     filename: null,
     title: catalog[0]?.name || name,
-    degraded: null,
+    manualSearchUrl: ikeaCatalogSearchUrl(name),
   };
 
   if (!hasTavily()) {
     ikealiveLog("tavily", "manual stand-in", { query: name, catalog: catalog.map((c) => c.id) });
-    return {
-      ...standin,
-      degraded: "no-key",
-      reason: catalog.length
-        ? `No Tavily key — catalog stand-in for “${catalog[0].name}”. Set TAVILY_API_KEY to fetch the official IKEA PDF.`
-        : "Set TAVILY_API_KEY to find the official IKEA instructions PDF.",
-    };
+    return fallbackResult(
+      standin,
+      catalog.length
+        ? `Tavily is not configured. Local catalog match: “${catalog[0].name}”.`
+        : "Tavily is not configured.",
+    );
   }
 
-  const query = `IKEA ${name} assembly instructions PDF site:ikea.com`;
-  ikealiveLog("tavily", "manual search", { query, keyed: true });
-  const found = await tavilySearch(
-    { query, search_depth: "basic", max_results: 8, include_answer: false },
-    deps,
+  const query = `IKEA "${name}" assembly_instructions filetype:pdf`;
+  ikealiveLog("tavily", "manual search", {
+    endpoint: SEARCH_URL,
+    query,
+    keyed: true,
+    timeoutMs: searchTimeoutMs,
+    maxAttempts: retries + 1,
+  });
+  const search = await fetchWithRetry(
+    SEARCH_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${usableTavilyKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: "basic",
+        max_results: 8,
+        include_answer: false,
+        include_domains: ["ikea.com"],
+      }),
+    },
+    {
+      fetchFn,
+      operation: "manual search",
+      timeoutMs: searchTimeoutMs,
+      retries,
+      sleepFn,
+    },
   );
-  if (!found.ok) {
-    ikealiveWarn("tavily", "manual search failed", { reason: found.reason, status: found.status });
-    return {
-      ...standin,
-      partner: "tavily",
-      live: false,
-      degraded: found.reason,
-      reason: describeOfferReason(found.reason) || `Tavily search failed (${found.status}).`,
-    };
+  if (search.error) {
+    return fallbackResult(
+      standin,
+      `Tavily is unavailable: ${search.error.cause}${search.error.code ? ` (${search.error.code})` : ""} after ${search.attempts} attempts.`,
+      { partner: "tavily", live: false, errorCause: search.error.category },
+    );
   }
-  const results = found.results;
-  const hit = pickManualPdfHit(results);
+
+  const res = search.response;
+  if (!res.ok) {
+    const detail = await httpErrorDetail(res);
+    ikealiveWarn("tavily", "manual search HTTP error", {
+      endpoint: SEARCH_URL,
+      status: res.status,
+      statusText: res.statusText || null,
+      detail,
+      attempts: search.attempts,
+    });
+    return fallbackResult(
+      standin,
+      `Tavily search returned HTTP ${res.status}${detail ? `: ${detail}` : ""}.`,
+      { partner: "tavily", live: false, httpStatus: res.status },
+    );
+  }
+  const json = await res.json();
+  const results = json.results || json.data || [];
+  const hit = pickManualPdfHit(results, name);
   if (!hit?.url) {
-    ikealiveLog("tavily", "no pdf hit", { query: name, results: results.length });
-    return {
-      ...standin,
+    ikealiveLog("tavily", "no validated pdf hit", { query: name, results: results.length });
+    return fallbackResult(standin, "Tavily found no validated official IKEA PDF for that name.", {
       partner: "tavily",
       live: true,
-      degraded: "no-results",
-      reason: "Tavily found no IKEA instructions PDF for that name.",
-    };
+    });
   }
 
   ikealiveLog("tavily", "fetch pdf", { url: hit.url, title: hit.title || null });
-  const partial = {
-    ok: false,
-    live: true,
-    partner: "tavily",
-    query: name,
-    catalog,
-    pdfUrl: hit.url,
-    pdfBase64: null,
-    filename: filenameFromUrl(hit.url),
-    title: hit.title || name,
-  };
-
-  let pdfRes;
-  try {
-    pdfRes = await fetchFn(hit.url, { signal: AbortSignal.timeout(pdfTimeoutMs) });
-  } catch (err) {
-    const reason = reasonForError(err);
-    ikealiveWarn("tavily", "pdf fetch failed", { url: hit.url, reason, error: String(err?.message || err) });
-    return { ...partial, degraded: reason, reason: `Found a PDF but could not download it (${reason}).` };
+  const pdfFetch = await fetchWithRetry(
+    hit.url,
+    { method: "GET", headers: { Accept: "application/pdf" } },
+    {
+      fetchFn,
+      operation: "manual PDF",
+      timeoutMs: pdfTimeoutMs,
+      retries,
+      sleepFn,
+    },
+  );
+  if (pdfFetch.error) {
+    return fallbackResult(
+      {
+        ...standin,
+        pdfUrl: hit.url,
+        filename: filenameFromUrl(hit.url),
+        title: hit.title || name,
+      },
+      `The official IKEA PDF could not be downloaded: ${pdfFetch.error.cause}${pdfFetch.error.code ? ` (${pdfFetch.error.code})` : ""} after ${pdfFetch.attempts} attempts.`,
+      { partner: "tavily", live: false, errorCause: pdfFetch.error.category },
+    );
   }
+
+  const pdfRes = pdfFetch.response;
   if (!pdfRes.ok) {
     ikealiveWarn("tavily", "pdf fetch failed", { url: hit.url, status: pdfRes.status });
-    return {
-      ...partial,
-      degraded: "http",
-      reason: `Found a PDF but could not download it (${pdfRes.status}).`,
-    };
+    return fallbackResult(
+      {
+        ...standin,
+        pdfUrl: hit.url,
+        filename: filenameFromUrl(hit.url),
+        title: hit.title || name,
+      },
+      `Found an official IKEA PDF but its server returned HTTP ${pdfRes.status}.`,
+      { partner: "tavily", live: true, httpStatus: pdfRes.status },
+    );
   }
   const buf = Buffer.from(await pdfRes.arrayBuffer());
   if (buf.byteLength > MAX_MANUAL_BYTES) {
     ikealiveWarn("tavily", "pdf too large", { url: hit.url, bytes: buf.byteLength });
     return {
-      ...partial,
+      ok: false,
+      live: true,
+      partner: "tavily",
+      query: name,
+      catalog,
+      pdfUrl: hit.url,
+      pdfBase64: null,
+      filename: filenameFromUrl(hit.url),
+      title: hit.title || name,
       bytes: buf.byteLength,
-      degraded: "too-large",
       reason: "That IKEA PDF is too large to ingest here. Drop the file instead.",
     };
   }
@@ -974,19 +1188,32 @@ export async function findIkeaManual(productName, deps = {}) {
   if (!looksPdf) {
     ikealiveWarn("tavily", "not a pdf", { url: hit.url, bytes: buf.byteLength });
     return {
-      ...partial,
-      degraded: "not-a-pdf",
+      ok: false,
+      live: true,
+      partner: "tavily",
+      query: name,
+      catalog,
+      pdfUrl: hit.url,
+      pdfBase64: null,
+      filename: filenameFromUrl(hit.url),
+      title: hit.title || name,
       reason: "Tavily’s hit was not a PDF. Try a more specific product name.",
     };
   }
 
   ikealiveLog("tavily", "manual ready", { url: hit.url, bytes: buf.byteLength, filename: filenameFromUrl(hit.url) });
   return {
-    ...partial,
     ok: true,
+    live: true,
+    partner: "tavily",
+    query: name,
+    catalog,
+    pdfUrl: hit.url,
     pdfBase64: buf.toString("base64"),
+    filename: filenameFromUrl(hit.url),
+    title: hit.title || name,
     bytes: buf.byteLength,
-    degraded: null,
     reason: null,
   };
 }
+

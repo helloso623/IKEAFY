@@ -45,7 +45,8 @@ async function req(url, opts = {}) {
   }
 }
 
-const post = (url, body) => req(url, { method: "POST", body: JSON.stringify(body || {}) });
+const post = (url, body, opts = {}) =>
+  req(url, { ...opts, method: "POST", body: JSON.stringify(body || {}) });
 
 async function postChat(body) {
   try {
@@ -65,14 +66,16 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
-  diyCurrent: () => req("/api/project/diy"),
+  diyCurrent: (model = []) => post("/api/project/diy", { model }),
   seed: () => post("/api/project/seed", { empty: true }),
-  finishProject: () => post("/api/project/finish"),
+  startFinishProject: (model = []) => post("/api/project/finish", { model }),
+  finishJob: (id) => req(`/api/project/finish/${encodeURIComponent(id)}`),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
   duplicate: (id, offset) => post("/api/project/duplicate", { id, offset }),
   joint: (body) => post("/api/project/joint", body),
+  checkpoint: (clientEdit) => post("/api/project/checkpoint", { clientEdit }),
   undo: () => post("/api/project/undo"),
   redo: () => post("/api/project/redo"),
   tape: (tapeId, pieceIds) => post("/api/project/tape", { tapeId, pieceIds }),
@@ -109,7 +112,7 @@ export const api = {
   lookupManual: (productName) => post("/api/ikeafy/manual", { productName }),
 
   // Assembly runs — the server owns the cursor, so these are the only way forward.
-  runStart: (body = {}) => post("/api/assembly/start", body),
+  runStart: (body = {}, opts = {}) => post("/api/assembly/start", body, opts),
   runView: (id) => req(`/api/assembly/${id}`),
   runPeek: (id, step) => req(`/api/assembly/${id}/step/${step}`),
   runConfirm: (id, body = {}) => post(`/api/assembly/${id}/confirm`, body),

@@ -3,25 +3,28 @@ import test from "node:test";
 
 import { buildPacketHtml } from "../client/src/build-packet.js";
 
-test("print packet contains construction ways, cut pieces, and parsed todo steps", () => {
+test("print packet contains furniture pieces and parsed todo steps", () => {
   const html = buildPacketHtml({
-    pdf: { filename: "table-ways-to-make.pdf" },
+    pdf: { filename: "table-piece-plan.pdf" },
     bom: {
       name: "Table <one>",
-      scope: "Construction ways and cut pieces for this model",
+      scope: "Furniture pieces matched to this model",
       estimatedTotal: 34.5,
       currency: "USD",
+      similarityScore: 96,
+      similarity: { reason: "rectangular top / four-leg support" },
       ways: [
         {
           title: "Cut top + ready-made legs",
           recommended: true,
           summary: "Make the current shape from a cut panel and four legs.",
           joinery: "Use the attachment system supplied with the legs.",
-          additionalCuts: [],
+          additionalPieces: [],
+          similarity: { score: 96, dimensions: 100, silhouette: 100, material: 80, pieceBreakdown: 100 },
           sources: [{ store: "Build plan", url: "https://example.com/table-plan" }],
         },
       ],
-      lines: [
+      cutList: [
         {
           qty: 1,
           name: "Cut-to-size table top",
@@ -33,7 +36,24 @@ test("print packet contains construction ways, cut pieces, and parsed todo steps
           sources: [{ store: "Cut-to-size search", url: "https://example.com/cut-panel" }],
         },
       ],
-      researchResults: [],
+      hardwareLines: [
+        {
+          qty: 4,
+          name: "Table-leg mounting plate",
+          why: "Connects each modeled leg.",
+          dimensions: "70 × 70 mm",
+          material: "zinc-plated steel",
+          estimatedCost: 18,
+          sources: [{ store: "Hardware search", url: "https://example.com/mounting-plate" }],
+        },
+      ],
+      liveSources: [
+        {
+          group: "boards-and-stock",
+          title: "Cut-to-size table plan",
+          url: "https://example.com/live-plan",
+        },
+      ],
       disclaimer: "Verify before cutting.",
     },
     assembly: {
@@ -46,11 +66,17 @@ test("print packet contains construction ways, cut pieces, and parsed todo steps
   assert.match(html, /Table &lt;one&gt;/);
   assert.match(html, /Ways to make the final model/);
   assert.match(html, /Cut top \+ ready-made legs/);
-  assert.match(html, /Cut list and shaped pieces/);
+  assert.match(html, /96% similar/);
+  assert.match(html, /dimensions 100%.*silhouette 100%/);
+  assert.match(html, /Geometry-derived pieces and cut list/);
   assert.match(html, /birch plywood/);
+  assert.match(html, /Connection hardware/);
+  assert.match(html, /Table-leg mounting plate/);
+  assert.match(html, /Live piece and hardware matches/);
+  assert.match(html, /Cut-to-size table plan/);
   assert.match(html, /IKEAlive watch \/ plan \/ todo/);
   assert.match(html, /Cut the top to its modeled size/);
-  assert.doesNotMatch(html, /hardware|McMaster/i);
+  assert.doesNotMatch(html, /McMaster/i);
   assert.match(html, /@page/);
 });
 

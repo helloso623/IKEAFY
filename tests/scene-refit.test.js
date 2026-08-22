@@ -59,6 +59,25 @@ test("the current bench model is re-enveloped after edits and fitted inside the 
   assert.ok(fitted.z - fitted.d / 2 >= 0);
 });
 
+test("rotated model components regenerate the room footprint", () => {
+  const base = {
+    id: "top",
+    name: "top",
+    shape: "slab",
+    dimsMm: { x: 1200, y: 600, z: 30 },
+    x: 0,
+    y: 0.72,
+    z: 0,
+  };
+  const unrotated = modelEnvelope([base]);
+  const rotated = modelEnvelope([{ ...base, ry: Math.PI / 2 }]);
+
+  assert.equal(unrotated.w, 1.2);
+  assert.equal(unrotated.d, 0.6);
+  assert.ok(Math.abs(rotated.w - 0.6) < 1e-9);
+  assert.ok(Math.abs(rotated.d - 1.2) < 1e-9);
+});
+
 test("room-aware checks regenerate overhang, height, and collision results", () => {
   const model = {
     id: "current-model",

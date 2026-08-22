@@ -48,6 +48,8 @@ test("promptForStepImage uses the real step body, not a canned LACK plate", () =
   assert.match(prompt, /Hang the rail on the two wall plugs/);
   assert.match(prompt, /keep the hands in frame/);
   assert.match(prompt, /instruction still/);
+  assert.match(prompt, /arrow|callout|plate|exploded/i);
+  assert.doesNotMatch(prompt, /^cinematic photo of/i);
   assert.doesNotMatch(prompt, /table top face down/i);
   assert.doesNotMatch(prompt, /Unpack the pieces in the photos/i);
 });

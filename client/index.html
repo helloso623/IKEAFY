@@ -48,9 +48,9 @@
           <input
             id="omnibox"
             type="search"
-            placeholder="Add a table, generate a lamp, or ask…"
+            placeholder="Describe anything to generate as editable 3D…"
             autocomplete="off"
-            aria-label="Search the catalog or ask the shop"
+            aria-label="Generate editable 3D or explicitly search the catalog"
           />
         </form>
         <div class="top-right">
@@ -108,7 +108,7 @@
                   </svg>
                 </span>
                 <strong>Ask</strong>
-                <p>Find a part, identify hardware, or get unstuck without leaving.</p>
+                <p>Understand the current model or get unstuck without leaving.</p>
               </li>
             </ul>
           </div>
@@ -156,16 +156,6 @@
                 </div>
               </div>
 
-              <div id="custom-source" class="custom-parse">
-                <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
-                <div class="row product-lookup-row">
-                  <span class="field-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-7.4 7.4a2 2 0 0 1-1 .55l-3 .65.65-3a2 2 0 0 1 .55-1l7.2-7.6Z" stroke="#8a8378" stroke-width="1.4" stroke-linejoin="round" /></svg>
-                  </span>
-                  <input id="guide-notes" placeholder="Allen key, screwdriver…" />
-                </div>
-              </div>
-
               <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
                 <p class="render-modes-label">How should we show the steps?</p>
                 <div class="row render-mode-picks">
@@ -198,6 +188,10 @@
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
+        <div class="scene-bake-dock" aria-label="Bake the current room view">
+          <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
+          <span>Bake the occupancy cut and auto-fit into an IKEAlive plan, including the current design checks.</span>
+        </div>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
         <div id="viewport-strip" class="viewport-strip hidden" aria-hidden="true"></div>
@@ -339,11 +333,14 @@
                 <span class="model-kicker">Cuts</span>
                 <button type="button" class="lab-tool" data-mesh-tool="knife" title="Knife: drag a line across the body to cut a real edge into it">Knife</button>
                 <button type="button" class="lab-tool" data-mesh-tool="loopcut" title="Loop cut: click a box body to add an edge loop across it">Loop cut</button>
-                <button type="button" class="lab-tool" data-subdivide title="Subdivide the selected body once">Subdiv</button>
+                <button type="button" class="lab-tool" data-subdivide title="Subdivide selected faces or edges; with none targeted, subdivide the whole mesh">Subdiv</button>
                 <span class="model-kicker">Sculpt</span>
                 <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
                 <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
                 <button type="button" class="lab-tool" data-sculpt="inflate" title="Sculpt: drag to puff the surface out">Inflate</button>
+                <button type="button" class="lab-tool" data-sculpt="draw" title="Sculpt: build up the surface with a softer normal brush">Draw</button>
+                <button type="button" class="lab-tool" data-sculpt="pinch" title="Sculpt: pull nearby surface points toward the brush">Pinch</button>
+                <button type="button" class="lab-tool" data-sculpt="flatten" title="Sculpt: settle nearby points onto the first-hit plane">Flatten</button>
                 <span class="model-kicker">Show</span>
                 <button type="button" class="lab-tool" data-hide-selected title="Hide the selected body (H)">Hide</button>
                 <button type="button" class="lab-tool" data-unhide-all title="Unhide every body (Alt+H)">Unhide all</button>
@@ -372,7 +369,12 @@
                 </label>
                 <button type="button" id="scale-to-measure" class="quiet">Scale to fit</button>
               </div>
-              <p class="hint lab-hint">Numeric scale resizes the selected body. Measure two points on it, then Scale to fit makes that span the typed millimetres — like Fusion's Measure → Scale.</p>
+              <div class="live-dimensions" aria-label="Live body dimensions in millimetres">
+                <label for="dimension-x-mm"><span>X mm</span><input id="dimension-x-mm" data-dimension-axis="x" type="number" min="1" step="1" placeholder="—" /></label>
+                <label for="dimension-y-mm"><span>Y mm</span><input id="dimension-y-mm" data-dimension-axis="y" type="number" min="1" step="1" placeholder="—" /></label>
+                <label for="dimension-z-mm"><span>Z mm</span><input id="dimension-z-mm" data-dimension-axis="z" type="number" min="1" step="1" placeholder="—" /></label>
+              </div>
+              <p class="hint lab-hint">Dimensions update live while scaling; type X, Y, or Z to set that axis. Measure shows 10 mm ticks. Component selections still scale around their shared center.</p>
             </div>
           </details>
           <details class="lab-folder lab-outliner desk-space" open>
@@ -423,9 +425,13 @@
               <div class="scan-phone" id="scan-phone">
                 <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
                 <div id="scan-phone-card" class="scan-phone-card hidden">
-                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
+                  <p class="hint lab-hint">The copy field features a Tailscale HTTPS link when available and keeps a same‑Wi‑Fi LAN fallback. Scan the QR or copy the URL, then record up to 30s walking the room.</p>
                   <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
-                  <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
+                  <div class="scan-phone-copy-row">
+                    <input id="scan-phone-url" class="scan-phone-url" type="url" readonly value="" aria-label="Phone upload URL" placeholder="Waiting for a phone link…" />
+                    <button type="button" id="scan-phone-copy" class="quiet">Copy</button>
+                  </div>
+                  <a id="scan-phone-lan-url" class="scan-phone-lan-url hidden" href="#" target="_blank" rel="noopener"></a>
                   <p class="hint lab-hint" id="scan-phone-status">Waiting for a 30s phone clip…</p>
                 </div>
               </div>
@@ -544,8 +550,7 @@
               <div id="design-issues" class="design-issues" aria-live="polite">
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
-              <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish &amp; find ways researches how to make the final table.</p>
+              <p class="hint">The scan control under the room view bakes this fit. Finish / Find a way scores physical methods and finds boards plus connection hardware for the current model.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -575,6 +580,11 @@
             <button type="button" class="lab-tool" id="edit-rotate" data-edit="rotate">Rotate</button>
             <button type="button" class="lab-tool" id="edit-scale" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool component-mode" id="component-vertex" data-component-mode="vertex" aria-pressed="false" title="Vertex view (1) · click vertices; Shift-click toggles">Vertex view</button>
+            <button type="button" class="lab-tool component-mode" id="component-edge" data-component-mode="edge" aria-pressed="false" title="Edge view (2) · click edges; Shift-click toggles">Edge view</button>
+            <button type="button" class="lab-tool component-mode" id="component-face" data-component-mode="face" aria-pressed="false" title="Face view (3) · click faces; Shift-click toggles">Face view</button>
+            <button type="button" class="lab-tool component-mode" id="component-draw" data-component-draw aria-pressed="false" title="Draw points: click to add vertices and chain edges; click the first point to close real faces">Draw points</button>
+            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" id="edit-snap" data-snap aria-pressed="true">Snap</button>
             <button type="button" class="lab-tool" id="duplicate-piece" data-duplicate>Duplicate</button>
             <button type="button" class="lab-tool" id="delete-piece" data-delete disabled>Delete</button>
@@ -586,13 +596,21 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find ways to make this exact table, print its cut list, and create IKEAlive steps">Finish &amp; find ways</button>
+            <button type="button" class="lab-tool lab-physics" id="physics-btn" title="Physics preview: ghost overlay shows whether this build holds or breaks — collapse, tip-over, failed joints. The editable bodies stay untouched.">Will it hold?</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, source its pieces and stock, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
               Light
             </label>
           </div>
+        </div>
+        <div id="finish-progress" class="finish-progress" role="status" aria-live="polite" hidden>
+          <div class="finish-progress-copy">
+            <strong id="finish-progress-text">Reading the model…</strong>
+            <span id="finish-progress-percent">3%</span>
+          </div>
+          <progress id="finish-progress-bar" max="100" value="3">3%</progress>
         </div>
         <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
@@ -610,6 +628,7 @@
           <span>Grid 10 mm</span>
           <span id="snap-flag">Snap on</span>
           <span>Units mm</span>
+          <span id="physics-verdict" class="physics-verdict" hidden></span>
         </div>
       </div>
 
@@ -650,6 +669,11 @@
                 <input id="mat-rough" type="range" min="0" max="100" value="60" disabled />
                 <output id="mat-rough-out" for="mat-rough">0.60</output>
               </div>
+              <div class="mat-row">
+                <label class="mat-key" for="mat-metal">Metalness</label>
+                <input id="mat-metal" type="range" min="0" max="100" value="5" disabled />
+                <output id="mat-metal-out" for="mat-metal">0.05</output>
+              </div>
               <div id="mat-finish" class="row mat-finish" aria-label="Material finish">
                 <button type="button" data-mat-finish="foil" title="Printed foil on particleboard" disabled>Foil</button>
                 <button type="button" data-mat-finish="wood" title="Open-grain wood" disabled>Wood</button>
@@ -661,7 +685,7 @@
           <details class="lab-sheet" id="diy-build-sheet">
             <summary class="lab-sheet-sum">Ways-to-make history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish &amp; find ways researches construction methods, boards, tops, legs, and cut sizes for the current model. It makes a PDF and IKEAlive todo while older revisions stay here.</p>
+              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, sources pieces and stock, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>
@@ -685,15 +709,15 @@
         class="ai-orb"
         aria-expanded="false"
         aria-controls="ai-dock"
-        title="Ask AI"
+        title="Generate editable 3D"
       >
-        AI
+        3D
       </button>
-      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="AI chat">
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Editable 3D generator">
         <header class="ai-dock-head">
-          <strong>AI</strong>
+          <strong>3D Generator</strong>
           <div class="ai-dock-head-actions">
-            <button type="button" id="ai-dock-max" class="quiet" aria-pressed="false" title="Maximize the AI dock">Maximize</button>
+            <button type="button" id="ai-dock-max" class="quiet" aria-pressed="false" title="Maximize the 3D generator">Maximize</button>
             <button type="button" id="ai-dock-close" class="quiet">Close</button>
           </div>
         </header>
@@ -702,14 +726,13 @@
           <p id="ai-scene">Upload</p>
         </section>
         <div id="agent-bar" class="agent-bar"></div>
-        <p id="many-agents-note" class="hint">Lab many agents: CAD, Creative and Assembler run in parallel on “build this furniture”.</p>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="chat-form" class="ai-form">
           <input
             id="chat-in"
             autocomplete="off"
-            placeholder="build this furniture, add a table, or ask about this scene…"
-            aria-label="Message AI"
+            placeholder="Describe a chair, monster, room corner, or anything else…"
+            aria-label="Prompt the editable 3D generator"
           />
           <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>
           <button type="button" id="lab-voice" class="quiet" hidden aria-pressed="false" title="Speak">Mic</button>
