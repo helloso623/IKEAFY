@@ -85,8 +85,10 @@ import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { PLATE_VISION_ENDPOINT, PLATE_VISION_MODEL } from "./lib/plate-vision.js";
+import { logGliner2Configuration } from "./lib/gliner2.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import { finishFurnitureBuild } from "./lib/build-plan.js";
+import { runtimeBuild } from "../runtime-build.js";
 import {
   addCable,
   addJoint,
@@ -118,7 +120,10 @@ import {
 } from "./lib/project.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-loadDotEnv(path.join(__dirname, "..", ".env"));
+const ROOT = path.join(__dirname, "..");
+loadDotEnv(path.join(ROOT, ".env"));
+const SERVER_STARTED_AT = new Date().toISOString();
+const SERVER_BUILD = runtimeBuild(ROOT);
 
 const VIDEO_PARTNERS = {
   seedance: {
@@ -185,12 +190,42 @@ const state = {
   guide: defaultGuide(),
   adaptation: planRoom({ want: "table", budget: 40 }),
 };
+const finishJobs = new Map();
+
+function finishJobView(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    percent: job.percent,
+    text: job.text,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    events: job.events.map((event) => ({ ...event })),
+  };
+}
+
+function updateFinishJob(job, percent, text, status = "running") {
+  job.status = status;
+  job.percent = Math.max(job.percent, Math.min(100, Math.round(Number(percent) || 0)));
+  job.text = String(text || job.text);
+  job.updatedAt = Date.now();
+  const previous = job.events.at(-1);
+  if (!previous || previous.percent !== job.percent || previous.text !== job.text) {
+    job.events.push({ percent: job.percent, text: job.text, at: job.updatedAt });
+  }
+}
 
 app.get("/api/health", (_req, res) => {
   const official = officialGuide();
   res.json({
     ok: true,
     name: "IKEAlive",
+    build: {
+      ...SERVER_BUILD,
+      pid: process.pid,
+      port: Number(process.env.PORT || 8787),
+      startedAt: SERVER_STARTED_AT,
+    },
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
     video: {
@@ -221,7 +256,7 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       endpoint: PLATE_VISION_ENDPOINT,
       model: PLATE_VISION_MODEL,
-      normalizer: "fastino/gliner2-base-v1",
+      normalizer: "pioneer/gliner2",
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -352,11 +387,18 @@ app.post("/api/ikeafy/parse", async (req, res) => {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
-  const guide = await parseGuideAsync(raw, {
-    instructions: req.body?.instructions || "",
-    availableTools: req.body?.availableTools || [],
-    images,
-  });
+  const guide = await parseGuideAsync(
+    raw,
+    {
+      instructions: req.body?.instructions || "",
+      availableTools: req.body?.availableTools || [],
+      images,
+    },
+    {
+      requestId: req.body?.requestId || null,
+      requireGliner: Boolean(req.body?.pdfBase64 || hasPlates),
+    },
+  );
   state.guide = guide;
   res.json(guide);
 });
@@ -389,8 +431,21 @@ app.post("/api/ikeafy/manual", async (req, res) => {
       pdfBase64: found.pdfBase64 || null,
     });
   } catch (err) {
-    ikealiveWarn("tavily", "manual lookup error", err?.message || err);
-    res.status(502).json({ ok: false, reason: String(err.message || err) });
+    const code = err?.code || err?.cause?.code || null;
+    const cause = err?.cause?.message || null;
+    ikealiveWarn("tavily", "manual lookup error", {
+      name: err?.name || "Error",
+      message: err?.message || String(err),
+      code,
+      cause,
+    });
+    const detail = [err?.message || String(err), cause, code ? `(${code})` : null]
+      .filter(Boolean)
+      .join(" — ");
+    res.status(502).json({
+      ok: false,
+      reason: `Manual lookup failed: ${detail}. Check TAVILY_API_KEY and network access to api.tavily.com.`,
+    });
   }
 });
 
@@ -943,54 +998,142 @@ app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
 });
 
-app.get("/api/project/diy", async (_req, res) => {
-  const packet = await finishFurnitureBuild(state.project);
+async function handleCurrentDiy(req, res) {
+  const model = Array.isArray(req.body?.model) ? structuredClone(req.body.model.slice(0, 64)) : [];
+  const packet = await finishFurnitureBuild(state.project, { model });
   res.status(packet.ok ? 200 : 400).json(packet);
+}
+
+app.get("/api/project/diy", handleCurrentDiy);
+app.post("/api/project/diy", handleCurrentDiy);
+
+function tutorialPurchaseBom(bom = {}) {
+  const extra = (bom.lines || []).map((line) => ({
+    id: line.id,
+    name: line.name,
+    qty: line.qty,
+    dimensions: line.dimensions,
+    material: line.material,
+    category: line.category,
+    why: line.why,
+    estimatedCost: line.estimatedCost,
+    retailers: (line.sources || [])
+      .filter((source) => !/mcmaster/i.test(`${source.store || ""} ${source.url || ""}`))
+      .map((source) => ({
+        store: source.store,
+        title: source.title || source.store,
+        url: source.url,
+        live: Boolean(source.live),
+      })),
+  }));
+  return {
+    included: [],
+    owned: [],
+    extra,
+    missing: extra,
+    total: bom.estimatedTotal,
+    currency: bom.currency || "USD",
+    live: Boolean(bom.live),
+    partner: bom.partner || "catalog-standin",
+    scope: "Every researched component for the current model revision",
+  };
+}
+
+async function runFinishJob(job, projectSnapshot, model) {
+  try {
+    const packet = await finishFurnitureBuild(projectSnapshot, {
+      model,
+      onProgress: (percent, text) => updateFinishJob(job, percent, text),
+    });
+    if (!packet.ok) throw new Error(packet.reason || "Could not analyze the current model.");
+    updateFinishJob(job, 92, "Sending steps to the tutorial guide…");
+    const assembly = await startAssemblyAsync({
+      mode: "custom",
+      guide: packet.planSource,
+      instructions: "Follow the highest-similarity construction way and geometry-derived cut list for this saved model revision.",
+    });
+    if (!assembly.ok) throw new Error(assembly.reason || "Could not parse the custom build plan.");
+    const stored = getAssembly(assembly.run?.id);
+    if (stored?.guide) {
+      stored.guide.bom = tutorialPurchaseBom(packet.bom);
+      state.guide = stored.guide;
+    }
+    const tutorialAssembly = assemblyView(assembly.run?.id);
+    if (!tutorialAssembly.ok) throw new Error(tutorialAssembly.reason || "Could not open the tutorial guide.");
+    const dims = packet.bom.modelDimensionsMm;
+    const build = appendDiyBuild(state.project, {
+      id: `diy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: Date.now(),
+      name: packet.bom.name,
+      signature: packet.bom.modelSignature,
+      dimensions: `${dims.x} × ${dims.y} × ${dims.z} mm`,
+      bom: packet.bom,
+      pdf: packet.pdf,
+      runId: assembly.run?.id || null,
+      planSteps: assembly.outline?.length || assembly.run?.total || 0,
+      outline: assembly.outline || [],
+      planSource: packet.planSource,
+    });
+    persistLabTool(state.project, "generate", {
+      kind: "similarity-build-way",
+      bom: packet.bom,
+      runId: assembly.run?.id || null,
+      pdf: packet.pdf,
+      buildId: build.id,
+    });
+    job.result = { ...packet, assembly: tutorialAssembly, build };
+    updateFinishJob(
+      job,
+      100,
+      `Ready — ${packet.bom.similarityScore}% closest physical match.`,
+      "complete",
+    );
+    ikealiveLog("build", "similarity construction way ready", {
+      pieces: packet.bom.components.length,
+      ways: packet.bom.ways.length,
+      cutLines: packet.bom.cutList.length,
+      hardwareLines: packet.bom.hardwareLines.length,
+      similarity: packet.bom.similarityScore,
+      live: packet.bom.live,
+      runId: assembly.run?.id || null,
+    });
+  } catch (error) {
+    job.error = String(error?.message || error);
+    updateFinishJob(job, 100, job.error, "failed");
+  }
+}
+
+app.post("/api/project/finish", (req, res) => {
+  const id = `finish-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const now = Date.now();
+  const job = {
+    id,
+    status: "queued",
+    percent: 3,
+    text: "Reading the model…",
+    createdAt: now,
+    updatedAt: now,
+    events: [{ percent: 3, text: "Reading the model…", at: now }],
+    result: null,
+    error: null,
+  };
+  finishJobs.set(id, job);
+  while (finishJobs.size > 24) finishJobs.delete(finishJobs.keys().next().value);
+  const projectSnapshot = structuredClone(state.project);
+  const model = Array.isArray(req.body?.model) ? structuredClone(req.body.model.slice(0, 64)) : [];
+  setImmediate(() => runFinishJob(job, projectSnapshot, model));
+  res.status(202).json({ ok: true, job: finishJobView(job) });
 });
 
-app.post("/api/project/finish", async (_req, res) => {
-  const packet = await finishFurnitureBuild(state.project);
-  if (!packet.ok) return res.status(400).json(packet);
-  const assembly = await startAssemblyAsync({
-    mode: "custom",
-    guide: packet.planSource,
-    instructions: "Follow the selected construction way and its dimensioned cut list for this saved model revision.",
+app.get("/api/project/finish/:id", (req, res) => {
+  const job = finishJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ ok: false, reason: "Unknown finish job." });
+  res.json({
+    ok: job.status !== "failed",
+    job: finishJobView(job),
+    result: job.status === "complete" ? job.result : null,
+    reason: job.error,
   });
-  if (!assembly.ok) {
-    return res.status(500).json({ ok: false, reason: assembly.reason || "Could not parse the custom build plan." });
-  }
-  const stored = getAssembly(assembly.run?.id);
-  if (stored?.guide) state.guide = stored.guide;
-  const dims = packet.bom.modelDimensionsMm;
-  const build = appendDiyBuild(state.project, {
-    id: `diy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    createdAt: Date.now(),
-    name: packet.bom.name,
-    signature: packet.bom.modelSignature,
-    dimensions: `${dims.x} × ${dims.y} × ${dims.z} mm`,
-    bom: packet.bom,
-    pdf: packet.pdf,
-    runId: assembly.run?.id || null,
-    planSteps: assembly.outline?.length || assembly.run?.total || 0,
-    outline: assembly.outline || [],
-    planSource: packet.planSource,
-  });
-  persistLabTool(state.project, "generate", {
-    kind: "build-ways",
-    bom: packet.bom,
-    runId: assembly.run?.id || null,
-    pdf: packet.pdf,
-    buildId: build.id,
-  });
-  ikealiveLog("build", "furniture finished", {
-    pieces: state.project.pieces.length,
-    ways: packet.bom.ways.length,
-    cutLines: packet.bom.lines.length,
-    ikeaArticle: packet.bom.ikeaMatch?.article || null,
-    live: packet.bom.live,
-    runId: assembly.run?.id || null,
-  });
-  res.json({ ...packet, assembly, build });
 });
 
 app.post("/api/project/seed", (_req, res) => {
@@ -1042,16 +1185,25 @@ app.post("/api/project/duplicate", (req, res) => {
   res.json({ ok: true, piece, chrome: benchChrome(state.project), edit: editStatus(state.project) });
 });
 
+app.post("/api/project/checkpoint", (req, res) => {
+  const clientEdit = String(req.body?.clientEdit || "").trim().slice(0, 120);
+  if (!clientEdit) {
+    return res.status(400).json({ ok: false, error: "A client edit id is required." });
+  }
+  rememberEdit(state.project, { clientEdit });
+  res.json({ ok: true, clientEdit, edit: editStatus(state.project) });
+});
+
 app.post("/api/project/undo", (_req, res) => {
   const edit = undoEdit(state.project);
   if (!edit) return res.status(400).json({ ok: false, error: "Nothing to undo." });
-  res.json({ ok: true, ...projectPayload(state.project) });
+  res.json({ ok: true, clientEdit: edit.clientEdit, ...projectPayload(state.project) });
 });
 
 app.post("/api/project/redo", (_req, res) => {
   const edit = redoEdit(state.project);
   if (!edit) return res.status(400).json({ ok: false, error: "Nothing to redo." });
-  res.json({ ok: true, ...projectPayload(state.project) });
+  res.json({ ok: true, clientEdit: edit.clientEdit, ...projectPayload(state.project) });
 });
 
 app.post("/api/project/rescale", (req, res) => {
@@ -1438,7 +1590,21 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
   const link = phoneUploadUrls({ apiPort: port });
   ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
-  ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
+  const gliner = logGliner2Configuration();
+  ikealiveLog("parse", "GLiNER 2 configuration", {
+    status: gliner.status,
+    model: gliner.model,
+    mode: gliner.mode,
+    provider: gliner.provider,
+    pioneerApiKey: gliner.pioneerApiKey,
+    python: gliner.python,
+    setupCommand: gliner.setupCommand,
+    falPlateVision: hasFal(),
+  });
+  ikealiveLog("tavily", "configuration", {
+    keyVisible: hasTavily(),
+    envFile: existsSync(path.join(__dirname, "..", ".env")),
+  });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
   console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });

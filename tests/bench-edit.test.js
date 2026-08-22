@@ -106,6 +106,36 @@ test("undo and redo restore furniture edits", () => {
   assert.equal(project.pieces.length, 2);
 });
 
+test("client mesh checkpoints share chronological undo with moves", () => {
+  const project = emptyProject();
+  const top = addPiece(project, "lack-top", { x: 0 });
+
+  rememberEdit(project);
+  movePiece(project, top.id, { x: 0.2 });
+  rememberEdit(project, { clientEdit: "mesh-sculpt-1" });
+  rememberEdit(project);
+  movePiece(project, top.id, { x: 0.4 });
+
+  const moveUndo = undoEdit(project);
+  assert.equal(moveUndo.clientEdit, null);
+  assert.equal(project.pieces[0].x, 0.2);
+
+  const meshUndo = undoEdit(project);
+  assert.equal(meshUndo.clientEdit, "mesh-sculpt-1");
+  assert.equal(project.pieces[0].x, 0.2, "a client checkpoint does not alter server pose");
+
+  const firstMoveUndo = undoEdit(project);
+  assert.equal(firstMoveUndo.clientEdit, null);
+  assert.equal(project.pieces[0].x, 0);
+
+  assert.equal(redoEdit(project).clientEdit, null);
+  assert.equal(project.pieces[0].x, 0.2);
+  assert.equal(redoEdit(project).clientEdit, "mesh-sculpt-1");
+  assert.equal(project.pieces[0].x, 0.2);
+  assert.equal(redoEdit(project).clientEdit, null);
+  assert.equal(project.pieces[0].x, 0.4);
+});
+
 test("discardLastEdit drops a failed remember without changing pieces", () => {
   const project = emptyProject();
   addPiece(project, "lack-leg");

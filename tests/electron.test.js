@@ -17,7 +17,7 @@ const vite = readFileSync(path.join(root, "client/vite.config.js"), "utf8");
 const html = readFileSync(path.join(root, "client/index.html"), "utf8");
 
 function startsStack(script) {
-  return /dev:server/.test(script) && /dev:client|vite/.test(script) && /electron/.test(script);
+  return /dev:client|vite/.test(script) && /electron/.test(script);
 }
 
 test("Electron entry exists and package.json points at it", () => {
@@ -26,8 +26,10 @@ test("Electron entry exists and package.json points at it", () => {
   assert.ok(pkg.scripts.electron, "package.json needs an electron script");
   assert.ok(pkg.scripts["dev:electron"], "package.json needs a dev:electron script");
   assert.ok(pkg.scripts["electron:dev"], "package.json needs an electron:dev script");
-  assert.ok(startsStack(pkg.scripts.electron), "electron starts server + vite + electron");
-  assert.ok(startsStack(pkg.scripts["electron:dev"]), "electron:dev starts server + vite + electron");
+  assert.ok(startsStack(pkg.scripts.electron), "electron starts vite + electron");
+  assert.ok(startsStack(pkg.scripts["electron:dev"]), "electron:dev starts vite + electron");
+  assert.doesNotMatch(pkg.scripts.electron, /dev:server/, "Electron owns its one Express child");
+  assert.doesNotMatch(pkg.scripts["electron:dev"], /dev:server/, "Electron owns its one Express child");
 });
 
 test("browser npm run dev still starts the Vite + Express workshop", () => {
@@ -46,9 +48,23 @@ test("Electron loads the local UI on 5173, localhost, or file:// dist without no
   assert.match(main, /BrowserWindow/);
   assert.match(main, /waitForUrl/);
   assert.match(main, /\/api\/health/);
+  assert.match(main, /buildsMatch/);
+  assert.match(main, /stale IKEAlive code/);
+  assert.match(main, /requestSingleInstanceLock/);
   assert.match(main, /apiPort/, "file renderers need the Express port in their URL");
   assert.match(vite, /base:\s*["']\.\/["']/, "file renderers need relative built assets");
+  assert.match(vite, /strictPort:\s*true/, "Electron must not wait on a different port than Vite selected");
+  assert.match(vite, /process\.env\.CLIENT_PORT/, "Vite and Electron must honor the same client port");
+  assert.match(vite, /process\.env\.PORT/, "Vite must proxy to Electron's Express port");
+  assert.match(vite, /__IKEALIVE_RENDERER_BUILD__/, "the renderer needs immutable startup build info");
   assert.doesNotMatch(main, /nodeIntegration:\s*true/);
+});
+
+test("production Electron does not attach to an arbitrary Vite process", () => {
+  const clientUrl = main.slice(main.indexOf("export async function clientUrl"), main.indexOf("function attachRendererLogs"));
+  assert.match(clientUrl, /if \(isDev\)/);
+  assert.doesNotMatch(clientUrl, /urlReady\(CLIENT_ORIGIN\)/);
+  assert.match(clientUrl, /fileClientUrl/);
 });
 
 test("Electron pipes BrowserWindow console-message events to process.stdout", () => {

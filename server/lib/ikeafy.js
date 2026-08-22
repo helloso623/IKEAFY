@@ -1,8 +1,14 @@
 import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
+import {
+  ensureGliner2Ready,
+  extractGuideWithGliner2,
+  formatGliner2FailureReason,
+  GLINER2_BACKEND,
+  isGliner2RuntimeError,
+} from "./gliner2.js";
+import { FAL_PLATE_VISION_REQUIRED, parseFalVisionGuide, readPlatesWithFal } from "./plate-vision.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
-import { extractGuideWithGliner2, GLINER2_BACKEND } from "./gliner2.js";
-import { FAL_PLATE_VISION_REQUIRED, readPlatesWithFal } from "./plate-vision.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -388,10 +394,16 @@ function safeModelText(value) {
     .slice(0, 800);
 }
 
+function glinerUnavailableReason(error) {
+  return formatGliner2FailureReason(error);
+}
+
 /**
- * Custom guide text goes through local GLiNER 2 first. Diagram-only plates keep
- * a fal vision path, then GLiNER 2 normalizes that output. Official sheets stay
- * on their locked transcription.
+ * Custom guide text goes through Pioneer/Fastino GLiNER 2 first. Diagram-only
+ * plates keep a fal vision path, then GLiNER 2 normalizes that output. When
+ * normalization yields no steps, structured fal JSON (or a local parse of the
+ * vision text) is used so a successful vision call is not discarded. Official
+ * sheets stay on their locked transcription.
  */
 export async function parseGuideAsync(
   raw,
@@ -405,8 +417,20 @@ export async function parseGuideAsync(
   const modelText = String(raw || "").trim();
   let glinerStatus = modelText ? "no grounded steps" : "no readable text";
   if (modelText) {
+    const requestId = deps.requestId || null;
+    ikealiveLog("parse", "GLiNER 2 extracted text", {
+      requestId,
+      textChars: modelText.length,
+      sentChars: Math.min(modelText.length, 24_000),
+      plates: plates.length,
+    });
     try {
-      const extracted = await extractGuideWithGliner2(raw, deps);
+      const extracted = await extractGuideWithGliner2(raw, {
+        ...deps,
+        // Non-PDF paste/plans fall back locally — fail fast if the sidecar is broken.
+        glinerStartupTimeoutMs:
+          deps.glinerStartupTimeoutMs ?? (deps.requireGliner || plates.length ? undefined : 15_000),
+      });
       const modeled = guideFromModel(extracted, {
         raw,
         instructions,
@@ -419,7 +443,27 @@ export async function parseGuideAsync(
       }
       glinerStatus = modeled?.steps?.length ? "steps not grounded in extracted PDF text" : "no grounded steps";
     } catch (error) {
-      glinerStatus = `unavailable: ${String(error?.message || error)}`;
+      const reason = glinerUnavailableReason(error);
+      if (plates.length) {
+        // Plate PDFs can still use fal vision + normalize / structured fallback.
+        ikealiveLog("parse", "GLiNER 2 unavailable; trying fal plate vision", { requestId, reason });
+        glinerStatus = reason;
+      } else if (deps.requireGliner) {
+        ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
+        const guide = emptyGuide({ instructions });
+        guide.parseError = reason;
+        return guide;
+      } else {
+        ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
+        const local = parseGuide(raw, { instructions, availableTools });
+        if (local?.steps?.length) {
+          local.parseWarning = reason;
+          return local;
+        }
+        const guide = emptyGuide({ instructions });
+        guide.parseError = reason;
+        return guide;
+      }
     }
   }
   if (plates.length) {
@@ -429,34 +473,100 @@ export async function parseGuideAsync(
       reason: glinerStatus,
       plates: plates.length,
     });
+    // Fail fast on missing fal before starting the local GLiNER sidecar (avoids assembly hang).
     if (!process.env.FAL_KEY && !deps.falVisionFn) {
       const guide = emptyGuide({ instructions });
       guide.parseError = FAL_PLATE_VISION_REQUIRED;
       return guide;
     }
     try {
+      try {
+        await ensureGliner2Ready(deps);
+      } catch (error) {
+        // Vision JSON can still become steps without GLiNER; keep going.
+        ikealiveWarn("parse", "GLiNER 2 not ready before fal vision", {
+          requestId,
+          reason: glinerUnavailableReason(error),
+        });
+      }
       const visionText = await readPlatesWithFal(
         { raw, images: plates, instructions, availableTools, requestId },
         deps,
       );
-      const normalized = await extractGuideWithGliner2(visionText, deps);
-      const guide = guideFromModel(normalized, {
+      let normalized = null;
+      let normalizeFailureReason = null;
+      try {
+        normalized = await extractGuideWithGliner2(visionText, deps);
+      } catch (error) {
+        normalizeFailureReason = glinerUnavailableReason(error);
+      }
+      const fromGliner = guideFromModel(normalized, {
         raw: visionText,
         instructions,
         availableTools,
         parser: `${GLINER2_BACKEND}+fal-plate-vision`,
       });
-      if (guide?.steps?.length) {
+      if (fromGliner?.steps?.length) {
         ikealiveLog("parse", "fal vision normalized by GLiNER 2", {
           requestId,
-          title: guide.title,
-          steps: guide.steps.length,
+          title: fromGliner.title,
+          steps: fromGliner.steps.length,
         });
-        return guide;
+        return fromGliner;
       }
-      throw new Error("GLiNER 2 could not normalize the fal plate-vision result into assembly steps.");
+
+      // fal already returns {title, steps:[{body,...}]}; use it when GLiNER grounding is empty.
+      const structured = parseFalVisionGuide(visionText);
+      const fromVision = guideFromModel(structured, {
+        raw: visionText,
+        instructions,
+        availableTools,
+        parser: "fal-plate-vision",
+      });
+      if (fromVision?.steps?.length) {
+        if (normalizeFailureReason) {
+          // Fal succeeded; Pioneer TLS / GLiNER normalize miss is informational, not alarming.
+          ikealiveLog("parse", "GLiNER 2 vision normalize skipped; fal structured steps used", {
+            requestId,
+            reason: normalizeFailureReason,
+            title: fromVision.title,
+            steps: fromVision.steps.length,
+          });
+        } else {
+          ikealiveLog("parse", "fal vision structured steps used directly", {
+            requestId,
+            title: fromVision.title,
+            steps: fromVision.steps.length,
+            glinerStatus: normalized ? "empty steps" : "normalize skipped or failed",
+          });
+        }
+        return fromVision;
+      }
+
+      if (normalizeFailureReason) {
+        ikealiveWarn("parse", "GLiNER 2 vision normalize failed", {
+          requestId,
+          reason: normalizeFailureReason,
+        });
+      }
+
+      const local = parseGuide(visionText, { instructions, availableTools });
+      if (local?.steps?.length) {
+        local.parser = "fal-plate-vision+local-parser";
+        local.partners = { ...local.partners, parser: local.parser };
+        ikealiveLog("parse", "fal vision local-parser fallback", {
+          requestId,
+          title: local.title,
+          steps: local.steps.length,
+        });
+        return local;
+      }
+
+      throw new Error("fal plate vision returned text that could not be turned into assembly steps.");
     } catch (error) {
-      const reason = safeModelText(error?.message || error);
+      const reason = isGliner2RuntimeError(error)
+        ? glinerUnavailableReason(error)
+        : safeModelText(error?.message || error);
       ikealiveWarn("parse", "fal plate vision failed", { requestId, reason });
       const guide = emptyGuide({ instructions });
       guide.parseError = reason || "fal plate vision could not read those PDF plates.";

@@ -28,7 +28,8 @@ function sourceLinks(line) {
 
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
-  const lines = bom.lines || [];
+  const lines = bom.cutList || bom.lines || [];
+  const hardware = bom.hardwareLines || [];
   const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || bom.researchResults || [];
@@ -44,15 +45,36 @@ export function buildPacketHtml(packet = {}) {
       </tr>`,
     )
     .join("");
+  const hardwareRows = hardware
+    .map(
+      (line) => `<tr>
+        <td>${escapeHtml(line.qty)}</td>
+        <td><strong>${escapeHtml(line.name)}</strong><small>${escapeHtml(line.why)}</small></td>
+        <td>${escapeHtml(line.dimensions)}</td>
+        <td>${escapeHtml(line.material)}</td>
+        <td>$${Number(line.estimatedCost || 0).toFixed(2)}</td>
+        <td>${sourceLinks(line)}</td>
+      </tr>`,
+    )
+    .join("");
   const wayRows = ways
     .map(
       (way, index) => `<article class="way">
-        <h3>${index + 1}. ${escapeHtml(way.title)}${way.recommended ? " · recommended" : ""}</h3>
+        <h3>${index + 1}. ${escapeHtml(way.title)} · ${escapeHtml(way.similarity?.score ?? 0)}% similar${way.recommended ? " · closest" : ""}</h3>
         <p>${escapeHtml(way.summary)}</p>
+        ${
+          way.similarity
+            ? `<p><strong>Similarity:</strong> dimensions ${escapeHtml(way.similarity.dimensions)}% · silhouette ${escapeHtml(
+                way.similarity.silhouette,
+              )}% · material ${escapeHtml(way.similarity.material)}% · piece breakdown ${escapeHtml(
+                way.similarity.pieceBreakdown,
+              )}%</p>`
+            : ""
+        }
         ${way.joinery ? `<p><strong>Construction:</strong> ${escapeHtml(way.joinery)}</p>` : ""}
         ${
           (way.additionalPieces || way.additionalCuts)?.length
-            ? `<p><strong>Method-specific cuts:</strong> ${(way.additionalPieces || way.additionalCuts)
+            ? `<p><strong>Route-specific pieces:</strong> ${(way.additionalPieces || way.additionalCuts)
                 .map((cut) => `${escapeHtml(cut.qty)} × ${escapeHtml(cut.name)}, ${escapeHtml(cut.dimensions)}`)
                 .join("; ")}</p>`
             : ""
@@ -68,7 +90,7 @@ export function buildPacketHtml(packet = {}) {
     .map((source) => {
       const url = safeUrl(source.url);
       return url
-        ? `<li><a href="${escapeHtml(url)}">${escapeHtml(source.title || source.store || url)}</a>${
+        ? `<li>${source.group ? `<strong>${escapeHtml(source.group)}:</strong> ` : ""}<a href="${escapeHtml(url)}">${escapeHtml(source.title || source.store || url)}</a>${
             source.note ? ` — ${escapeHtml(source.note)}` : ""
           }</li>`
         : "";
@@ -110,20 +132,31 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive build packet · ways to make this model</p>
+  <p class="kicker">IKEAlive build packet · closest way to make this model</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
-  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
+  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated materials: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
+  <p class="match"><strong>Closest physical result:</strong> ${escapeHtml(bom.similarityScore || 0)}% visual / dimensional similarity.
+    ${escapeHtml(bom.similarity?.reason || "")}</p>
   <h2>Ways to make the final model</h2>
   ${wayRows}
-  <h2>Cut list and shaped pieces</h2>
+  <h2>Geometry-derived pieces and cut list</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  ${liveRows ? `<h2>Live build research</h2><ul>${liveRows}</ul>` : ""}
+  ${
+    hardwareRows
+      ? `<h2>Connection hardware</h2>
+  <table>
+    <thead><tr><th>Qty</th><th>Hardware</th><th>Size</th><th>Material</th><th>Estimate</th><th>Source links</th></tr></thead>
+    <tbody>${hardwareRows}</tbody>
+  </table>`
+      : ""
+  }
+  ${liveRows ? `<h2>Live piece and hardware matches</h2><ul>${liveRows}</ul>` : ""}
   <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
   <p class="warning">${escapeHtml(bom.disclaimer || "")}</p>
@@ -133,7 +166,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the construction-way PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();

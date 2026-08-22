@@ -17,6 +17,7 @@ const FAL_SCENE_REQUIRED =
   "Set FAL_KEY for Tripo H3.1 instruction meshes. 3D mode loads a live GLB in the workshop, not a catalog LACK table.";
 const STILL_MS = 4000;
 const SCENE_FRAME_MS = 1100;
+const GUIDE_STEP_MS = 4200;
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -449,7 +450,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       for (const line of lines) {
         const row = document.createElement("p");
         const shops = withShops ? line.retailers || line.offers || [] : [];
-        row.textContent = `${line.qty || 1}× ${line.name}${line.why ? ` — ${line.why}` : ""}`;
+        const dimensions = line.dimensions ? ` · ${line.dimensions}` : "";
+        row.textContent = `${line.qty || 1}× ${line.name}${dimensions}${line.why ? ` — ${line.why}` : ""}`;
         wrap.append(row);
         if (shops.length) {
           const list = document.createElement("div");
@@ -551,13 +553,36 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     return view;
   }
 
+  function installGuideReel() {
+    state.reel = state.outline.map((item) => ({
+      number: item.number,
+      kind: "guide",
+      frames: [
+        {
+          caption: [item.action, item.body || item.preview].filter(Boolean).join(" — "),
+        },
+      ],
+    }));
+    state.clipIndex = 0;
+    state.frameIndex = 0;
+    state.playingOn = false;
+    setInterface("watch");
+    el.film?.classList.remove("hidden");
+    renderTransport();
+    if (state.reel.length) showClip(0, { play: false, restart: true });
+    return state.reel;
+  }
+
   async function openAssemblyView(view, { label = "custom IKEAlive plan" } = {}) {
     if (!view || view.ok === false) return fail(new Error(view?.reason || "Could not open the custom plan."));
     setMode("custom");
     announce(`Opening ${label}…`);
     applyView(view);
+    installGuideReel();
     await renderReviews();
-    await afterGuideReady();
+    const mode = normalizeRenderMode(state.renderMode || state.run?.renderMode);
+    if (mode) await afterGuideReady();
+    else announce(`${state.reel.length} tutorial steps ready. Use Back, Play, or Next.`);
     return view;
   }
 
@@ -1455,6 +1480,13 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
     renderSteps();
     renderTransport();
+
+    if (clip.kind === "guide") {
+      hideVideo();
+      showFilmStatus(`Step ${state.clipIndex + 1} of ${state.reel.length} · ${clipCaption(clip)}`);
+      if (play) state.timer = setTimeout(() => finishClip(), GUIDE_STEP_MS);
+      return;
+    }
 
     const images = normalizeRenderMode(state.renderMode) === "images";
     if (isSceneMode()) {

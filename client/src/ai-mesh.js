@@ -104,6 +104,12 @@ function geometryFor(component) {
     const arc = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(number(component.arcDeg, 360), 1, 360));
     geometry = new THREE.TorusGeometry(major, tube, Math.max(4, Math.round(radial / 3)), radial, arc);
     geometry.rotateX(Math.PI / 2);
+  } else if (component.shape === "plane") {
+    geometry = new THREE.PlaneGeometry(width, depth);
+    geometry.rotateX(-Math.PI / 2);
+  } else if (component.shape === "prism") {
+    geometry = new THREE.CylinderGeometry(width / 2, width / 2, height, 3, 1, false);
+    geometry.scale(1, 1, depth / Math.max(width, MM));
   } else if (component.shape === "capsule") {
     const radius = Math.max(MM / 2, number(component.radiusMm, Math.min(width, depth) * 500) * MM);
     const length = Math.max(MM, number(component.lengthMm, Math.max(MM, height - radius * 2) / MM) * MM);

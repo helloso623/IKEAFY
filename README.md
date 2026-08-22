@@ -52,6 +52,7 @@ The Electron command starts the same Vite client and Express API inside the desk
 Copy `.env.example` to `.env` when you want hosted services. Never commit the populated file.
 
 - `FAL_KEY` — drawing-plate interpretation through fal's multimodal vision endpoint, plus Seedance films, Nano Banana stills, and Tripo meshes
+- `PIONEER_API_KEY` — preferred Pioneer/Fastino GLiNER 2 cloud API ([gliner.pioneer.ai](https://gliner.pioneer.ai)); avoids local Hugging Face downloads
 - `OPENAI_API_KEY` — hosted Lab bench assistance
 - `OPENAI_MODEL_HARD` — model used for harder hosted requests
 - `OPENAI_MODEL_EASY` — model used for lighter hosted requests
@@ -59,7 +60,7 @@ Copy `.env.example` to `.env` when you want hosted services. Never commit the po
 - `PORT` — Express API port; defaults to `8787`
 - `CLIENT_PORT` — client port recorded in local configuration; Vite runs on `5173`
 
-PDF text is extracted first and structured locally with GLiNER 2 (`fastino/gliner2-base-v1`). When that text does not contain grounded assembly steps, fal's `openrouter/router/vision` endpoint reads the rasterized plates with `google/gemini-2.5-flash`; GLiNER 2 then normalizes the returned plate description. This PDF path does not use `OPENAI_API_KEY`.
+PDF text is extracted first and structured with Pioneer/Fastino GLiNER 2 (cloud API when `PIONEER_API_KEY` is set, otherwise optional local `fastino/gliner2-base-v1`). When that text does not contain grounded assembly steps, fal's `openrouter/router/vision` endpoint reads the rasterized plates with `google/gemini-2.5-flash`. GLiNER 2 then normalizes the returned plate description when possible; if normalization yields no steps, the structured fal JSON is used directly. This PDF path does not use `OPENAI_API_KEY`.
 
 Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction available. Drawing-only PDF parsing, hosted renders, and live searches report the specific key they need; they do not silently pretend to have run.
 
@@ -71,7 +72,7 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 
 **Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
 
-When a table model is ready, **Finish & find ways** researches construction methods for that final shape, derives its dimensioned tops, legs, rails, boards, and cut list, prepares a printable PDF, and creates an IKEAlive watch / plan / todo.
+When a furniture model is ready, **Finish / Find a way** analyzes its geometry and finish, ranks construction methods, derives dimensioned tops, legs, aprons, stretchers, boards, and shaped cuts, prepares a printable ways-to-make PDF, and creates an IKEAlive watch / plan / todo.
 
 ## Structure
 
@@ -79,11 +80,14 @@ When a table model is ready, **Finish & find ways** researches construction meth
 
 Copy `.env.example` to `.env`, add only the services you need, and keep the populated file out of Git.
 
-- `FAL_KEY` enables Seedance 2.5 films, Nano Banana 2 stills, and Tripo H3.1 meshes.
+- `FAL_KEY` enables Seedance 2.5 films, Nano Banana 2 stills, Tripo H3.1 meshes, and drawing-plate vision.
+- `PIONEER_API_KEY` enables Pioneer-hosted GLiNER 2 for PDF text extraction and guide Q&A (preferred over local Hugging Face downloads).
 - `TAVILY_API_KEY` enables official-manual lookup and live tool offers.
-- `OPENAI_API_KEY` enables plate vision for drawing-only PDFs and hosted assistant requests.
+- `OPENAI_API_KEY` enables hosted Lab bench assistance.
 - `OPENAI_MODEL_HARD` and `OPENAI_MODEL_EASY` select the hosted request models.
 - `PORT` sets the API port. `CLIENT_PORT` sets the client port used by Electron.
+
+After modeling or remodeling an object, click **Finish / Find a way**. IKEAlive scores practical construction routes against the current dimensions, rotation, silhouette, support layout, material family, and piece breakdown. It derives a cut list of primary bodies such as tops, legs, boards, aprons, and shaped pedestal parts, then produces a printable PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily can optionally research current-model boards, stock, and close piece matches; without it, shape and dimension matches plus ordinary public sourcing links remain available. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
 
 The app and locked LACK flow run without hosted keys. Features that require a missing key report that requirement instead of presenting a generated fallback as a completed render or search.
 
@@ -99,11 +103,15 @@ The app and locked LACK flow run without hosted keys. Features that require a mi
 
 These spaces customise how existing evidence is inspected and carried into the next useful assembly workflow. The guide, model, and room stay visible as the source.
 
-## Phone upload (LAN)
+## Phone upload (Tailscale or LAN)
 
-In Lab → Scan, **Send from phone** shows a QR code and a local `http://<lan-ip>:5173/phone-upload` link. A phone on the same Wi-Fi can record or choose a room walk of up to 30 seconds and post it to `/api/scan/video`.
+Lab → **Scan** → **Send from phone** shows a selectable URL, **Copy** button, and QR. When the app is opened through Tailscale HTTPS, that secure phone-ready address is primary:
 
-Lab extracts frames, rebuilds room occupancy, and auto-fits the current table. From there, **Finish & find ways** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
+`https://<machine>.<tailnet>.ts.net/phone-upload`
+
+The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as a same-Wi-Fi fallback.
+
+Open either link in the phone browser, then use its single **Record / Send ~30s video** button. The page posts the clip to `/api/scan/video`; `.ts.net`, localhost, and private-LAN browser origins are accepted by the API. Lab extracts frames, rebuilds room occupancy, cuts the old table footprint, and auto-fits the current table. From there, **Finish / Find a way** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
 
 See [Furniture-piece sourcing policy](docs/BUILD-WAYS.md) for the build-route and cut-list boundary.
 

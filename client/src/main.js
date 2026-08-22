@@ -9,6 +9,7 @@ import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
 import { openBuildPacketPrint } from "./build-packet.js";
+import { finishModelSnapshot } from "./model-finish.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1055,6 +1056,20 @@ document.addEventListener("click", (event) => {
   openWaysPrint(build);
 });
 
+function currentFinishModel() {
+  return finishModelSnapshot(shop.getReconstructed?.() || [], (id) => shop.getPieceMaterial?.(id));
+}
+
+async function waitForFinishJob(id) {
+  for (let poll = 0; poll < 480; poll += 1) {
+    const update = await api.finishJob(id);
+    if (update.job?.status === "complete" && update.result) return update.result;
+    if (update.job?.status === "failed") throw new Error(update.reason || update.job.text || "Could not find a way.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Finding a way took too long. Please try again.");
+}
+
 let finishingModel = false;
 $("finish-model")?.addEventListener("click", async () => {
   if (finishingModel) return;
@@ -1069,7 +1084,10 @@ $("finish-model")?.addEventListener("click", async () => {
   }
   hud("Finding ways to make this exact final table…");
   try {
-    const packet = await api.finishProject();
+    const model = currentFinishModel();
+    const started = await api.startFinishProject(model);
+    if (!started?.job?.id) throw new Error(started?.reason || "Could not start the similarity search.");
+    const packet = await waitForFinishJob(started.job.id);
     openBuildPacketPrint(packet, printWindow);
     await refreshProject();
     const saved = diyBuilds().find((entry) => entry.id === packet.build?.id) || packet.build;
@@ -1080,10 +1098,10 @@ $("finish-model")?.addEventListener("click", async () => {
     const match = packet.bom?.ikeaMatch;
     hud(
       match
-        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
+        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · Dylan todo created.`
         : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
             packet.bom?.lines?.length || 0
-          } cut-list lines · IKEAlive todo created.`,
+          } cut-list lines · Dylan todo created.`,
     );
   } catch (error) {
     printWindow?.close();

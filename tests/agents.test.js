@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as THREE from "three";
 import {
   ROSTER,
   chat,
@@ -15,9 +14,8 @@ import {
   runFurnitureDesks,
   shouldEscalate,
 } from "../server/lib/agents.js";
-import { getPart } from "../server/lib/catalog.js";
 import { emptyProject } from "../server/lib/project.js";
-import { makeRoundPedestalTable } from "../client/src/generic-table.js";
+import { buildAiMeshGeometry } from "../client/src/ai-mesh.js";
 
 function withoutHosted(fn) {
   return async () => {
@@ -32,23 +30,18 @@ function withoutHosted(fn) {
   };
 }
 
-function assertRoundTableAction(reply) {
-  const action = reply.actions.find(
-    (candidate) => candidate.type === "add" && candidate.partId === "generic-round-pedestal-table",
-  );
-  assert.ok(action, "the steward should add the persisted round table");
-  assert.equal(action.geometry.type, "round-pedestal-table");
-  assert.deepEqual(action.geometry.tabletop, {
-    type: "cylinder",
-    radiusMm: 450,
-    heightMm: 36,
-    radialSegments: 64,
-  });
-  assert.equal(action.geometry.pedestal.type, "cylinder");
-  assert.equal(action.geometry.pedestal.count, 1);
-  assert.equal(action.geometry.pedestal.radiusTopMm, 55);
-  assert.equal(action.geometry.pedestal.radiusBottomMm, 85);
-  assert.equal(action.geometry.base.type, "cylinder");
+function assertGeneratedRoundTable(reply) {
+  const action = reply.actions.find((candidate) => candidate.type === "mesh");
+  assert.ok(action, "the steward should emit a real mesh action");
+  const top = action.mesh.components.find((body) => /top/i.test(body.name));
+  const leg = action.mesh.components.find((body) => /central leg/i.test(body.name));
+  assert.equal(top.shape, "cylinder");
+  assert.equal(top.sizeMm[0], top.sizeMm[2]);
+  assert.ok(top.sizeMm[0] > leg.sizeMm[0]);
+  assert.equal(leg.shape, "cylinder");
+  assert.ok(top.positionMm[1] > leg.positionMm[1]);
+  assert.equal(action.partId, undefined);
+  assert.equal(reply.actions.some((candidate) => candidate.type === "add"), false);
   assert.equal(reply.actions.some((candidate) => candidate.type === "catalog"), false);
   assert.equal(reply.actions.some((candidate) => candidate.type === "creative"), false);
   return action;
@@ -56,7 +49,7 @@ function assertRoundTableAction(reply) {
 
 test("ten agents sit on the bench", () => {
   assert.equal(ROSTER.length, 10);
-  assert.ok(ROSTER.some((a) => a.model === "fable" && a.role === "orchestration"));
+  assert.ok(ROSTER.some((a) => a.model === "fable" && a.role === "generation"));
   assert.ok(ROSTER.some((a) => a.model === "opus"));
   assert.ok(ROSTER.filter((a) => a.model === "gpt-5.6").length >= 3);
   assert.ok(ROSTER.filter((a) => a.model === "grok").length >= 3);
@@ -68,7 +61,7 @@ test("router sends hard and easy work to the right desks", () => {
   assert.equal(routeAgent("move the camera left").id, "shop");
   assert.equal(routeAgent("place this piece in my room photo").id, "stylist");
   assert.equal(routeAgent("find a cheap table").id, "scout");
-  assert.equal(routeAgent("generate a lamp").id, "eda");
+  assert.equal(routeAgent("generate a lamp").id, "creative");
   assert.equal(routeAgent("make a parametric bracket in Fusion 360").id, "cad");
   assert.equal(routeAgent("route this KiCad PCB from the schematic").id, "eda");
   assert.equal(routeAgent("run an FEA load case").id, "sim");
@@ -102,76 +95,71 @@ test(
 );
 
 test(
-  "round-table descriptions spawn circular geometry instead of catalog or square-table results",
+  "round-table prompts generate editable geometry without a catalog part",
   withoutHosted(async () => {
     for (const message of ["make a round table", "circular top with one central leg"]) {
       const project = emptyProject();
       const reply = await chat(message, { project });
       assert.equal(reply.backend, "local-steward");
-      assertRoundTableAction(reply);
-      assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-round-pedestal-table"]);
-      assert.doesNotMatch(reply.text, /on the shelf|LACK|Creative staged/i);
+      assertGeneratedRoundTable(reply);
+      assert.deepEqual(project.pieces, []);
+      assert.match(reply.text, /^Generated editable 3D:/);
+      assert.doesNotMatch(reply.text, /spawn|on the shelf|LACK|Creative staged/i);
     }
   }),
 );
 
 test(
-  "spawn it reuses recent circular-table context",
+  "generate it reuses recent circular-table context",
   withoutHosted(async () => {
     const project = emptyProject();
-    const reply = await chat("spawn it", {
+    const reply = await chat("generate it", {
       project,
       history: [
         { role: "user", content: "I want a circular top table" },
         { role: "assistant", content: "A single central pedestal will keep the form clean." },
       ],
     });
-    assertRoundTableAction(reply);
-    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-round-pedestal-table"]);
+    assertGeneratedRoundTable(reply);
+    assert.deepEqual(project.pieces, []);
   }),
 );
 
-test("round-table renderer builds one editable THREE cylinder pedestal under a cylinder top", () => {
-  const part = getPart("generic-round-pedestal-table");
-  assert.equal(part.shape, "round-pedestal-table");
-  const group = makeRoundPedestalTable(THREE, { geometry: part.specs.geometry, color: part.color });
-  const byRole = Object.fromEntries(group.children.map((mesh) => [mesh.userData.roundTableRole, mesh]));
-  assert.equal(group.userData.editable, true);
-  assert.deepEqual(Object.keys(byRole).sort(), ["base", "pedestal", "tabletop"]);
-  assert.equal(byRole.tabletop.geometry.type, "CylinderGeometry");
-  assert.equal(byRole.tabletop.geometry.parameters.radiusTop, 0.45);
-  assert.equal(byRole.pedestal.geometry.type, "CylinderGeometry");
-  assert.equal(byRole.pedestal.geometry.parameters.radiusTop, 0.055);
-  assert.equal(byRole.pedestal.geometry.parameters.radiusBottom, 0.085);
-  assert.equal(group.children.filter((mesh) => mesh.userData.roundTableRole === "pedestal").length, 1);
-  assert.equal(byRole.base.geometry.type, "CylinderGeometry");
+test("generated round-table mesh becomes actual colored triangle geometry", () => {
+  const reply = planCreativeActions("build a 900 mm diameter round table with one central leg");
+  const action = assertGeneratedRoundTable(reply);
+  const geometry = buildAiMeshGeometry(action.mesh);
+  assert.ok(geometry.positions instanceof Float32Array);
+  assert.ok(geometry.colors instanceof Float32Array);
+  assert.ok(geometry.triangleCount > 100);
+  assert.deepEqual(geometry.dimensionsMm, { x: 900, y: 900, z: 740 });
 });
 
 test(
-  "put four legs drops four legs on the bench",
+  "put four legs generates four editable bodies instead of LACK parts",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("put four legs", { project });
-    const adds = reply.actions.filter((a) => a.type === "add" || a.type === "add_part");
-    assert.equal(adds.length, 4);
-    assert.ok(adds.every((a) => a.partId === "lack-leg"));
-    assert.equal(project.pieces.filter((p) => p.partId === "lack-leg").length, 4);
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.ok(mesh);
+    assert.equal(mesh.mesh.components.length, 4);
+    assert.ok(mesh.mesh.components.every((body) => /^Leg \d+$/.test(body.name)));
+    assert.equal(reply.actions.some((action) => action.partId), false);
+    assert.deepEqual(project.pieces, []);
     assert.doesNotMatch(reply.text, /arduino|firmware|sketch/i);
   }),
 );
 
 test(
-  "generate a lamp drops a LACK table, not a Nano or LED",
+  "generate a lamp emits lamp geometry, not a catalog table or electronics",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("generate a lamp", { project });
-    const ids = project.pieces.map((p) => p.partId);
-    assert.ok(ids.includes("lack-top"));
-    assert.equal(ids.filter((id) => id === "lack-leg").length, 4);
-    assert.equal(ids.includes("arduino-nano"), false);
-    assert.equal(ids.includes("led-5mm"), false);
-    assert.equal(ids.includes("tactile-btn"), false);
-    assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.ok(mesh);
+    assert.deepEqual(mesh.mesh.components.map((body) => body.name), ["Base", "Stem", "Shade"]);
+    assert.deepEqual(project.pieces, []);
+    assert.equal(reply.actions.some((a) => a.type === "add" || a.type === "add_part"), false);
     assert.equal(reply.actions.some((a) => a.type === "isolate"), false);
     assert.doesNotMatch(reply.text, /arduino|nano|led|firmware/i);
   }),
@@ -214,10 +202,10 @@ test(
   }),
 );
 
-test("creative desk plans add, camera, label, and isolate", () => {
+test("creative desk plans mesh, camera, label, and isolate actions", () => {
   const lamp = planCreativeActions("generate a lamp");
-  assert.ok(lamp.actions.some((a) => a.type === "add" && a.partId === "lack-top"));
-  assert.equal(lamp.actions.filter((a) => a.type === "add" && a.partId === "lack-leg").length, 4);
+  assert.ok(lamp.actions.some((a) => a.type === "mesh"));
+  assert.equal(lamp.actions.some((a) => a.type === "add"), false);
   assert.equal(lamp.actions.some((a) => a.type === "isolate"), false);
   const isolate = planCreativeActions("isolate the board");
   assert.ok(isolate.actions.some((a) => a.type === "isolate"));
@@ -358,6 +346,55 @@ test("hosted path answers open questions; shop creates stay on the local steward
   }
 });
 
+test("hosted AI can author a compound bench mesh without catalog ids", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test-hosted";
+  try {
+    let request;
+    const reply = await chat("build a round table with one central leg", {
+      project: emptyProject(),
+      fetchFn: async (_url, options) => {
+        request = JSON.parse(options.body);
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    text: "Generated the requested editable 3D mesh.",
+                    actions: [
+                      {
+                        type: "mesh",
+                        mesh: {
+                          name: "AI pedestal table",
+                          components: [
+                            { name: "Circular top", shape: "cylinder", sizeMm: [1000, 45, 1000], positionMm: [0, 717.5, 0] },
+                            { name: "Central leg", shape: "cylinder", sizeMm: [150, 695, 150], positionMm: [0, 347.5, 0] },
+                          ],
+                        },
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+        };
+      },
+    });
+    assert.match(reply.backend, /^hosted:/);
+    assert.equal(reply.actions.length, 1);
+    assert.equal(reply.actions[0].type, "mesh");
+    assert.equal(reply.actions[0].mesh.components.length, 2);
+    assert.equal(reply.actions.some((action) => action.partId), false);
+    assert.match(request.messages[0].content, /explicit indexed triangles|mesh requires verticesMm/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
 test("describeScene reads selected piece, count, and Lab mode", () => {
   const note = describeScene({
     photoName: "view.jpg",
@@ -379,7 +416,7 @@ test(
   withoutHosted(async () => {
     const reply = await chat("what is this on the screen?", {
       scene: {
-        lab: "ar",
+        lab: "house",
         pieceCount: 1,
         selected: { name: "LACK table top", dimsMm: { x: 550, y: 50, z: 550 } },
       },
@@ -387,7 +424,7 @@ test(
     });
     assert.equal(reply.backend, "local-steward");
     assert.match(reply.text, /LACK table top/);
-    assert.match(reply.text, /ar mode/);
+    assert.match(reply.text, /house mode/);
   }),
 );
 
@@ -396,7 +433,7 @@ test("scan and generate stay on existing shop actions", () => {
   assert.equal(scan.handles, true);
   assert.ok(scan.actions.some((a) => a.type === "scan"));
   const lamp = planCreativeActions("generate a lamp");
-  assert.ok(lamp.actions.some((a) => a.type === "add"));
+  assert.ok(lamp.actions.some((a) => a.type === "mesh"));
 });
 
 test(
@@ -415,57 +452,97 @@ test(
 );
 
 test(
-  "local steward creates a room mesh action and generic table placeholder",
+  "AI transforms the selected generated mesh instead of generating a replacement",
   withoutHosted(async () => {
     const project = emptyProject();
-    const reply = await chat("make a warm living room with a table", {
+    const selected = {
+      id: "ai-mesh-1",
+      name: "Moon rover",
+      partId: "ai-mesh",
+      reconstructed: true,
+      generated: true,
+      x: 0.4,
+      y: 0.3,
+      z: -0.2,
+      sx: 1,
+      sy: 1.25,
+      sz: 1,
+    };
+    const reply = await chat("make the selected mesh taller", {
       project,
-      room: { widthM: 4.8, depthM: 3.6 },
+      scene: { lab: "desk", pieceCount: 1, selected },
     });
-    const room = reply.actions.find((action) => action.type === "room");
-    const table = reply.actions.find(
-      (action) => action.type === "add" && action.partId === "generic-side-table",
-    );
-    assert.equal(room.room.kind, "living room");
-    assert.equal(room.room.widthM, 4.8);
-    assert.equal(room.room.depthM, 3.6);
-    assert.ok(table);
-    assert.equal(table.applied, true);
-    assert.equal(project.pieces.length, 1);
-    assert.equal(project.pieces[0].partId, "generic-side-table");
-    assert.match(reply.text, /^Using 550×550×450 mm side-table proportions/);
+    assert.deepEqual(reply.actions, [{ type: "move", id: selected.id, sy: 1.375 }]);
+    assert.doesNotMatch(reply.text, /Built|shelf/i);
+    assert.equal(project.pieces.length, 0);
   }),
 );
 
 test(
-  "lack-like modeling copy gives specs before placing an unbranded placeholder",
+  "room prompts use the same editable 3D generation pipeline",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("generate a 4.8 x 3.6 m warm living room corner with a table", { project });
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.equal(mesh.mesh.kind, "scene");
+    assert.ok(mesh.mesh.components.some((body) => body.name === "Floor"));
+    assert.ok(mesh.mesh.components.some((body) => /Custom table · Tabletop/.test(body.name)));
+    assert.equal(reply.actions.some((action) => action.type === "room"), false);
+    assert.deepEqual(project.pieces, []);
+    assert.match(reply.text, /^Generated editable 3D:/);
+  }),
+);
+
+test(
+  "lack-like modeling emits an unbranded mesh instead of a catalog placeholder",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("model a lack-like table", { project });
-    assert.match(reply.text, /^Using 550×550×450 mm side-table proportions/);
+    assert.ok(reply.actions.some((action) => action.type === "mesh"));
+    assert.equal(reply.actions.some((action) => action.type === "add"), false);
     assert.doesNotMatch(reply.text, /\bIKEA\b|\bLACK\b/);
-    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
+    assert.deepEqual(project.pieces, []);
   }),
 );
 
 test(
-  "local steward creates a room and table even when a hosted key is set",
+  "hosted 3D generation uses the same mesh action for a room corner",
   async () => {
     const previous = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "sk-test-hosted";
     try {
       const project = emptyProject();
-      const reply = await chat("make a warm living room with a table", {
+      const reply = await chat("generate a warm room corner", {
         project,
-        room: { widthM: 4.8, depthM: 3.6 },
-        fetchFn: async () => {
-          throw new Error("hosted should not run for room and table creates");
-        },
+        fetchFn: async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  text: "Generated editable 3D.",
+                  actions: [{
+                    type: "mesh",
+                    mesh: {
+                      name: "Room corner",
+                      kind: "scene",
+                      components: [
+                        { name: "Floor", shape: "box", sizeMm: [4000, 40, 3500], positionMm: [0, 20, 0] },
+                        { name: "Wall", shape: "box", sizeMm: [4000, 2700, 80], positionMm: [0, 1350, 1750] },
+                      ],
+                    },
+                  }],
+                }),
+              },
+            }],
+          }),
+        }),
       });
-      assert.equal(reply.backend, "local-steward");
-      assert.ok(reply.actions.some((action) => action.type === "room"));
-      assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
-      assert.equal(project.pieces[0].partId, "generic-side-table");
+      assert.match(reply.backend, /^hosted:/);
+      assert.equal(reply.actions.length, 1);
+      assert.equal(reply.actions[0].type, "mesh");
+      assert.equal(reply.actions[0].mesh.kind, "scene");
+      assert.deepEqual(project.pieces, []);
     } finally {
       if (previous === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = previous;
@@ -474,42 +551,38 @@ test(
 );
 
 test(
-  "make a table places the generic side-table placeholder",
+  "make a table emits a compound mesh rather than a square placeholder",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("make a table", { project });
     assert.equal(reply.backend, "local-steward");
-    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
-    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.ok(mesh);
+    assert.equal(mesh.mesh.components.length, 5);
+    assert.deepEqual(project.pieces, []);
   }),
 );
 
-test("build this furniture runs CAD, Creative and Assembler in parallel", async () => {
+test("optional furniture desks include CAD, 3D generation and assembly", async () => {
   assert.equal(isFurnitureBuildAsk("build this furniture"), true);
   assert.equal(isFurnitureBuildAsk("add a lack table"), false);
   const desks = furnitureBuildDesks();
   assert.deepEqual(desks.map((desk) => desk.id), ["cad", "creative", "assembler"]);
-  assert.match(manyAgentsNote(desks), /Many agents: CAD, Creative, Assembler/);
+  assert.match(manyAgentsNote(desks), /Many agents: CAD, 3D Generator, Assembler/);
   assert.match(String(runFurnitureDesks), /Promise\.all/);
 });
 
 test(
-  "chat build this furniture notes many agents and places a table",
+  "chat build this furniture stays on the single 3D generation pipeline",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("build this furniture", { project });
-    assert.equal(reply.manyAgents, true);
-    assert.equal(reply.from, "many-agents");
-    assert.match(reply.text, /Many agents: CAD, Creative, Assembler ran in parallel/);
-    assert.ok(reply.desks.some((desk) => desk.id === "cad"));
-    assert.ok(reply.desks.some((desk) => desk.id === "creative"));
-    assert.ok(reply.desks.some((desk) => desk.id === "assembler"));
-    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
-    assert.ok(reply.actions.some((action) => action.type === "cad"));
-    assert.ok(reply.actions.some((action) => action.type === "ikeafy"));
-    assert.equal(project.pieces[0].partId, "generic-side-table");
-    assert.equal(project.labTools.fusion.kind, "parametric-model");
-    assert.equal(project.labTools.blender.kind, "scene");
+    assert.equal(reply.manyAgents, undefined);
+    assert.equal(reply.actions.length, 1);
+    assert.equal(reply.actions[0].type, "mesh");
+    assert.equal(reply.actions[0].partId, undefined);
+    assert.match(reply.text, /^Generated editable 3D:/);
+    assert.deepEqual(project.pieces, []);
     const parallel = await runFurnitureDesks("build this furniture", { project: emptyProject() });
     assert.equal(parallel.manyAgents, true);
   }),

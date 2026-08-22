@@ -20,11 +20,11 @@ import {
 export const ROSTER = [
   {
     id: "creative",
-    name: "Creative",
+    name: "3D Generator",
     model: "fable",
-    role: "orchestration",
+    role: "generation",
     tool: "blender",
-    blurb: "Blender-like form, materials, renders and build storytelling.",
+    blurb: "Prompt-to-mesh generation for editable objects, creatures and scenes.",
   },
   {
     id: "cad",
@@ -121,7 +121,7 @@ const CREATIVE_HINTS =
 const HARD_HINTS = /stress|break|aero|flow|weather|rain|heat|cold|firmware|arduino|circuit|architect|optim/i;
 const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
-const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
+const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom|bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower/i;
 const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create |spawn /i;
 const CATALOG_ASK =
   /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon|leg|lamp)\b/i;
@@ -137,24 +137,7 @@ const BENCH_COMMAND =
 const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop |spawn )\b/i;
 const ROOM_CREATE_ASK =
   /\b(make|model|build|create|design|furnish|generate)\b[\s\S]*\b(living\s+room|bedroom|dining\s+room|office|room|space|interior)\b/i;
-const GENERIC_TABLE_ASK =
-  /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
-const MAKE_TABLE_ASK =
-  /\b(make|model|build|create|design|generate|add|place|put|drop|spawn|get)\b[\s\S]*\btables?\b/i;
-const MAKE_STOOL_ASK =
-  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
-const MAKE_SHELF_ASK =
-  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
 const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "mesh", "studio", "scan", "move"]);
-const ROUND_TABLE_PART_ID = "generic-round-pedestal-table";
-const ROUND_FORM_HINT = /\b(round(?:ed)?|circular|circle|disc(?:-shaped)?|disk(?:-shaped)?)\b/i;
-const ROUND_TABLE_OBJECT_HINT = /\b(tables?|table[\s-]*tops?|tops?|pedestals?)\b/i;
-const CENTRAL_PEDESTAL_HINT =
-  /\bpedestals?\b|\b(?:one|single|central|center|centre)(?:\s+central)?\s+(?:legs?|supports?|columns?)\b/i;
-const ROUND_TABLE_EDIT_HINT =
-  /\b(spawn|add|place|put|drop|make|model|build|create|generate|get)\b/i;
-const ROUND_TABLE_FOLLOW_UP =
-  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one|the\s+table)\s*[.!]?$/i;
 const QTY_WORDS = {
   one: 1,
   two: 2,
@@ -224,10 +207,9 @@ export function routeAgent(text) {
   if (CAD_HINTS.test(t)) return ROSTER.find((a) => a.id === "cad");
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
-  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (isMeshBuildAsk(t)) return ROSTER.find((a) => a.id === "creative");
+  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
-  if (isRoundTableDescription(t)) return ROSTER.find((a) => a.id === "creative");
   if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");
   if (ROOM_HINTS.test(t) && !isCatalogAsk(t) && !benchCmd) return ROSTER.find((a) => a.id === "stylist");
   if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
@@ -285,140 +267,9 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
-function isRoundTableDescription(message) {
-  const text = String(message || "");
-  if (/\black\b/i.test(text)) return false;
-  if (/\b(square|rectangular)\b/i.test(text) && !/\bnot\s+(?:a\s+)?(?:square|rectangular)\b/i.test(text)) {
-    return false;
-  }
-  if (
-    /\b(?:round|rounded)\s+(?:off\s+)?(?:the\s+)?(?:corners?|edges?)\b/i.test(text) &&
-    !/\bcircular\b|\bpedestal\b|\b(?:round|rounded)\s+tables?\b/i.test(text)
-  ) {
-    return false;
-  }
-  const hasForm = ROUND_FORM_HINT.test(text);
-  const hasObject = ROUND_TABLE_OBJECT_HINT.test(text);
-  if (!hasForm || !hasObject) return false;
-  return (
-    ROUND_TABLE_EDIT_HINT.test(text) ||
-    CENTRAL_PEDESTAL_HINT.test(text) ||
-    /\b(?:round|rounded|circular)\s+(?:top(?:ped)?\s+)?tables?\b/i.test(text) ||
-    /\bcircular\s+(?:table[\s-]*)?top\b/i.test(text) ||
-    /^\s*like\b/i.test(text)
-  );
-}
-
-function hasRoundTableContext(ctx = {}) {
-  const scenePieces = Array.isArray(ctx.scene?.pieces) ? ctx.scene.pieces : [];
-  if (
-    ctx.scene?.selected?.partId === ROUND_TABLE_PART_ID ||
-    scenePieces.some((piece) => piece?.partId === ROUND_TABLE_PART_ID) ||
-    ctx.project?.pieces?.some((piece) => piece?.partId === ROUND_TABLE_PART_ID)
-  ) {
-    return true;
-  }
-  return (Array.isArray(ctx.history) ? ctx.history : [])
-    .slice(-12)
-    .some((entry) => entry && isRoundTableDescription(entry.content));
-}
-
-function isRoundTableIntent(message, ctx = {}) {
-  const text = String(message || "").trim();
-  if (/\black\b/i.test(text)) return false;
-  if (isRoundTableDescription(text)) return true;
-  if (!hasRoundTableContext(ctx)) return false;
-  return ROUND_TABLE_FOLLOW_UP.test(text) || CENTRAL_PEDESTAL_HINT.test(text);
-}
-
 function geometryForPart(part) {
   const geometry = part?.specs?.geometry;
   return geometry && typeof geometry === "object" ? JSON.parse(JSON.stringify(geometry)) : undefined;
-}
-
-function roundTablePlan() {
-  const part = getPart(ROUND_TABLE_PART_ID);
-  if (!part) return null;
-  return {
-    part,
-    label: "round pedestal table",
-    specs: `${Math.round(part.dimsMm.x)} mm diameter × ${Math.round(part.dimsMm.z)} mm high`,
-    action: {
-      type: "add",
-      partId: part.id,
-      pose: { x: 0, y: 0, z: 0 },
-      geometry: geometryForPart(part),
-    },
-  };
-}
-
-function roomFromDescription(message, ctx = {}) {
-  const text = String(message || "");
-  const pair = text.match(
-    /\b(\d+(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:×|x|by)\s*(\d+(?:\.\d+)?)\s*(?:m|metres?|meters?)?\b/i,
-  );
-  const kind =
-    (text.match(/\b(living\s+room|bedroom|dining\s+room|office|studio|room|space|interior)\b/i)?.[1] ||
-      "room")
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-  const palette = /\b(dark|moody|charcoal)\b/i.test(text)
-    ? { wallColor: "#525860", floorColor: "#766757" }
-    : /\b(bright|light|airy|white)\b/i.test(text)
-      ? { wallColor: "#e7e3da", floorColor: "#c9b18f" }
-      : /\b(warm|cosy|cozy)\b/i.test(text)
-        ? { wallColor: "#d8c6ae", floorColor: "#9d7954" }
-        : { wallColor: "#d6d2c8", floorColor: "#b89c78" };
-  return {
-    kind,
-    widthM: positiveNumber(pair?.[1], positiveNumber(ctx.room?.widthM, 4.2)),
-    depthM: positiveNumber(pair?.[2], positiveNumber(ctx.room?.depthM, 3.8)),
-    heightM: positiveNumber(ctx.room?.heightM, 2.7),
-    ...palette,
-  };
-}
-
-function genericFurniturePlan(kind) {
-  const spec = {
-    table: {
-      ids: ["generic-side-table"],
-      poses: [{ x: 0, y: 0, z: 0 }],
-      label: "side table",
-    },
-    stool: {
-      ids: ["generic-stool"],
-      poses: [{ x: 0, y: 0, z: 0 }],
-      label: "stool",
-    },
-    shelf: {
-      ids: ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"],
-      poses: [
-        { x: 0, y: 0.62, z: 0 },
-        { x: -0.28, y: 0.51, z: 0 },
-        { x: 0.28, y: 0.51, z: 0 },
-      ],
-      label: "wall shelf",
-    },
-  }[kind];
-  if (!spec) return null;
-  const parts = spec.ids.map(getPart);
-  if (parts.some((part) => !part)) return null;
-  const dims = parts[0].dimsMm;
-  return {
-    parts,
-    label: spec.label,
-    specs: `${Math.round(dims.x)}×${Math.round(dims.y)}×${Math.round(dims.z)} mm`,
-    actions: parts.map((part, index) => ({
-      type: "add",
-      partId: part.id,
-      pose: spec.poses[index],
-    })),
-  };
-}
-
-function genericTablePlan() {
-  const plan = genericFurniturePlan("table");
-  return plan ? { ...plan, part: plan.parts[0], action: plan.actions[0] } : null;
 }
 
 function furnitureOnlyHits(hits, message) {
@@ -431,16 +282,11 @@ function resolveAddList(message, ctx = {}) {
   const costMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)\s*(usd|dollar|budget|max)?/);
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
 
-  // An explicit product name still resolves to that catalog kit. "LACK-like"
-  // is intercepted earlier and intentionally becomes the neutral placeholder.
+  // Explicit article names resolve to catalog kits. Descriptive prompts,
+  // including "LACK-like", stay in the editable 3D generation pipeline.
   if (/\black(?:\s+table)?\b/.test(lower) && !/\black[\s-]*like\b/.test(lower)) {
     const lack = getPart("lack-table");
     return lack ? expandPart(lack) : [];
-  }
-
-  if (isLampAsk(lower)) {
-    const table = getPart("lack-table");
-    return table ? expandPart(table) : [];
   }
 
   const counted = parseQtyNoun(lower);
@@ -532,7 +378,8 @@ export function describeScene(ctx = {}) {
 }
 
 function selectedPieceFromCtx(ctx = {}) {
-  const id = ctx.scene?.selected?.id;
+  const selected = ctx.scene?.selected;
+  const id = selected?.id;
   if (id && ctx.project?.pieces) {
     const hit = ctx.project.pieces.find((p) => p.id === id);
     if (hit) return hit;
@@ -544,7 +391,70 @@ function selectedPieceFromCtx(ctx = {}) {
   if (ctx.project?.selection && ctx.project.pieces) {
     return ctx.project.pieces.find((p) => p.id === ctx.project.selection) || null;
   }
+  if (id) {
+    return {
+      id,
+      partId: selected.partId || (selected.generated ? "ai-mesh" : "scan-mesh"),
+      x: Number(selected.x) || 0,
+      y: Number(selected.y) || 0,
+      z: Number(selected.z) || 0,
+      rx: Number(selected.rx) || 0,
+      ry: Number(selected.ry) || 0,
+      rz: Number(selected.rz) || 0,
+      sx: Number(selected.sx) || 1,
+      sy: Number(selected.sy) || 1,
+      sz: Number(selected.sz) || 1,
+      reconstructed: Boolean(selected.reconstructed),
+      generated: Boolean(selected.generated),
+    };
+  }
   return null;
+}
+
+function selectedTransformPlan(message, ctx = {}) {
+  const lower = String(message || "").toLowerCase();
+  if (!MOVE_HINTS.test(lower) || /\bcamera\b/.test(lower)) return null;
+  const piece = selectedPieceFromCtx(ctx);
+  if (
+    !piece ||
+    !/\b(this|it|piece|selected|left|right|forward|back|up|down|rotate|scale|bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower)\b/.test(
+      lower,
+    )
+  ) {
+    return null;
+  }
+  const step = 0.05;
+  const pose = {};
+  if (/\brotate\b/.test(lower)) {
+    const direction = /\b(?:left|counter[\s-]*clockwise)\b/.test(lower) ? 1 : -1;
+    pose.ry = (Number(piece.ry) || 0) + direction * (Math.PI / 12);
+  } else {
+    if (/\bleft\b/.test(lower)) pose.x = (Number(piece.x) || 0) - step;
+    else if (/\bright\b/.test(lower)) pose.x = (Number(piece.x) || 0) + step;
+    if (/\bforward|front\b/.test(lower)) pose.z = (Number(piece.z) || 0) - step;
+    else if (/\bback\b/.test(lower)) pose.z = (Number(piece.z) || 0) + step;
+    if (/\bup\b/.test(lower) && !/\bsetup\b/.test(lower)) pose.y = (Number(piece.y) || 0) + step;
+    else if (/\bdown\b/.test(lower)) pose.y = (Number(piece.y) || 0) - step;
+  }
+  const grow = /\b(scale\s+up|bigger|larger|wider|taller|deeper|double|twice)\b/.test(lower);
+  const shrink = /\b(scale\s+down|smaller|narrower|shorter|shallower|half)\b/.test(lower);
+  if (grow || shrink) {
+    const factor = /\b(?:double|twice)\b/.test(lower) ? 2 : /\bhalf\b/.test(lower) ? 0.5 : grow ? 1.1 : 0.9;
+    const axes = /\bwider|narrower\b/.test(lower)
+      ? ["sx"]
+      : /\btaller|shorter\b/.test(lower)
+        ? ["sy"]
+        : /\bdeeper|shallower\b/.test(lower)
+          ? ["sz"]
+          : ["sx", "sy", "sz"];
+    for (const axis of axes) pose[axis] = Math.max(0.01, (Number(piece[axis]) || 1) * factor);
+  }
+  if (!Object.keys(pose).length) return null;
+  return {
+    handles: true,
+    text: `Edited ${ctx.scene?.selected?.name || piece.partId}.`,
+    actions: [{ type: "move", id: piece.id, ...pose }],
+  };
 }
 
 function isSceneAsk(text) {
@@ -588,8 +498,8 @@ export function planStudioActions(message) {
 }
 
 /**
- * Lab creative desk: turn a spoken request into bench actions the client
- * can apply with api.add / camera / move / scan / label / isolate.
+ * Lab 3D generation: every descriptive prompt becomes one editable mesh
+ * action. Catalog adds remain available only for explicit product requests.
  */
 export function planCreativeActions(message, ctx = {}) {
   const lower = String(message || "").toLowerCase();
@@ -604,86 +514,18 @@ export function planCreativeActions(message, ctx = {}) {
     };
   }
 
-  if (ROOM_CREATE_ASK.test(lower)) {
-    const room = roomFromDescription(message, ctx);
-    actions.push({ type: "room", room });
-    const wantsRoundTable = isRoundTableIntent(message, ctx);
-    if (wantsRoundTable || /\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
-      const table = wantsRoundTable ? roundTablePlan() : genericTablePlan();
-      if (table) {
-        actions.push(table.action);
-        return {
-          handles: true,
-          text: wantsRoundTable
-            ? `Spawned an editable ${table.specs} round table with a circular top, one central tapered pedestal, and a disc base in the ${room.widthM}×${room.depthM} m ${room.kind}.`
-            : `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
-          actions,
-        };
-      }
-    }
-    return {
-      handles: true,
-      text: `Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor and four walls.`,
-      actions,
-    };
-  }
+  const transform = selectedTransformPlan(message, ctx);
+  if (transform) return transform;
 
-  if (isRoundTableIntent(message, ctx)) {
-    const table = roundTablePlan();
-    if (table) {
+  if (isMeshBuildAsk(message)) {
+    const mesh = localMeshAction(message, ctx);
+    if (mesh) {
       return {
         handles: true,
-        text: `Spawned an editable ${table.specs} round table: circular cylinder top, one central tapered pedestal, and a disc base.`,
-        actions: [table.action],
+        text: `Generated editable 3D: ${mesh.mesh.name} (${mesh.mesh.components.length} mesh bodies).`,
+        actions: [mesh],
       };
     }
-  }
-
-  if (
-    (GENERIC_TABLE_ASK.test(lower) || (MAKE_TABLE_ASK.test(lower) && !/\black\b/.test(lower))) &&
-    /\b(make|model|build|create|design|generate|add|place|put|drop)\b/.test(lower)
-  ) {
-    const table = genericTablePlan();
-    if (table) {
-      return {
-        handles: true,
-        text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Placing it now.`,
-        actions: [table.action],
-      };
-    }
-  }
-
-  const furnitureKind = MAKE_SHELF_ASK.test(lower)
-    ? "shelf"
-    : MAKE_STOOL_ASK.test(lower)
-      ? "stool"
-      : null;
-  if (furnitureKind) {
-    const furniture = genericFurniturePlan(furnitureKind);
-    if (furniture) {
-      return {
-        handles: true,
-        text: `Using ${furniture.specs} IKEA-like proportions for a generic ${furniture.label}. Placing the editable kit now.`,
-        actions: furniture.actions,
-      };
-    }
-  }
-
-  if (isLampAsk(lower) && /\b(generate|make|build|create|add|put|design|drop)\b/.test(lower)) {
-    const table = getPart("lack-table");
-    const kit = table ? expandPart(table) : [];
-    if (!kit.length) {
-      return {
-        handles: true,
-        text: "Nothing on the shelf matches a lamp table. Try “lack” or “table”.",
-        actions,
-      };
-    }
-    for (const item of kit) {
-      actions.push({ type: "add", partId: item.partId, pose: item.pose });
-    }
-    text = `Dropped ${describeAdds(kit)} on the bench.`;
-    return { handles: true, text, actions };
   }
 
   if (/\b(add|put|drop|place|generate|make|build|create)\b/.test(lower) && !STEP_LOCK.test(lower)) {
@@ -704,23 +546,6 @@ export function planCreativeActions(message, ctx = {}) {
   }
 
   if (MOVE_HINTS.test(lower) && !isCatalogAsk(lower)) {
-    const piece = selectedPieceFromCtx(ctx);
-    const nudgePiece = piece && !/\bcamera\b/.test(lower) && /\b(this|it|piece|selected|left|right|forward|back|up|down)\b/.test(lower);
-    if (nudgePiece) {
-      const step = 0.05;
-      const pose = {};
-      if (/\bleft\b/.test(lower)) pose.x = (Number(piece.x) || 0) - step;
-      else if (/\bright\b/.test(lower)) pose.x = (Number(piece.x) || 0) + step;
-      if (/\bforward|front\b/.test(lower)) pose.z = (Number(piece.z) || 0) - step;
-      else if (/\bback\b/.test(lower)) pose.z = (Number(piece.z) || 0) + step;
-      if (/\bup\b/.test(lower) && !/\bsetup\b/.test(lower)) pose.y = (Number(piece.y) || 0) + step;
-      else if (/\bdown\b/.test(lower)) pose.y = (Number(piece.y) || 0) - step;
-      if (Object.keys(pose).length) {
-        actions.push({ type: "move", id: piece.id, ...pose });
-        text = `Moved ${ctx.scene?.selected?.name || piece.partId}.`;
-        return { handles: true, text, actions };
-      }
-    }
     actions.push(cameraAction(lower));
     text = "Nudged the camera. Drag a piece to move or rotate it on the bench.";
     return { handles: true, text, actions };
@@ -793,10 +618,15 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
+  const allowed = new Set(["add", "add_part", "mesh", "generate", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
+    if (action.type === "mesh" || action.type === "generate") {
+      const mesh = sanitizeMeshAction(action);
+      if (mesh) out.push(mesh);
+      continue;
+    }
     if (action.type === "scan") {
       out.push({ type: "scan" });
       continue;
@@ -885,7 +715,7 @@ function localReply(message, ctx) {
     return {
       agent,
       backend: "local-steward",
-      text: "Tell me what room or object you want to create, or ask about the current scene.",
+      text: "Describe anything to generate as editable 3D, or ask about the current scene.",
       actions: [],
     };
   }
@@ -893,7 +723,7 @@ function localReply(message, ctx) {
     return {
       agent,
       backend: "local-steward",
-      text: "Hi. Describe a room or piece of furniture and I’ll build a visible 3D starting point you can edit.",
+      text: "Hi. Describe anything and I’ll generate an editable 3D mesh.",
       actions: [],
     };
   }
@@ -914,15 +744,6 @@ function localReply(message, ctx) {
       actions: studio.actions,
     };
   }
-  const sceneNote = describeScene(ctx);
-  if (isSceneAsk(message) && sceneNote) {
-    return {
-      agent,
-      backend: "local-steward",
-      text: `I can see the current scene: ${sceneNote}.`,
-      actions: [],
-    };
-  }
   const hardLabTask = CAD_HINTS.test(message) || EDA_HINTS.test(message) || SIM_HINTS.test(message);
   const planned = hardLabTask
     ? { handles: false, text: "", actions: [] }
@@ -934,6 +755,15 @@ function localReply(message, ctx) {
       backend: "local-steward",
       text: withSceneNote(planned.text, ctx, message),
       actions: planned.actions,
+    };
+  }
+  const sceneNote = describeScene(ctx);
+  if (isSceneAsk(message) && sceneNote) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: `I can see the current scene: ${sceneNote}.`,
+      actions: [],
     };
   }
 
@@ -1071,7 +901,7 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} in the IKEAFY 3D furniture workspace with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, room {type:"room", room:{kind,widthM,depthM,heightM,wallColor,floorColor}}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. A room action creates real floor and wall meshes. For a requested side table use generic-side-table as a neutral editable placeholder, never claim it is branded CAD, and state its 550×550×450 mm proportions before other copy. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
+        content: `You are ${agent.name}, an editable 3D generator. Reply as JSON {"text": string, "actions": Action[]}. Treat a descriptive prompt like image generation, but output one real editable 3D mesh action: {type:"mesh",mesh:{name,prompt,kind,components:[MeshBody]}}. Use the same mesh pipeline for furniture, creatures, props, sculptures, and room corners. A MeshBody has {id,name,shape,sizeMm:[width,height,depth],positionMm:[x,y,z],rotationDeg:[x,y,z],color,roughness,metalness,segments}. Supported shapes are ${AI_MESH_SHAPES.join(", ")}. torus may add majorRadiusMm, tubeRadiusMm, arcDeg; capsule may add radiusMm, lengthMm; lathe requires profileMm:[[radius,y],...]; extrude requires outlineMm:[[x,z],...] and may add holesMm; mesh requires verticesMm:[[x,y,z],...] and triangular faces:[[a,b,c],...]. Coordinates and sizes are millimetres with Y up. Compose as many bodies as the prompt needs, up to 128. Never substitute a catalog product or product-specific placeholder. Use add {type:"add", partId, pose?} only when the user explicitly asks for a catalog article or branded SKU. Other workspace action types are camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, and studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. Catalog ids, only when explicitly requested: ${catalogHint}. Describe the result as generated editable 3D. Never ask for secrets. Keep text under 120 words. ${
           electronics
             ? "Electronics were requested — nano, LED, and button are fair."
             : "Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics."
@@ -1098,12 +928,17 @@ async function hostedReply(message, ctx, agent) {
   if (!rawText && !parsed) return null;
   let actions = sanitizeActions(parsed?.actions, { electronics });
   const deterministic = planCreativeActions(message, ctx);
+  const meshBuild = isMeshBuildAsk(message);
   const mustCreateModel =
     deterministic.handles &&
     deterministic.actions.some((action) => SHOP_CREATE_TYPES.has(action.type));
   if (mustCreateModel) {
+    const hostedMeshes = actions.filter((action) => action.type === "mesh");
     const extras = actions.filter((action) => action.type === "camera");
-    actions = [...sanitizeActions(deterministic.actions, { electronics }), ...extras];
+    actions =
+      meshBuild && hostedMeshes.length
+        ? [...hostedMeshes, ...extras]
+        : [...sanitizeActions(deterministic.actions, { electronics }), ...extras];
   } else if (!actions.length) {
     const studio = planStudioActions(message);
     if (studio.handles) actions = studio.actions.map((action) => ({ ...action }));
@@ -1326,8 +1161,8 @@ export function fallbackChat(message, ctx = {}) {
       agent: ROSTER.find((agent) => agent.id === "creative"),
       backend: "local-steward",
       text: String(message || "").trim()
-        ? "I couldn’t complete that edit. Try describing the room or object with dimensions."
-        : "Tell me what room or object you want to create.",
+        ? "I couldn’t generate that 3D mesh. Try describing its form and dimensions."
+        : "Describe anything to generate as editable 3D.",
       actions: [],
     };
   }
@@ -1337,17 +1172,14 @@ export async function chat(message, ctx = {}) {
   try {
     message = String(message || "").trim();
     ctx = mergeChatContext(ctx);
-    if (isFurnitureBuildAsk(message)) {
-      return runFurnitureDesks(message, ctx);
-    }
     const agent = routeAgent(message);
     const escalate = shouldEscalate(message);
     const creative = isCreativeAsk(message);
 
-    // Rooms, tables, catalog drops and reel commands are local. A hosted
-    // provider must not replace those actions with prose, and must not
-    // block the steward when the key is missing or the provider fails.
-    if (stewardCanCreate(message, ctx)) {
+    // Descriptive prompts use one 3D generation contract. A hosted mesh
+    // author can fill it when configured; the local generator is the
+    // deterministic offline/provider-failure fallback.
+    if (stewardCanCreate(message, ctx) && !(isMeshBuildAsk(message) && hasHostedBrain())) {
       return finishLocal(message, ctx, { escalate, creative });
     }
 

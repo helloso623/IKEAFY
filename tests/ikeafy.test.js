@@ -229,7 +229,7 @@ test("a BILLY-style custom guide does not become the LACK table", () => {
   assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
 });
 
-test("parseGuideAsync visibly uses the local parser when GLiNER 2 is unavailable", async () => {
+test("parseGuideAsync visibly uses the local parser when GLiNER 2 returns no steps", async () => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
@@ -245,6 +245,116 @@ test("parseGuideAsync visibly uses the local parser when GLiNER 2 is unavailable
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
+});
+
+test("parseGuideAsync surfaces an actionable error when GLiNER 2 runtime fails on PDF text", async () => {
+  const guide = await parseGuideAsync(
+    `Crate\n1. Screw the side onto the base.`,
+    {},
+    {
+      requireGliner: true,
+      glinerInfer: async () => {
+        const error = new Error("GLiNER 2 local runtime is unavailable (sidecar exited). Run `npm run setup:gliner2` from the project root, then restart IKEAlive.");
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_RUNTIME_UNAVAILABLE";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.steps.length, 0);
+  assert.match(guide.parseError, /setup:gliner2/);
+  assert.doesNotMatch(guide.parser, /gliner2/);
+});
+
+test("parseGuideAsync keeps a local fallback for non-PDF text when GLiNER 2 is down", async () => {
+  const guide = await parseGuideAsync(
+    `Crate\n1. Screw the side onto the base.`,
+    {},
+    {
+      glinerInfer: async () => {
+        const error = new Error("GLiNER 2 local runtime is unavailable (sidecar exited). Run `npm run setup:gliner2`.");
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_RUNTIME_UNAVAILABLE";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.parser, "local-parser");
+  assert.equal(guide.steps.length, 1);
+  assert.match(guide.parseWarning, /setup:gliner2|unavailable/i);
+});
+
+test("drawing PDF still tries fal when text-side GLiNER fails but fal+normalize succeed", async () => {
+  let falCalls = 0;
+  let glinerCalls = 0;
+  const guide = await parseGuideAsync(
+    "BILLY.pdf: 16 pages; the first 8 plates were read.",
+    { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => {
+        falCalls += 1;
+        return {
+          title: "BILLY bookcase",
+          steps: [{ number: 1, body: "Fasten side panel 1 to base 2 with dowels.", action: "fasten" }],
+        };
+      },
+      glinerInfer: async ({ text }) => {
+        glinerCalls += 1;
+        if (glinerCalls === 1) {
+          const error = new Error("temporary extract failure");
+          error.name = "Gliner2RuntimeError";
+          error.code = "GLINER2_INFERENCE_ERROR";
+          throw error;
+        }
+        if (!String(text).includes("Fasten side panel 1")) return {};
+        return {
+          assembly_guide: [{ title: "BILLY bookcase" }],
+          assembly_step: [
+            {
+              sequence_number: "1",
+              instruction: "Fasten side panel 1 to base 2 with dowels.",
+              action: "fasten",
+              parts: ["side panel 1", "base 2", "dowels"],
+              tool: "",
+              warnings: [],
+            },
+          ],
+        };
+      },
+    },
+  );
+  assert.equal(falCalls, 1);
+  assert.ok(glinerCalls >= 2);
+  assert.equal(guide.parser, "gliner2:fastino/gliner2-base-v1+fal-plate-vision");
+  assert.equal(guide.steps.length, 1);
+});
+
+test("Pioneer TLS failure still uses fal structured steps without setup:gliner2 messaging", async () => {
+  const sslDetail =
+    "GLiNER2APIError: Connection error: HTTPSConnectionPool(host='api.fastino.ai', port=443): " +
+    "Max retries exceeded (Caused by SSLError(SSLCertVerificationError(1, " +
+    "'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired')))";
+  const guide = await parseGuideAsync(
+    "BILLY.pdf: 16 pages; the first 8 plates were read.",
+    { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => ({
+        title: "BILLY bookcase",
+        steps: [{ number: 1, body: "Fasten side panel 1 to base 2 with dowels.", action: "fasten" }],
+      }),
+      glinerInfer: async () => {
+        const error = new Error(sslDetail);
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_INFERENCE_ERROR";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.steps.length, 1);
+  assert.equal(guide.parseError, undefined);
+  assert.equal(guide.parseWarning, undefined);
+  assert.doesNotMatch(JSON.stringify(guide), /setup:gliner2/);
 });
 
 test("text-rich PDF uses mocked GLiNER 2 without fal plate vision", async () => {
@@ -369,4 +479,58 @@ test("drawing PDF uses fal vision then GLiNER 2 normalization without OpenAI", a
     if (previousOpenAi === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousOpenAi;
   }
+});
+
+test("fal vision structured JSON is used when GLiNER normalize returns empty steps", async () => {
+  let falCalls = 0;
+  const guide = await parseGuideAsync(
+    "ALHULT.pdf: drawing plates with little extractable text.",
+    { images: [{ name: "ALHULT p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => {
+        falCalls += 1;
+        return {
+          title: "ALHULT cabinet",
+          steps: [
+            { number: 1, action: "place", body: "Place side panel A against base B." },
+            { number: 2, action: "fasten", body: "Fasten with screws 100001.", partsUsed: ["100001"] },
+          ],
+        };
+      },
+      // Mimic the production failure: GLiNER returns schema keys but no usable instruction bodies.
+      glinerInfer: async () => ({
+        assembly_guide: [{ title: "ALHULT cabinet" }],
+        assembly_step: [{ sequence_number: "1", instruction: "", action: "", parts: [], tool: "", warnings: [] }],
+      }),
+    },
+  );
+  assert.equal(falCalls, 1);
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.title, "ALHULT cabinet");
+  assert.equal(guide.steps.length, 2);
+  assert.match(guide.steps[0].body, /side panel A/i);
+  assert.match(guide.steps[1].body, /screws 100001/i);
+  assert.equal(guide.parseError, undefined);
+});
+
+test("fal vision still yields steps when GLiNER sidecar is unavailable", async () => {
+  const guide = await parseGuideAsync(
+    "ALHULT.pdf: drawing only.",
+    { images: [{ name: "ALHULT p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => ({
+        title: "ALHULT",
+        steps: [{ number: 1, body: "Attach the door hinge.", action: "fasten" }],
+      }),
+      glinerInfer: async () => {
+        const error = new Error("GLiNER 2 local runtime is unavailable (sidecar exited).");
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_RUNTIME_UNAVAILABLE";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.steps.length, 1);
+  assert.match(guide.steps[0].body, /door hinge/i);
 });

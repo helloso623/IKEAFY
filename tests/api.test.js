@@ -49,7 +49,7 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(url);
-      if (res.ok) return;
+      if (res.ok) return res.json();
       lastError = `HTTP ${res.status}`;
     } catch (error) {
       lastError = String(error?.message || error);
@@ -59,7 +59,26 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   throw new Error(`server did not start: ${lastError}`);
 }
 
-test("finishing and remodeling a table returns current ways and preserves prior plans", async (t) => {
+async function finishModel(base, model = []) {
+  const response = await fetch(`${base}/api/project/finish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+  assert.equal(response.status, 202);
+  const started = await response.json();
+  assert.equal(started.job.status, "queued");
+  assert.match(started.job.text, /Reading the model/i);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const update = await (await fetch(`${base}/api/project/finish/${started.job.id}`)).json();
+    if (update.job.status === "complete") return { started, update, packet: update.result };
+    if (update.job.status === "failed") assert.fail(update.reason || update.job.text);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail("finish job did not complete");
+}
+
+test("finish starts a progress job, scores the current model, and preserves prior plans", async (t) => {
   const port = 20500 + (process.pid % 400);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -68,7 +87,11 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   });
   t.after(() => child.kill("SIGTERM"));
   const base = `http://127.0.0.1:${port}`;
-  await waitForHealth(`${base}/api/health`);
+  const health = await waitForHealth(`${base}/api/health`);
+  assert.equal(health.build.version, "0.1.0");
+  assert.match(health.build.revision, /^[0-9a-f]{40}$/);
+  assert.equal(health.build.port, port);
+  assert.ok(health.build.pid);
 
   const added = await fetch(`${base}/api/project/add`, {
     method: "POST",
@@ -78,19 +101,61 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   assert.equal(added.status, 200);
   const addedPiece = await added.json();
 
-  const response = await fetch(`${base}/api/project/finish`, { method: "POST" });
-  assert.equal(response.status, 200);
-  const packet = await response.json();
+  const first = await finishModel(base);
+  const packet = first.packet;
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, and legs/);
+  assert.match(packet.bom.scope, /geometry-derived.*pieces/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
-  assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
-  assert.equal(packet.bom.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
+  assert.deepEqual(packet.bom.cutList.map((line) => line.role), ["top", "leg"]);
+  assert.ok(packet.bom.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
+  assert.ok(packet.bom.hardwareLines.some((line) => /screw/i.test(line.name)));
+  assert.ok(packet.bom.similarityScore >= 90);
+  assert.ok(packet.bom.ways.every((way) => Number.isFinite(way.similarity.score)));
+  const progressText = first.update.job.events.map((event) => event.text);
+  assert.ok(progressText.includes("Reading the model…"));
+  assert.ok(progressText.includes("Researching how to build…"));
+  assert.ok(progressText.includes("Listing components…"));
+  assert.ok(progressText.includes("Writing steps…"));
+  assert.ok(progressText.includes("Sending steps to the tutorial guide…"));
+  assert.match(progressText.at(-1), /Ready.*closest physical match/);
+  assert.deepEqual(
+    first.update.job.events.map((event) => event.percent),
+    [...first.update.job.events.map((event) => event.percent)].sort((a, b) => a - b),
+  );
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
+  assert.equal(packet.assembly.guide.bom.extra.length, packet.bom.lines.length);
+  assert.ok(packet.assembly.guide.bom.extra.every((line) => line.name && line.qty && line.dimensions));
+  assert.ok(
+    packet.assembly.guide.bom.extra.every((line) =>
+      line.retailers.every((retailer) => !/mcmaster/i.test(`${retailer.store} ${retailer.url}`)),
+    ),
+  );
+  const tutorial = await (await fetch(`${base}/api/assembly/${packet.assembly.run.id}`)).json();
+  assert.equal(tutorial.ok, true);
+  assert.deepEqual(tutorial.outline, packet.assembly.outline);
+  assert.deepEqual(tutorial.guide.bom.extra, packet.assembly.guide.bom.extra);
+
+  const liveModel = {
+    id: "mesh-only",
+    name: "Edited mesh table",
+    shape: "generated-mesh",
+    dimsMm: { x: 1200, y: 600, z: 740 },
+    poseM: { x: 0, y: 0.37, z: 0 },
+    geometryAnalysis: { geometryFingerprint: "mesh-live-a", silhouette: "rectilinear" },
+  };
+  const diy = await fetch(`${base}/api/project/diy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: [liveModel] }),
+  });
+  assert.equal(diy.status, 200);
+  const live = await diy.json();
+  assert.ok(live.bom.hardwareLines.length);
+  assert.ok(live.bom.components.some((component) => component.pieceId === "mesh-only"));
 
   const moved = await fetch(`${base}/api/project/move`, {
     method: "POST",
@@ -98,17 +163,15 @@ test("finishing and remodeling a table returns current ways and preserves prior 
     body: JSON.stringify({ id: addedPiece.id, sx: 1.2 }),
   });
   assert.equal(moved.status, 200);
-  const refreshed = await fetch(`${base}/api/project/finish`, { method: "POST" });
-  assert.equal(refreshed.status, 200);
-  const changed = await refreshed.json();
+  const changed = (await finishModel(base)).packet;
   assert.notEqual(changed.bom.modelSignature, packet.bom.modelSignature);
   assert.equal(changed.bom.ikeaMatch, null);
-  assert.ok(changed.bom.ways.some((way) => way.additionalCuts?.some((line) => line.role === "apron")));
+  assert.ok(changed.bom.ways.some((way) => way.additionalPieces?.some((line) => line.role === "apron")));
   const project = await (await fetch(`${base}/api/project`)).json();
   assert.equal(project.diyHistory.length, 2);
 });
 
-test("POST /api/chat creates a room and table via steward actions", async (t) => {
+test("POST /api/chat generates a room scene through one editable mesh action", async (t) => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   t.after(() => {
@@ -132,43 +195,41 @@ test("POST /api/chat creates a room and table via steward actions", async (t) =>
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "make a warm living room with a table",
-        room: { widthM: 4.8, depthM: 3.6 },
+        message: "generate a 4.8 x 3.6 m warm living room corner with a table",
       }),
     });
     assert.equal(res.status, 200, `${route} should accept POST`);
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.backend, "local-steward");
-    assert.ok(
-      body.actions.some((action) => action.type === "room"),
-      `${route} should return a room action`,
-    );
-    assert.ok(
-      body.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"),
-      `${route} should return a table add action`,
-    );
+    assert.equal(body.actions.length, 1);
+    assert.equal(body.actions[0].type, "mesh");
+    assert.equal(body.actions[0].mesh.kind, "scene");
+    assert.ok(body.actions[0].mesh.components.some((component) => component.name === "Floor"));
+    assert.ok(body.actions[0].mesh.components.some((component) => /Tabletop/.test(component.name)));
+    assert.equal(body.actions[0].partId, undefined);
   }
 });
 
-test("chat() itself creates rooms and tables as steward actions", async () => {
+test("chat() itself generates room prompts as editable scene geometry", async () => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
-    const reply = await chat("make a warm living room with a table", {
+    const reply = await chat("generate a 4.8 x 3.6 m warm living room corner with a table", {
       project: emptyProject(),
-      room: { widthM: 4.8, depthM: 3.6 },
     });
     assert.equal(reply.backend, "local-steward");
-    assert.ok(reply.actions.some((action) => action.type === "room"));
-    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
+    assert.equal(reply.actions.length, 1);
+    assert.equal(reply.actions[0].type, "mesh");
+    assert.equal(reply.actions[0].mesh.kind, "scene");
+    assert.equal(reply.actions[0].partId, undefined);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
 });
 
-test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => {
+test("HTTP chat emits table, stool, and shelf meshes for the bench", async (t) => {
   const port = 22000 + (process.pid % 1000);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -185,11 +246,11 @@ test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => 
   assert.ok(catalog.some((part) => part.id === "generic-shelf-board"));
 
   const cases = [
-    ["make a side table", ["generic-side-table"]],
-    ["make a stool", ["generic-stool"]],
-    ["make a shelf", ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"]],
+    ["make a side table", "table", 5],
+    ["make a stool", "stool", 5],
+    ["make a shelf", "shelf", 3],
   ];
-  for (const [message, expected] of cases) {
+  for (const [message, kind, bodyCount] of cases) {
     const seeded = await fetch(`${base}/api/project/seed`, { method: "POST" });
     assert.equal(seeded.status, 200);
     const response = await fetch(`${base}/api/chat`, {
@@ -200,12 +261,12 @@ test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => 
     assert.equal(response.status, 200);
     const reply = await response.json();
     assert.equal(reply.ok, true);
-    assert.deepEqual(
-      reply.actions.filter((action) => action.type === "add").map((action) => action.partId),
-      expected,
-    );
+    const mesh = reply.actions.find((action) => action.type === "mesh");
+    assert.equal(mesh.mesh.kind, kind);
+    assert.equal(mesh.mesh.components.length, bodyCount);
+    assert.equal(reply.actions.some((action) => action.type === "add"), false);
     const project = await (await fetch(`${base}/api/project`)).json();
-    assert.deepEqual(project.pieces.map((piece) => piece.partId), expected);
+    assert.deepEqual(project.pieces, []);
   }
 
   await fetch(`${base}/api/project/seed`, { method: "POST" });

@@ -469,8 +469,10 @@ test("finished furniture hunts shaped pieces, prints them, and opens its parsed 
   assert.match(html, /Hunt table pieces/);
   assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
   assert.match(html, /Piece-plan history/);
-  assert.match(apiSource, /^\s{2}finishProject:/m);
-  assert.match(main, /api\.finishProject\(\)/);
+  assert.match(apiSource, /^\s{2}startFinishProject:/m);
+  assert.match(apiSource, /^\s{2}finishJob:/m);
+  assert.match(main, /api\.startFinishProject\(/);
+  assert.match(main, /api\.finishJob\(/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
   assert.doesNotMatch(main, /Finding hardware|hardware build plan/);

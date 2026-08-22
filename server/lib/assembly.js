@@ -118,14 +118,16 @@ export async function startAssemblyAsync({
   const guide = await parseGuideAsync(
     text,
     { instructions, availableTools, images: plates },
-    { ...deps, requestId },
+    { ...deps, requestId, requireGliner: Boolean(pdfBase64 || plates.length) },
   );
   if (!guide?.steps?.length) {
     return {
       ok: false,
-      reason: plates.length
-        ? guide?.parseError || "fal plate vision could not read those PDF plates into assembly steps."
-        : "That guide has no steps. Drop a PDF or paste a numbered guide.",
+      reason:
+        guide?.parseError ||
+        (plates.length
+          ? "fal plate vision could not read those PDF plates into assembly steps."
+          : "That guide has no steps. Drop a PDF or paste a numbered guide."),
     };
   }
   return withShopping(beginRun("custom", guide, renderMode), deps);
