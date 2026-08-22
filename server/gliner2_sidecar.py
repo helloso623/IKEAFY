@@ -1,4 +1,8 @@
-"""JSON-lines bridge from the Node server to the official local GLiNER 2 library."""
+"""JSON-lines bridge from the Node server to Pioneer/Fastino GLiNER 2.
+
+Pioneer API (`PIONEER_API_KEY` → GLiNER2.from_api) is the preferred path.
+Local from_pretrained is an optional offline fallback and may contact Hugging Face.
+"""
 
 import importlib.metadata
 import json
@@ -16,6 +20,23 @@ def diagnostic(message):
         sys.stderr.flush()
 
 
+def pioneer_api_key():
+    return (
+        str(os.environ.get("PIONEER_API_KEY") or "").strip()
+        or str(os.environ.get("GLINER2_API_KEY") or "").strip()
+    )
+
+
+def resolve_mode():
+    """Prefer Pioneer cloud API; use local only when requested or no API key."""
+    requested = str(os.environ.get("GLINER2_MODE") or "auto").strip().lower()
+    if requested in {"api", "pioneer", "cloud"}:
+        return "api"
+    if requested in {"local", "pretrained", "hf"}:
+        return "local"
+    return "api" if pioneer_api_key() else "local"
+
+
 try:
     from gliner2 import GLiNER2
 except Exception as error:
@@ -30,9 +51,28 @@ try:
 except importlib.metadata.PackageNotFoundError:
     PACKAGE_VERSION = "unknown"
 
+MODE = resolve_mode()
+
 try:
-    diagnostic(f"Loading GLiNER 2 model {MODEL_ID}; the first run may download model files.")
-    extractor = GLiNER2.from_pretrained(MODEL_ID)
+    if MODE == "api":
+        if not pioneer_api_key():
+            diagnostic(
+                "Pioneer GLiNER 2 API mode requires PIONEER_API_KEY. "
+                "Get a key at https://gliner.pioneer.ai or set GLINER2_MODE=local for offline weights."
+            )
+            raise SystemExit(70)
+        diagnostic("Connecting to Pioneer GLiNER 2 API (no local Hugging Face download).")
+        extractor = GLiNER2.from_api()
+        runtime_model = "pioneer-api"
+    else:
+        diagnostic(
+            f"Loading local GLiNER 2 model {MODEL_ID}; "
+            "Pioneer API is preferred (set PIONEER_API_KEY). Local mode may download from Hugging Face."
+        )
+        extractor = GLiNER2.from_pretrained(MODEL_ID)
+        runtime_model = MODEL_ID
+except SystemExit:
+    raise
 except Exception as error:
     diagnostic(f"GLiNER 2 model startup failed: {type(error).__name__}: {error}")
     raise SystemExit(70)
@@ -49,7 +89,9 @@ write_message(
         "protocol": 1,
         "python": sys.executable,
         "packageVersion": PACKAGE_VERSION,
-        "model": MODEL_ID,
+        "model": runtime_model,
+        "mode": MODE,
+        "provider": "pioneer" if MODE == "api" else "local",
     }
 )
 

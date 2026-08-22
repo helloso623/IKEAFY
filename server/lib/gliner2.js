@@ -100,21 +100,41 @@ function stopSidecar(error, active = runtime) {
 }
 
 function acceptLine(active, line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return;
+  // Hugging Face / torch progress sometimes leaks to stdout before ready.
+  if (!trimmed.startsWith("{")) {
+    if (!active.ready) {
+      ikealiveLog("gliner2", "startup-noise", { detail: safeDiagnostic(trimmed).slice(0, 160) });
+    } else {
+      ikealiveWarn("gliner2", "error", { stage: "protocol", reason: "non-JSON stdout from sidecar" });
+    }
+    return;
+  }
   let message;
   try {
-    message = JSON.parse(line);
+    message = JSON.parse(trimmed);
   } catch {
-    ikealiveWarn("gliner2", "error", { stage: "protocol", reason: "non-JSON stdout from sidecar" });
+    if (!active.ready) {
+      ikealiveLog("gliner2", "startup-noise", { detail: safeDiagnostic(trimmed).slice(0, 160) });
+    } else {
+      ikealiveWarn("gliner2", "error", { stage: "protocol", reason: "non-JSON stdout from sidecar" });
+    }
     return;
   }
   if (message?.type === "ready") {
     if (active.ready) return;
     active.ready = true;
+    active.mode = message.mode || null;
+    active.provider = message.provider || null;
+    if (message.model) active.model = message.model;
     clearTimeout(active.startupTimer);
     ikealiveLog("gliner2", "ready", {
       python: message.python || active.python,
       packageVersion: message.packageVersion || null,
       model: message.model || active.model,
+      mode: message.mode || null,
+      provider: message.provider || null,
       protocol: message.protocol || null,
     });
     active.resolveReady(active);
@@ -164,13 +184,35 @@ function ensureSidecar({ startupTimeoutMs } = {}) {
   const python = pythonExecutable();
   const model = modelId();
   const sidecar = sidecarPath();
-  const inherited = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "PYTHONPATH", "HF_HOME", "TRANSFORMERS_CACHE", "TORCH_HOME"];
+  // Pioneer API is primary; HF_* only matter for optional local from_pretrained fallback.
+  const inherited = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "PYTHONPATH",
+    "PIONEER_API_KEY",
+    "GLINER2_API_KEY",
+    "GLINER2_API_BASE_URL",
+    "GLINER2_MODE",
+    "HF_HOME",
+    "TRANSFORMERS_CACHE",
+    "TORCH_HOME",
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
+  ];
   const env = Object.fromEntries(inherited.filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("GLINER2_") && value != null) env[key] = value;
   }
+  const pioneerKeyed = Boolean(String(process.env.PIONEER_API_KEY || process.env.GLINER2_API_KEY || "").trim());
   ikealiveLog("gliner2", "python", { executable: python, sidecar });
-  ikealiveLog("gliner2", "model", { id: model });
+  ikealiveLog("gliner2", "model", {
+    id: model,
+    pioneerApiKey: pioneerKeyed ? "[set]" : "[empty]",
+    mode: String(process.env.GLINER2_MODE || "auto"),
+  });
   const child = spawn(python, [sidecar], {
     cwd: ROOT,
     env: { ...env, GLINER2_MODEL: model },
@@ -292,6 +334,9 @@ export function gliner2RuntimeStatus() {
     ready: Boolean(runtime?.ready),
     python: runtime?.python || pythonExecutable(),
     model: runtime?.model || modelId(),
+    mode: runtime?.mode || null,
+    provider: runtime?.provider || null,
+    pioneerApiKey: Boolean(String(process.env.PIONEER_API_KEY || process.env.GLINER2_API_KEY || "").trim()),
     setupCommand: GLINER2_SETUP_COMMAND,
   };
 }
@@ -334,14 +379,19 @@ export async function extractGuideWithGliner2(text, deps = {}) {
   const title = firstRecord(result, "assembly_guide")?.title || "";
   const rows = Array.isArray(result?.assembly_step) ? result.assembly_step : [];
   const steps = rows
-    .map((row) => ({
-      number: Number.parseInt(row.sequence_number, 10) || undefined,
-      body: String(row.instruction || "").trim(),
-      action: String(row.action || "").trim(),
-      partsUsed: asList(row.parts),
-      toolRequired: row.tool ? String(row.tool) : null,
-      warnings: asList(row.warnings),
-    }))
+    .map((row) => {
+      const body = String(
+        row?.instruction || row?.body || row?.text || row?.description || "",
+      ).trim();
+      return {
+        number: Number.parseInt(row?.sequence_number ?? row?.number, 10) || undefined,
+        body,
+        action: String(row?.action || "").trim(),
+        partsUsed: asList(row?.parts || row?.partsUsed),
+        toolRequired: row?.tool || row?.toolRequired ? String(row.tool || row.toolRequired) : null,
+        warnings: asList(row?.warnings),
+      };
+    })
     .filter((step) => step.body);
   return steps.length ? { title: String(title || "Custom build"), steps } : null;
 }

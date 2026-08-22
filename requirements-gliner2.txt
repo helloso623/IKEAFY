@@ -1,2 +1,4 @@
-# Official Pioneer/Fastino GLiNER 2 local inference stack.
+# Official Pioneer/Fastino GLiNER 2 stack.
+# Pioneer cloud API (PIONEER_API_KEY → GLiNER2.from_api) is preferred.
+# The [local] extra keeps optional offline from_pretrained available.
 gliner2[local]

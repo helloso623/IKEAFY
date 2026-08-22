@@ -71,6 +71,26 @@ test("mocked inferFn bypasses the real sidecar", async () => {
   assert.equal(gliner2RuntimeStatus().status, "idle");
 });
 
+test("mocked inferFn maps body aliases when instruction is missing", async () => {
+  const result = await extractGuideWithGliner2("1. Hang the rail.", {
+    glinerInfer: async () => ({
+      assembly_guide: [{ title: "Shelf" }],
+      assembly_step: [
+        {
+          sequence_number: "1",
+          body: "Hang the rail.",
+          action: "place",
+          parts: ["rail"],
+          tool: "",
+          warnings: [],
+        },
+      ],
+    }),
+  });
+  assert.equal(result.title, "Shelf");
+  assert.equal(result.steps[0].body, "Hang the rail.");
+});
+
 test("sidecar ready protocol reports ready status without downloading a checkpoint", async () => {
   useMockSidecar("ready");
   const ready = await ensureGliner2Ready({ glinerStartupTimeoutMs: 5_000 });
