@@ -47,8 +47,6 @@ npm run electron
 Both commands start the Vite client and Express API; `npm run electron` also opens the Electron window.
 The Electron command starts the same Vite client and Express API inside the desktop shell.
 
-## Demo: https://drive.google.com/drive/folders/1kMPxqRavRnxyOqp5RjL-auIRFQDq78Bc?usp=sharing
-
 ## Partners in the app
 
 Where each hosted partner runs in IKEAlive:
@@ -109,6 +107,8 @@ The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as
 Open either link in the phone browser, then use its single **Record / Send ~30s video** button. The page posts the clip to `/api/scan/video`; `.ts.net`, localhost, and private-LAN browser origins are accepted by the API. Lab extracts frames, rebuilds room occupancy, cuts the old table footprint, and auto-fits the current table. From there, **Finish / Find a way** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
 
 See [Furniture-piece sourcing policy](docs/BUILD-WAYS.md) for the build-route and cut-list boundary.
+
+## Demo: https://drive.google.com/drive/folders/1kMPxqRavRnxyOqp5RjL-auIRFQDq78Bc?usp=sharing
 
 ## How it is arranged
 
