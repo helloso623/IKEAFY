@@ -76,6 +76,16 @@ export function addPiece(project, partId, pose = {}) {
   return piece;
 }
 
+export function removePiece(project, id) {
+  const piece = project.pieces.find((p) => p.id === id);
+  if (!piece) return null;
+  project.pieces = project.pieces.filter((p) => p.id !== id);
+  project.cables = (project.cables || []).filter((c) => c.fromPiece !== id && c.toPiece !== id);
+  project.tapes = (project.tapes || []).filter((t) => !(t.pieceIds || []).includes(id));
+  if (project.selection === id) project.selection = null;
+  return piece;
+}
+
 export function movePiece(project, id, pose) {
   const piece = project.pieces.find((p) => p.id === id);
   if (!piece) return null;
@@ -164,6 +174,38 @@ export function resetSim(project) {
   project.sim.on = false;
   project.sim.lastReport = null;
   return project;
+}
+
+/**
+ * What the bench should even show. A table with four legs on it has no ports,
+ * no nets and no firmware, so the electronics panels are not "disabled" — they
+ * are not drawn at all.
+ */
+export function benchChrome(project) {
+  const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);
+  const electronics = parts.filter((p) => p.category === "electronics" || p.firmwareRole);
+  const cables = parts.filter((p) => p.category === "cable");
+  const hasElectronics = electronics.length > 0;
+  return {
+    electronics: hasElectronics,
+    counts: {
+      pieces: parts.length,
+      electronics: electronics.length,
+      cables: (project.cables || []).length + cables.length,
+      tapes: (project.tapes || []).length,
+    },
+    show: {
+      cablesPanel: hasElectronics || (project.cables || []).length > 0,
+      isolateBoard: hasElectronics,
+      labelFunction: hasElectronics,
+      firmware: parts.some((p) => p.firmwareRole === "mcu"),
+      ports: hasElectronics,
+      tape: parts.length > 0,
+    },
+    note: hasElectronics
+      ? "Electronics on the bench — ports, nets and firmware are live."
+      : "Nothing electronic on the bench, so the electronics controls stay off the panel.",
+  };
 }
 
 export function catalogPreview() {

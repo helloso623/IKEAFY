@@ -1,34 +1,69 @@
 import { api } from "./api.js";
 import { createWorkshop } from "./workshop.js";
+import { initStudio } from "./studio.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
 const shop = createWorkshop(view);
 const partsById = {};
-let project = { pieces: [], cables: [], tapes: [] };
-let guide = null;
-let videoPlan = null;
-let stepIndex = 0;
-let frameIndex = 0;
+let project = { pieces: [], cables: [], tapes: [], chrome: null };
 let selectedIds = [];
 let costBarrier = "";
+let studio = null;
 
 function hud(text) {
   $("hud").textContent = text;
 }
 
-function inspect(html) {
-  $("inspect").innerHTML = html;
+function inspect(text) {
+  $("inspect").textContent = text;
+}
+
+/**
+ * A table with four legs has no ports, no nets and no firmware. The server tells
+ * us what is on the bench, and the electronics chrome is simply not drawn.
+ */
+function applyChrome(chrome) {
+  const electronics = Boolean(chrome?.electronics);
+  for (const node of document.querySelectorAll(".electronics-chrome")) {
+    node.classList.toggle("hidden", !electronics);
+  }
+  const cables = $("cables-panel");
+  if (cables) cables.classList.toggle("hidden", !chrome?.show?.cablesPanel);
+  if (!electronics && chrome) hudChromeNote(chrome);
+}
+
+let lastChromeNote = "";
+function hudChromeNote(chrome) {
+  if (chrome.note === lastChromeNote) return;
+  lastChromeNote = chrome.note;
 }
 
 async function refreshProject() {
   project = await api.project();
   shop.sync(project, partsById);
+  applyChrome(project.chrome);
   $("cables").innerHTML = project.cables
     .map(
       (c) =>
         `<div class="item"><span>${c.fromPort} → ${c.toPort}</span><small>${c.locked ? "locked" : "loose"}</small></div>`,
     )
+    .join("");
+  renderBenchPieces();
+}
+
+function renderBenchPieces() {
+  const list = $("bench-pieces");
+  if (!list) return;
+  if (!project.pieces.length) {
+    list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
+    return;
+  }
+  list.innerHTML = project.pieces
+    .map((piece) => {
+      const part = partsById[piece.partId];
+      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}</span><small data-drop="${piece.id}">remove</small></div>`;
+    })
     .join("");
 }
 
@@ -37,6 +72,8 @@ async function loadCatalog() {
   if ($("cost").value) q.maxCost = $("cost").value;
   const parts = await api.catalog(q);
   for (const p of parts) partsById[p.id] = p;
+  const count = $("catalog-count");
+  if (count) count.textContent = String(parts.length);
   $("catalog").innerHTML = parts
     .map(
       (p) =>
@@ -46,11 +83,28 @@ async function loadCatalog() {
 }
 
 $("catalog").addEventListener("click", async (ev) => {
-  const id = ev.target.closest("[data-add]")?.dataset.add;
+  const item = ev.target.closest("[data-add]");
+  const id = item?.dataset.add;
   if (!id) return;
   await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
   await refreshProject();
   hud(`Added ${partsById[id]?.name || id}`);
+  (item.nextElementSibling || item)?.scrollIntoView({ block: "nearest" });
+});
+
+$("bench-pieces")?.addEventListener("click", async (ev) => {
+  const drop = ev.target.closest("[data-drop]")?.dataset.drop;
+  if (drop) {
+    await removePiece(drop);
+    return;
+  }
+  const id = ev.target.closest("[data-piece]")?.dataset.piece;
+  if (id) {
+    selectedIds = [id];
+    const piece = project.pieces.find((p) => p.id === id);
+    const part = partsById[piece?.partId];
+    if (part) showPart(part, piece);
+  }
 });
 
 $("search").addEventListener("input", loadCatalog);
@@ -59,13 +113,29 @@ $("cost").addEventListener("change", () => {
   loadCatalog();
 });
 
+function isElectronics(part) {
+  return part?.category === "electronics" || Boolean(part?.firmwareRole);
+}
+
+function showPart(part, piece) {
+  const lines = [
+    part.name,
+    part.sku,
+    `${part.dimsMm.x}×${part.dimsMm.y}×${part.dimsMm.z} mm · ${part.massG} g`,
+    `$${part.cost} at ${part.store}`,
+  ];
+  if (isElectronics(part)) {
+    lines.push(piece?.functionLabel ? `function: ${piece.functionLabel}` : "unlabeled");
+    lines.push(`ports: ${(part.ports || []).map((x) => `${x.id}/${x.lock}`).join(", ") || "none"}`);
+    if (part.firmwareRole) lines.push(`firmware: ${part.firmwareRole}`);
+  }
+  inspect(lines.join("\n"));
+}
+
 shop.onSelect((data) => {
   if (!data?.piece) return;
   selectedIds = [data.piece.id];
-  const p = data.part;
-  inspect(
-    `<strong>${p.name}</strong>\n${p.sku}\n${p.dimsMm.x}×${p.dimsMm.y}×${p.dimsMm.z} mm · ${p.massG} g\n$${p.cost} at ${p.store}\n${p.functionLabel ? `function: ${data.piece.functionLabel}` : "unlabeled"}\nports: ${(p.ports || []).map((x) => x.id + "/" + x.lock).join(", ") || "none"}`,
-  );
+  showPart(data.part, data.piece);
 });
 
 $("lab-btns").addEventListener("click", async (ev) => {
@@ -87,7 +157,7 @@ $("lab-btns").addEventListener("click", async (ev) => {
   shop.setSim(true, {
     rain: test === "weather" && $("rain").checked,
     heat: Number($("temp").value) > 40,
-    force: test === "strength" || test === "pressure" || test === "speed" || test === "aero",
+    force: ["strength", "pressure", "speed", "aero"].includes(test),
   });
   $("sim-toggle").checked = true;
   hud(row.note);
@@ -121,7 +191,10 @@ $("tape-elec").addEventListener("click", () => applyTape("tape-electrical"));
 $("tape-gaff").addEventListener("click", () => applyTape("tape-gaffer"));
 
 $("isolate-btn").addEventListener("click", async () => {
-  const ids = project.pieces.filter((p) => partsById[p.partId]?.category === "electronics").map((p) => p.id);
+  const ids = project.pieces
+    .filter((p) => isElectronics(partsById[p.partId]))
+    .map((p) => p.id);
+  if (!ids.length) return hud("Nothing electronic to isolate.");
   await api.isolate(ids, "lamp-board");
   hud("Electronics isolated as lamp-board.");
 });
@@ -129,7 +202,8 @@ $("isolate-btn").addEventListener("click", async () => {
 $("label-btn").addEventListener("click", async () => {
   const sel = shop.getSelected();
   if (!sel) return;
-  const label = sel.part.firmwareRole === "led" ? "light" : sel.part.firmwareRole === "button" ? "sense" : "control";
+  const label =
+    sel.part.firmwareRole === "led" ? "light" : sel.part.firmwareRole === "button" ? "sense" : "control";
   await api.label(sel.piece.id, label);
   inspect(`Labeled ${sel.part.name} as ${label}`);
 });
@@ -156,118 +230,48 @@ $("flash-btn").addEventListener("click", async () => {
   }, 200);
 });
 
-document.querySelectorAll("#modes button").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll("#modes button").forEach((b) => b.classList.remove("on"));
-    btn.classList.add("on");
-    const mode = btn.dataset.mode;
-    document.querySelectorAll("[data-pane]").forEach((p) => {
-      p.classList.toggle("hidden", p.dataset.pane !== mode);
-    });
-    $("film").classList.toggle("hidden", mode !== "ikeafy");
-    $("ar-photo").classList.toggle("hidden", mode !== "house");
-  });
-});
-
-function renderGuide() {
-  if (!guide) return;
-  $("steps").innerHTML = guide.steps
-    .map(
-      (s) =>
-        `<div class="item" data-step="${s.number}"><span>${s.number}. ${s.action} — ${s.body}</span><small>${s.toolRequired || "hands"}</small></div>`,
-    )
-    .join("");
-  $("bom").textContent = [
-    "INCLUDED",
-    ...guide.bom.included.map((l) => `• ${l.qty}× ${l.name}`),
-    "",
-    "GET EXTRA",
-    ...guide.bom.extra.map((l) => `• ${l.qty}× ${l.name} — ${l.store} ${l.storeUrl}`),
-    `Total list $${guide.bom.total}`,
-  ].join("\n");
-}
-
-function drawFilmFrame(frame) {
-  const c = $("film-frame");
-  const ctx = c.getContext("2d");
-  c.width = 720;
-  c.height = 220;
-  ctx.fillStyle = "#d8c7a1";
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.fillStyle = "#6b4b2a";
-  ctx.fillRect(0, 170, c.width, 50);
-  ctx.fillStyle = "#f3efe6";
-  ctx.fillRect(260, 70 - frame.explode * 80, 200, 18);
-  ctx.fillStyle = "#e6d7bc";
-  for (let i = 0; i < 4; i += 1) {
-    ctx.fillRect(280 + i * 40, 90, 16, 70);
+async function removePiece(id) {
+  if (!id) return;
+  const result = await api.remove(id);
+  if (result?.ok === false) {
+    hud(result.error || "Could not remove that piece.");
+    return;
   }
-  ctx.fillStyle = "#1b1914";
-  ctx.font = "22px Newsreader, serif";
-  ctx.fillText(frame.caption.slice(0, 70), 24, 36);
-  ctx.fillStyle = "#ffda1a";
-  ctx.fillRect(0, 0, 8, c.height);
+  selectedIds = selectedIds.filter((x) => x !== id);
+  inspect("");
+  await refreshProject();
+  hud(`Removed ${partsById[result.removed?.partId]?.name || "piece"}.`);
 }
 
-async function playStep(n) {
-  stepIndex = n;
-  const step = videoPlan?.steps?.[n - 1];
-  if (!step) return;
-  $("film").classList.remove("hidden");
-  frameIndex = 0;
-  const run = () => {
-    const frame = step.frames[frameIndex];
-    if (!frame) return;
-    drawFilmFrame(frame);
-    $("film-caption").textContent = frame.caption;
-    shop.setCamera(frame.camera);
-    shop.explode(frame.explode);
-    frameIndex += 1;
-    if (frameIndex < step.frames.length) setTimeout(run, frame.durationMs);
-    else hud("Waiting on you before the next plate.");
-  };
-  run();
+$("delete-piece").addEventListener("click", () => {
+  const id = selectedIds[0] || shop.getSelected()?.piece?.id;
+  if (!id) return hud("Pick a piece on the bench first.");
+  removePiece(id);
+});
+
+function setMode(mode) {
+  const app = $("app");
+  app.dataset.mode = mode;
+  app.classList.remove("mode-bench", "mode-ikeafy", "mode-house");
+  app.classList.add(`mode-${mode}`);
+  for (const btn of document.querySelectorAll("#modes button")) {
+    btn.classList.toggle("on", btn.dataset.mode === mode);
+  }
+  for (const pane of document.querySelectorAll("[data-pane]")) {
+    pane.classList.toggle("hidden", pane.dataset.pane !== mode);
+  }
+  for (const node of document.querySelectorAll(".bench-only")) {
+    node.classList.toggle("hidden", mode !== "bench");
+  }
+  $("film").classList.toggle("hidden", mode !== "ikeafy");
+  $("ar-photo").classList.toggle("hidden", mode !== "house");
+  if (mode === "bench") applyChrome(project.chrome);
+  shop.resize();
 }
 
-$("parse-guide").addEventListener("click", async () => {
-  guide = await api.parseGuide($("guide-in").value, $("guide-notes").value);
-  videoPlan = await api.video();
-  renderGuide();
-  $("reviews").innerHTML = (await api.reviews())
-    .map((r) =>
-      r.reviews
-        .map((rev) => `<div><strong>Step ${r.step}</strong> · ${rev.stars}★ ${rev.difficulty}<br>${rev.text}</div>`)
-        .join(""),
-    )
-    .join("");
-  playStep(1);
-});
-
-$("steps").addEventListener("click", (ev) => {
-  const n = Number(ev.target.closest("[data-step]")?.dataset.step);
-  if (n) playStep(n);
-});
-
-$("film-wait").addEventListener("click", () => playStep(stepIndex + 1));
-$("film-back").addEventListener("click", () => playStep(Math.max(1, stepIndex - 1)));
-$("film-stuck").addEventListener("click", async () => {
-  const exp = await api.expand(stepIndex, "I cannot do this step");
-  inspect(exp.step?.detail || "No expand");
-  hud("Expanded the plate. Spare + review fix are in inspect.");
-});
-
-$("colorize").addEventListener("click", async () => {
-  const plate = await api.colorize(stepIndex || 1);
-  inspect("COLORIZED PLATE\n" + plate.fills.map((f) => `${f.name} ${f.color} ${f.texture}`).join("\n"));
-  hud(plate.note);
-});
-
-$("broken-btn").addEventListener("click", async () => {
-  const result = await api.broken(stepIndex || 4, $("broken-note").value);
-  inspect(
-    `BREAK on step ${result.step}\n${result.identified}\nFIX: ${result.fix}\nSPARE: ${result.spare?.name} $${result.spare?.cost} @ ${result.spare?.store}\n${result.spare?.storeUrl || ""}`,
-  );
-});
+for (const btn of document.querySelectorAll("#modes button")) {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode));
+}
 
 $("adapt-btn").addEventListener("click", async () => {
   const plan = await api.adapt({
@@ -336,15 +340,15 @@ $("chat-form").addEventListener("submit", async (ev) => {
   if (!message) return;
   $("chat-in").value = "";
   $("chat-log").innerHTML += `<div class="me">you: ${message}</div>`;
-  const reply = await api.chat(message, { costBarrier, step: stepIndex, partId: shop.getSelected()?.part?.id });
+  const reply = await api.chat(message, {
+    costBarrier,
+    step: studio?.state?.run?.cursor,
+    partId: shop.getSelected()?.part?.id,
+  });
   $("chat-log").innerHTML += `<div><strong>${reply.agent.name}</strong> · ${reply.backend}<br>${reply.text}</div>`;
   $("chat-log").scrollTop = 9999;
   for (const action of reply.actions || []) {
     if (action.type === "camera") shop.setCamera(action);
-    if (action.type === "ikeafy") {
-      guide = action.guide;
-      renderGuide();
-    }
     if (action.type === "adaptation") $("adapt-out").textContent = action.plan.note;
     if (action.type === "firmware") inspect(action.source);
   }
@@ -352,31 +356,35 @@ $("chat-form").addEventListener("submit", async (ev) => {
 });
 
 window.addEventListener("keydown", (ev) => {
+  const tag = ev.target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
   if (ev.key === "g") shop.setMode("translate");
   if (ev.key === "r") shop.setMode("rotate");
   if (ev.key === "s" && ev.shiftKey) shop.setMode("scale");
+  if (ev.key === "Backspace" || ev.key === "Delete") {
+    ev.preventDefault();
+    removePiece(selectedIds[0] || shop.getSelected()?.piece?.id);
+  }
 });
 
 async function boot() {
   const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
   for (const p of all) partsById[p.id] = p;
-  $("agent-bar").innerHTML = agents.roster
-    .map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`)
-    .join("");
-  guide = await api.defaultGuide();
-  $("guide-in").value = guide.raw;
-  $("guide-notes").value = guide.instructions || "";
-  videoPlan = await api.video();
-  renderGuide();
-  $("reviews").innerHTML = (await api.reviews())
-    .flatMap((r) => r.reviews.map((rev) => `<div>Step ${r.step}: ${rev.difficulty}</div>`))
-    .join("");
+  const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
+  $("agent-bar").innerHTML = roster;
+  const studioBar = $("ikea-agent-bar");
+  if (studioBar) studioBar.innerHTML = roster;
+
+  studio = initStudio({ api, hud });
+  window.__ikeafyStudio = studio;
+
   await loadCatalog();
   await refreshProject();
+  setMode("ikeafy");
   hud(
-    health.hostedAgents
-      ? "Hosted agents ready. Local steward still on the bench."
-      : "Local steward is driving all 10 agents. Drop a piece or parse the LACK guide.",
+    health.video?.live
+      ? "Studio ready — step films render through Veed Fabric on fal.ai."
+      : "Studio ready — official IKEA steps, one plate at a time. Films play as a local storyboard.",
   );
 }
 
