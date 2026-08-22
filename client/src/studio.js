@@ -4,6 +4,8 @@
  * builds the reel; this UI plays it.
  */
 
+import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
+
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
@@ -236,21 +238,51 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.bom.replaceChildren();
     if (!bom) return;
 
-    const group = (label, lines) => {
+    if (bom.live) {
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = "Missing tools: live shop links from Tavily.";
+      el.bom.append(note);
+    }
+
+    const group = (label, lines, withShops = false) => {
       const wrap = document.createElement("div");
       wrap.className = "bom-group";
       const title = document.createElement("strong");
       title.textContent = label;
-      const body = document.createElement("p");
-      body.textContent = lines.length
-        ? lines.map((line) => `${line.qty || 1}× ${line.name}${line.store ? ` — ${line.store}` : ""}`).join("\n")
-        : "None listed.";
-      wrap.append(title, body);
+      wrap.append(title);
+      if (!lines.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "None listed.";
+        wrap.append(empty);
+        el.bom.append(wrap);
+        return;
+      }
+      for (const line of lines) {
+        const row = document.createElement("p");
+        const shops = withShops ? line.retailers || line.offers || [] : [];
+        row.textContent = `${line.qty || 1}× ${line.name}${line.why ? ` — ${line.why}` : ""}`;
+        wrap.append(row);
+        if (shops.length) {
+          const list = document.createElement("div");
+          list.className = "offers";
+          for (const offer of shops.slice(0, 4)) {
+            const link = document.createElement("a");
+            link.href = offer.url || "#";
+            link.target = "_blank";
+            link.rel = "noreferrer";
+            link.textContent = offer.store || "Shop";
+            list.append(link);
+          }
+          wrap.append(list);
+        }
+      }
       el.bom.append(wrap);
     };
 
     group("Kit", bom.included || []);
-    group("Extra", bom.extra || []);
+    group("You have this", bom.owned || []);
+    group("To purchase", bom.extra || [], true);
     if (bom.total != null) {
       const total = document.createElement("p");
       total.textContent = `List total $${bom.total}`;
@@ -356,19 +388,29 @@ export function initStudio({ api, hud = () => {} } = {}) {
       const file = el.pdf?.files?.[0] || null;
       const pasted = el.guide?.value || "";
       let pdfBase64 = "";
+      let images = [];
       if (file) {
         showPdfName(file);
-        announce("Reading the PDF…");
+        announce("Reading the PDF plates…");
         pdfBase64 = await fileToBase64(file);
+        if (isPdfFile(file)) {
+          try {
+            const plates = await pagesFromPdf(file);
+            images = plates.images || [];
+            if (plates.text && el.guide && !pasted.trim()) el.guide.value = plates.text;
+          } catch {
+            announce("Could not rasterize the PDF plates — trying extracted text.");
+          }
+        }
       }
-      if (!pasted.trim() && !pdfBase64) {
+      if (!pasted.trim() && !pdfBase64 && !images.length) {
         announce("Drop a PDF or paste a guide first.");
         return null;
       }
       announce("Parsing the sheet…");
-      let guideText = pasted;
-      if (pdfBase64 && api.parseGuide) {
-        const parsed = await api.parseGuide(pasted, el.notes?.value || "", { pdfBase64 });
+      let guideText = el.guide?.value || pasted;
+      if ((pdfBase64 || images.length) && api.parseGuide) {
+        const parsed = await api.parseGuide(guideText, el.notes?.value || "", { pdfBase64, images });
         if (parsed?.ok === false) return fail(new Error(parsed.reason));
         if (parsed?.raw) {
           guideText = parsed.raw;
@@ -381,6 +423,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
         guide: guideText,
         instructions: el.notes?.value || "",
         pdfBase64,
+        images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);

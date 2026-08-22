@@ -1,5 +1,6 @@
-import { bomFromIds, getPart, listParts, searchParts, retailerOffers } from "./catalog.js";
+import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { usableOpenAiKey } from "./secrets.js";
+import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -159,7 +160,9 @@ function inferParts(text) {
 function inferTool(text, availableTools = []) {
   const lower = text.toLowerCase();
   if (/allen|hex/.test(lower)) return "allen-key";
-  if (/screw driver|phillips/.test(lower)) return "screwdriver";
+  if (/screwdriver|phillips|pozi/.test(lower)) return "screwdriver";
+  if (/\bmallet\b|\bhammer\b/.test(lower)) return "hammer";
+  if (/\bdrill\b/.test(lower)) return "drill";
   if (/solder/.test(lower)) return "soldering-iron";
   if (/meter|volt/.test(lower)) return "multimeter";
   if (availableTools.length && /tool/.test(lower)) return availableTools[0];
@@ -210,7 +213,7 @@ export function parseGuide(
     const body = line.replace(/^\d+[\.)]\s*/, "");
     const partIds = inferParts(body);
     const tool = inferTool(body, availableTools);
-    const reviews = SAMPLE_REVIEWS.filter((r) => r.step === i + 1);
+    const reviews = locked ? SAMPLE_REVIEWS.filter((r) => r.step === i + 1) : [];
     return {
       number: i + 1,
       action: inferAction(body),
@@ -284,7 +287,7 @@ function finishGuide({
   const bom = bomFromIds(partIds);
   const named = String(title || "").trim() || "Untitled build";
   return {
-    title: /lack|table|linmon|eket/i.test(named) ? named : `${named} (IKEAlive)`,
+    title: named,
     official: locked,
     locked,
     editable: !locked,
@@ -383,15 +386,15 @@ async function extractGuideWithOpenAI(
   const model = process.env.OPENAI_MODEL_HARD || process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini";
   const userContent = [];
   const brief = [
-    raw ? `Guide text:\n${String(raw).slice(0, 12000)}` : "The builder attached photos of a building guide.",
+    raw ? `Guide text:\n${String(raw).slice(0, 12000)}` : "The builder attached photos or PDF plates of a building guide.",
     instructions ? `Builder notes / tools: ${instructions}` : "",
     availableTools.length ? `Tools on hand: ${availableTools.join(", ")}` : "",
-    "Turn this into assembly steps for THIS input. Do not substitute an IKEA LACK table unless the input is actually about LACK.",
+    "Turn this into assembly steps for THIS input, in plate order. Identify the product from the cover or filename. Do not substitute an IKEA LACK table unless the input is actually about LACK.",
   ]
     .filter(Boolean)
     .join("\n\n");
   userContent.push({ type: "text", text: brief });
-  for (const image of images.slice(0, 4)) {
+  for (const image of images.slice(0, 8)) {
     const url = image.dataUrl || image.url;
     if (!url || !String(url).startsWith("data:image")) continue;
     userContent.push({ type: "image_url", image_url: { url } });
@@ -410,7 +413,7 @@ async function extractGuideWithOpenAI(
       messages: [
         {
           role: "system",
-          content: `You parse building guides into IKEAFY JSON. Catalog part ids you may use: ${catalogHint}. Actions: unpack, place, align, fasten, flip, inspect, install, tape, solder, wire, assemble, prepare. Reply with JSON {"title":string,"steps":[{"number":1,"action":"assemble","body":"one clear instruction","partsUsed":["part-id"],"toolRequired":null,"warnings":[]}]}. Keep each body to one move. Do not invent a LACK table.`,
+          content: `You parse building guides — including IKEA PDF plates — into IKEAFY JSON. Catalog part ids you may use: ${catalogHint}. Actions: unpack, place, align, fasten, flip, inspect, install, tape, solder, wire, assemble, prepare. Reply with JSON {"title":string,"steps":[{"number":1,"action":"assemble","body":"one clear instruction","partsUsed":["part-id"],"toolRequired":null,"warnings":[]}]}. Keep each body to one move. Use empty partsUsed when the catalog has no match. Do not invent a LACK table.`,
         },
         { role: "user", content: userContent },
       ],
@@ -608,7 +611,18 @@ export function storyboardForStep(guide, stepNumber) {
     caption,
     theme: guide.theme,
     parts: step.partsUsed,
+    kind: plateKind(guide, step),
   }));
+}
+
+export function plateKind(guide, step = {}) {
+  const blob = `${guide?.title || ""} ${step.body || ""} ${(step.partsUsed || []).join(" ")} ${
+    guide?.raw || ""
+  }`.toLowerCase();
+  if (/billy|kallax|bookcase|bookshelf|shelf unit|wall shelf/.test(blob)) return "bookcase";
+  if ((step.partsUsed || []).some((id) => /^lack-/.test(id))) return "table";
+  if (/lack|side table|table top/.test(blob) && !/bookcase|shelf/.test(blob)) return "table";
+  return "box";
 }
 
 export function makeVideoPlan(guide) {
@@ -648,6 +662,13 @@ export function colorizePlate(step, catalogHits = []) {
 }
 
 export function reviewsForGuide(guide) {
+  if (!guide?.locked) {
+    return (guide?.steps || []).map((step) => ({
+      step: step.number,
+      difficulties: step.warnings || [],
+      reviews: [],
+    }));
+  }
   return guide.steps.map((step) => {
     const reviews = SAMPLE_REVIEWS.filter((r) => r.step === step.number);
     return {
@@ -704,21 +725,18 @@ export function remixGuide() {
 export { LACK_GUIDE, OFFICIAL_LACK_GUIDE, OFFICIAL_PRODUCTS, SAMPLE_REVIEWS };
 
 export function shoppingList(guide) {
-  const ids = [...new Set(guide.steps.flatMap((s) => [s.toolRequired, ...s.partsUsed].filter(Boolean)))];
-  const bom = bomFromIds(ids);
-  const extras = searchParts({ category: "tool" }).filter((p) => p.extra);
+  const partIds = [...new Set((guide?.steps || []).flatMap((s) => s.partsUsed || []))];
+  const toolIds = neededTools(guide);
+  const bom = bomFromIds([...partIds, ...toolIds]);
+  const classified = classifyTools(bom, guide);
   return {
-    ...bom,
+    ...classified,
     partner: "tavily-standin",
-    suggestedExtras: extras.map((p) => ({
-      id: p.id,
-      name: p.name,
-      store: p.store,
-      storeUrl: p.storeUrl,
-      cost: p.cost,
-      badge: "to purchase",
-      retailers: retailerOffers(p).offers,
-      why: "Not in the flat-pack. Handy if a fastener strips.",
-    })),
+    live: false,
+    suggestedExtras: classified.missing,
   };
+}
+
+export async function shoppingListAsync(guide, deps = {}) {
+  return enrichShopping(shoppingList(guide), deps);
 }

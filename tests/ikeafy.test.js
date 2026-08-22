@@ -12,6 +12,7 @@ import {
   officialProducts,
   parseGuide,
   parseGuideAsync,
+  plateKind,
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
@@ -189,6 +190,19 @@ test("custom numbered text keeps its own steps", () => {
   assert.match(guide.steps[0].body, /rail/);
   assert.ok(!guide.steps.some((step) => /table top face down/i.test(step.body)));
   assert.ok(!guide.bom.included.some((line) => line.id === "allen-key"));
+  assert.equal(plateKind(guide, guide.steps[0]), "bookcase");
+  assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
+});
+
+test("a BILLY-style custom guide does not become the LACK table", () => {
+  const guide = parseGuide(
+    `BILLY bookcase\n1. Attach a side panel to the base with dowels.\n2. Slide in the shelves.\n3. Fasten the top with screws.`,
+  );
+  assert.match(guide.title, /BILLY/i);
+  assert.doesNotMatch(guide.title, /LACK/i);
+  assert.equal(plateKind(guide, guide.steps[0]), "bookcase");
+  assert.equal(storyboardForStep(guide, 1)[0].kind, "bookcase");
+  assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
 });
 
 test("parseGuideAsync stays local without an OpenAI key", async () => {
@@ -239,7 +253,7 @@ test("parseGuideAsync uses the OpenAI result for this input, not LACK", async ()
   try {
     const guide = await parseGuideAsync("Hang the rail on the two wall plugs.", {}, { fetchFn });
     assert.equal(guide.parser, "openai");
-    assert.equal(guide.title, "Wall shelf (IKEAlive)");
+    assert.equal(guide.title, "Wall shelf");
     assert.equal(guide.steps.length, 1);
     assert.match(guide.steps[0].body, /rail/);
     assert.doesNotMatch(guide.title, /LACK/i);

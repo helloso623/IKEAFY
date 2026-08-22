@@ -11,6 +11,6 @@ Partners named in `/api/health` stand in locally:
 
 - **Veed Fabric 1.0 via fal** (`FAL_KEY`) — step films. Without a key, a local storyboard plays the same beats.
 - **GLiNER** — part/tool extraction from pasted guides. Local parser today.
-- **Tavily** — reviews and prices. Curated list today, not a live scrape.
+- **Tavily** — live shop search for tools not in the box (`TAVILY_API_KEY`). Catalog links stand in without a key.
 
 See the repo [README](../README.md) for how to run.

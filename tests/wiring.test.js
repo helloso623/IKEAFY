@@ -83,6 +83,8 @@ test("IKEAlive starts on PDF upload and plays a Veed reel on watch", () => {
   assert.match(html, /id="film-back"/);
   assert.match(html, /id="film-scrub"/);
   assert.match(studio, /video\/reel|bootReel|parseCustom/);
+  assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
+  assert.match(studio, /bom\.owned|You have this/);
 });
 
 test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {

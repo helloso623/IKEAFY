@@ -8,7 +8,7 @@
  * behind a disabled button that a devtools user can re-enable.
  */
 
-import { expandStep, officialGuide, parseGuide, parseGuideAsync } from "./ikeafy.js";
+import { expandStep, officialGuide, parseGuide, parseGuideAsync, shoppingListAsync } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
 import { extractPdfText } from "./pdf-text.js";
 
@@ -70,6 +70,18 @@ export function startAssembly({
   return beginRun(mode, guide);
 }
 
+async function withShopping(result, deps = {}) {
+  if (!result.ok) return result;
+  const run = getAssembly(result.run.id);
+  if (!run) return result;
+  try {
+    run.guide.bom = await shoppingListAsync(run.guide, deps);
+  } catch {
+    // Keep the catalog BOM if Tavily is down.
+  }
+  return { ok: true, ...view(run) };
+}
+
 export async function startAssemblyAsync({
   mode = "official",
   article = null,
@@ -77,21 +89,27 @@ export async function startAssemblyAsync({
   instructions = "",
   availableTools = [],
   images = [],
-} = {}) {
+  pdfBase64 = "",
+} = {}, deps = {}) {
   if (mode === "official") {
-    return startAssembly({ mode, article, instructions, availableTools });
+    return withShopping(startAssembly({ mode, article, instructions, availableTools }), deps);
   }
-  const guide = await parseGuideAsync(rawGuide, { instructions, availableTools, images });
+  let text = String(rawGuide || "");
+  if (pdfBase64) {
+    const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
+    text = [extracted, text].filter(Boolean).join("\n\n");
+  }
+  const guide = await parseGuideAsync(text, { instructions, availableTools, images });
   if (!guide?.steps?.length) {
-    const photoOnly = images.length && !String(rawGuide || "").trim();
+    const photoOnly = images.length && !String(text || "").trim();
     return {
       ok: false,
       reason: photoOnly
         ? "Could not read those photos into steps. Paste the guide as text, or check the OpenAI key."
-        : "That guide has no steps.",
+        : "That guide has no steps. If you dropped a drawing-only PDF, wait for the plates to be read.",
     };
   }
-  return beginRun("custom", guide);
+  return withShopping(beginRun("custom", guide), deps);
 }
 
 function beginRun(mode, guide) {

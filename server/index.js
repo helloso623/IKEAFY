@@ -25,7 +25,7 @@ import {
   parseGuideAsync,
   reviewsForGuide,
   searchOfficialProducts,
-  shoppingList,
+  shoppingListAsync,
   storyboardForStep,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
@@ -49,6 +49,7 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { hasFal, renderStepVideo } from "./lib/video.js";
+import { hasTavily } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
@@ -113,6 +114,14 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
+    },
+    shopping: {
+      partner: hasTavily() ? "tavily" : "tavily-standin",
+      live: hasTavily(),
+      route: "/api/ikeafy/shopping",
+      note: hasTavily()
+        ? "Tavily looks up IKEA / Amazon / hardware shops for tools you still need."
+        : "Set TAVILY_API_KEY to scrape live shop links for missing tools.",
     },
     official: {
       route: "/api/ikeafy/official",
@@ -192,12 +201,6 @@ app.post("/api/ikeafy/parse", async (req, res) => {
   if (req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
-    if (!String(raw).trim()) {
-      return res.status(400).json({
-        ok: false,
-        reason: "No readable steps in that PDF. Paste the instructions instead.",
-      });
-    }
   }
   const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
@@ -433,8 +436,8 @@ app.post("/api/ikeafy/fix", (req, res) => {
   res.json(generateFix(req.body?.reviewId || "r1"));
 });
 
-app.get("/api/ikeafy/shopping", (_req, res) => {
-  res.json(shoppingList(state.guide));
+app.get("/api/ikeafy/shopping", async (_req, res) => {
+  res.json(await shoppingListAsync(state.guide));
 });
 
 app.get("/api/agents", (_req, res) => {

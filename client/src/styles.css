@@ -646,6 +646,16 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   color: #091410;
   white-space: pre-wrap;
 }
+.bom-group .offers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  margin: 0.15rem 0 0.45rem;
+}
+.bom-group .offers a {
+  font-size: 0.78rem;
+  color: #0b5c4a;
+}
 
 .review-notes {
   min-height: 2.5rem;
