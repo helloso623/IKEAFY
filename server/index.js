@@ -19,10 +19,33 @@ import {
   expandStep,
   generateFix,
   makeVideoPlan,
+  officialGuide,
+  officialProducts,
   parseGuide,
   reviewsForGuide,
   shoppingList,
+  storyboardForStep,
+  verifyOfficialGuide,
 } from "./lib/ikeafy.js";
+import {
+  assemblyView,
+  confirmStep,
+  editStep,
+  goBack,
+  peekStep,
+  skipStep,
+  startAssembly,
+  stuckOn,
+} from "./lib/assembly.js";
+import {
+  SPARES_POLICY,
+  classifySpare,
+  fittingsForStep,
+  freeFittingsRequest,
+  listFreeFittings,
+} from "./lib/fittings.js";
+import { requestSpare } from "./lib/spares.js";
+import { hasVeed, renderStepVideo } from "./lib/video.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
@@ -32,11 +55,13 @@ import {
   addCable,
   addPiece,
   addTape,
+  benchChrome,
   catalogPreview,
   emptyProject,
   isolateAsBoard,
   labelFunction,
   movePiece,
+  removePiece,
   resetSim,
   rescale,
   retexture,
@@ -46,6 +71,21 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadDotEnv(path.join(__dirname, "..", ".env"));
+
+const VIDEO_PARTNERS = {
+  veed: {
+    name: "Veed",
+    model: "veed/fabric-1.0",
+    status: "optional",
+    note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasVeed(),
+    note: "Set FAL_KEY to let lib/video.js call veed/fabric-1.0. Nothing leaves the machine without it.",
+  },
+};
 
 const app = express();
 app.use(express.json({ limit: "8mb" }));
@@ -57,11 +97,31 @@ const state = {
 };
 
 app.get("/api/health", (_req, res) => {
+  const official = officialGuide();
   res.json({
     ok: true,
     name: "IKEAFY",
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
+    video: {
+      partners: VIDEO_PARTNERS,
+      renderer: hasVeed() ? "veed/fabric-1.0 via fal.ai" : "local-storyboard",
+      live: hasVeed(),
+      route: "/api/ikeafy/video/render",
+    },
+    official: {
+      route: "/api/ikeafy/official",
+      products: officialProducts().length,
+      locked: official.locked === true,
+      title: official.title,
+      assemblyRoute: "/api/assembly/start",
+    },
+    spares: {
+      route: "/api/spares/request",
+      freeFittings: listFreeFittings().length,
+      policy: SPARES_POLICY.free,
+    },
+    bench: benchChrome(state.project),
   });
 });
 
@@ -135,6 +195,20 @@ app.get("/api/ikeafy/default", (_req, res) => {
   res.json(state.guide);
 });
 
+app.get("/api/ikeafy/official", (req, res) => {
+  const guide = officialGuide({ article: req.query.article });
+  if (guide?.ok === false) return res.status(404).json(guide);
+  res.json(guide);
+});
+
+app.get("/api/ikeafy/official/products", (_req, res) => {
+  res.json({ products: officialProducts(), locked: true, policy: SPARES_POLICY.free });
+});
+
+app.post("/api/ikeafy/official/verify", (req, res) => {
+  res.json(verifyOfficialGuide(req.body?.guide || officialGuide({ article: req.body?.article })));
+});
+
 app.post("/api/ikeafy/expand", (req, res) => {
   res.json(expandStep(state.guide, req.body?.step || 1, { stuckNote: req.body?.note || "" }));
 });
@@ -142,6 +216,137 @@ app.post("/api/ikeafy/expand", (req, res) => {
 app.post("/api/ikeafy/video", (req, res) => {
   const guide = req.body?.guide ? parseGuide(req.body.guide, req.body) : state.guide;
   res.json(makeVideoPlan(guide));
+});
+
+app.post("/api/ikeafy/video/render", async (req, res) => {
+  const body = req.body || {};
+  const run = body.runId ? assemblyView(body.runId) : null;
+  const guide = run?.ok
+    ? { ...run.guide, steps: [run.step].filter(Boolean), theme: run.guide.theme }
+    : body.guide
+      ? parseGuide(body.guide, body)
+      : state.guide;
+  const stepNumber = Number(body.stepNumber ?? body.step ?? 1);
+  try {
+    const result = await renderStepVideo({
+      guide: run?.ok ? state.guide : guide,
+      stepNumber,
+      imageDataUrl: body.imageDataUrl,
+    });
+    res.json({
+      ok: true,
+      stepNumber,
+      live: result.provider !== "local-storyboard",
+      partners: VIDEO_PARTNERS,
+      plan: result.frames.length ? result.frames : storyboardForStep(guide, stepNumber),
+      ...result,
+    });
+  } catch (err) {
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
+  }
+});
+
+app.get("/api/spares/fittings", (_req, res) => {
+  res.json({ fittings: listFreeFittings(), policy: SPARES_POLICY });
+});
+
+/**
+ * Free-fittings request. The letter comes from lib/spares.js, the free-vs-paid
+ * call and the article numbers come from lib/fittings.js — IKEA has no public
+ * spare-parts API, so this drafts what you send rather than pretending to send it.
+ */
+app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
+  const body = req.body || {};
+  const runId = body.runId;
+  const run = runId ? assemblyView(runId) : null;
+  const guide = run?.ok ? state.guide : body.guide ? parseGuide(body.guide, body) : state.guide;
+  const stepNumber = Number(body.stepNumber ?? body.step ?? run?.run?.cursor ?? 1);
+  const step = run?.ok ? run.step : guide.steps.find((s) => s.number === stepNumber);
+  const part = body.partId ? getPart(body.partId) : null;
+
+  const classified = classifySpare({
+    articleNumber: body.articleNumber,
+    note: body.note || "",
+    part,
+    fittingKind: body.fittingKind,
+  });
+  const suggested = fittingsForStep(step);
+  const wanted = body.fittings?.length
+    ? body.fittings
+    : classified.fitting
+      ? [{ ...classified.fitting, qty: Math.max(1, Number(body.qty) || 1) }]
+      : suggested.map((f) => ({ ...f, qty: 1 }));
+
+  const request = freeFittingsRequest({
+    productName: run?.ok ? run.guide.product?.name || run.guide.title : guide.title,
+    productArticle: body.productArticle || guide.productArticle || run?.guide?.product?.article || "",
+    fittings: wanted,
+    stepNumber,
+    note: body.note || "",
+    photoName: body.photoName || "",
+    contact: body.contact || {},
+  });
+
+  res.json({
+    ok: true,
+    free: classified.free || request.free,
+    classification: classified,
+    suggested,
+    request,
+    // The hand-written letter from lib/spares.js, kept for the article-number lookup it does.
+    letter: requestSpare({
+      guide,
+      stepNumber,
+      note: body.note || "",
+      photoName: body.photoName || "",
+      article: body.articleNumber,
+    }),
+  });
+});
+
+/**
+ * Assembly runs. The client can draw whatever buttons it likes: the cursor,
+ * the confirmations and the refusals all live here.
+ */
+app.post("/api/assembly/start", (req, res) => {
+  const result = startAssembly(req.body || {});
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+app.get("/api/assembly/:id", (req, res) => {
+  const result = assemblyView(req.params.id);
+  res.status(result.ok ? 200 : 404).json(result);
+});
+
+app.get("/api/assembly/:id/step/:number", (req, res) => {
+  const result = peekStep(req.params.id, req.params.number);
+  res.status(result.ok ? 200 : result.locked ? 423 : 404).json(result);
+});
+
+app.post("/api/assembly/:id/confirm", (req, res) => {
+  const result = confirmStep(req.params.id, req.body || {});
+  res.status(result.ok ? 200 : result.locked || result.needsConfirmation ? 409 : 404).json(result);
+});
+
+app.post("/api/assembly/:id/back", (req, res) => {
+  const result = goBack(req.params.id, req.body?.step);
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post("/api/assembly/:id/skip", (req, res) => {
+  const result = skipStep(req.params.id, req.body?.step);
+  // 423 Locked: the official sheet refuses, and says so.
+  res.status(result.ok ? 200 : result.locked ? 423 : 404).json(result);
+});
+
+app.post("/api/assembly/:id/edit", (req, res) => {
+  const result = editStep(req.params.id, req.body?.step, req.body || {});
+  res.status(result.ok ? 200 : result.locked ? 423 : 404).json(result);
+});
+
+app.post("/api/assembly/:id/stuck", (req, res) => {
+  const result = stuckOn(req.params.id, req.body?.note || "");
+  res.status(result.ok ? 200 : 404).json(result);
 });
 
 app.post("/api/ikeafy/colorize", (req, res) => {
@@ -189,12 +394,12 @@ app.post("/api/agents/chat", async (req, res) => {
 });
 
 app.get("/api/project", (_req, res) => {
-  res.json(state.project);
+  res.json({ ...state.project, chrome: benchChrome(state.project) });
 });
 
 app.post("/api/project/seed", (req, res) => {
   state.project = req.body?.empty ? emptyProject() : seedLampTable();
-  res.json(state.project);
+  res.json({ ...state.project, chrome: benchChrome(state.project) });
 });
 
 app.post("/api/project/add", (req, res) => {
@@ -204,6 +409,12 @@ app.post("/api/project/add", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: String(err.message || err) });
   }
+});
+
+app.post("/api/project/remove", (req, res) => {
+  const removed = removePiece(state.project, req.body?.id);
+  if (!removed) return res.status(404).json({ ok: false, error: "No piece with that id." });
+  res.json({ ok: true, removed, chrome: benchChrome(state.project) });
 });
 
 app.post("/api/project/move", (req, res) => {
