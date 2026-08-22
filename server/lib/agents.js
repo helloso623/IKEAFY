@@ -89,6 +89,21 @@ export const ROSTER = [
   },
 ];
 
+export const FURNITURE_DESK_IDS = Object.freeze(["cad", "creative", "assembler"]);
+
+export function isFurnitureBuildAsk(text) {
+  return /\bbuild\s+this\s+furniture\b/i.test(String(text || ""));
+}
+
+export function furnitureBuildDesks() {
+  return FURNITURE_DESK_IDS.map((id) => ROSTER.find((agent) => agent.id === id)).filter(Boolean);
+}
+
+export function manyAgentsNote(desks = furnitureBuildDesks()) {
+  const names = desks.map((desk) => desk.name).join(", ");
+  return `Many agents: ${names} ran in parallel on “build this furniture”.`;
+}
+
 const CAD_HINTS =
   /\b(cad|fusion(?:\s*360)?|parametric|solidworks|step file|stp file|iges|manufactur|extrude|fillet|chamfer|dimensioned drawing)\b/i;
 const EDA_HINTS =
@@ -1028,6 +1043,105 @@ function hasShopCreate(actions) {
   return (Array.isArray(actions) ? actions : []).some((action) => action && SHOP_CREATE_TYPES.has(action.type));
 }
 
+function cadDesk(message, ctx = {}) {
+  void message;
+  const artifact = {
+    kind: "parametric-model",
+    label: "bench-part",
+    parameters: { widthMm: 550, depthMm: 550, heightMm: 450 },
+  };
+  if (ctx.project) persistLabTool(ctx.project, "fusion", artifact);
+  return {
+    text: "Opened a Fusion-like parametric part with editable millimetre dimensions.",
+    actions: [{ type: "cad", tool: "fusion", artifact }],
+  };
+}
+
+function creativeDesk(message, ctx = {}) {
+  const ask = isFurnitureBuildAsk(message) ? "make a table" : message;
+  const planned = planCreativeActions(ask, ctx);
+  if (planned.handles) {
+    applyCreativeActions(ctx.project, planned.actions);
+    const artifact = { kind: "scene", label: "bench-concept", renderer: "blender-like" };
+    if (ctx.project) persistLabTool(ctx.project, "blender", artifact);
+    return {
+      text: planned.text,
+      actions: [...planned.actions, { type: "creative", tool: "blender", artifact }],
+    };
+  }
+  const artifact = { kind: "scene", label: "bench-concept", renderer: "blender-like" };
+  if (ctx.project) persistLabTool(ctx.project, "blender", artifact);
+  return {
+    text: "Creative staged a Blender-like bench scene for form, material and render work.",
+    actions: [{ type: "creative", tool: "blender", artifact }],
+  };
+}
+
+function assemblerDesk(message, ctx = {}) {
+  const guide = isFurnitureBuildAsk(message) ? defaultGuide() : ctx.guide || defaultGuide();
+  if (!isFurnitureBuildAsk(message) && /stuck|expand|help|can't|cannot/.test(String(message || "").toLowerCase())) {
+    const step = Number((String(message).match(/step\s+(\d+)/) || [])[1] || ctx.step || 1);
+    const expanded = expandStep(guide, step, { stuckNote: message });
+    return {
+      text: expanded.step?.detail || "No step.",
+      actions: [{ type: "expand_step", ...expanded }],
+    };
+  }
+  const parsed = isFurnitureBuildAsk(message) ? guide : parseGuide(message);
+  return {
+    text: `Parsed ${parsed.steps.length} steps for ${parsed.title}. Play the film when you are ready.`,
+    actions: [{ type: "ikeafy", guide: parsed }],
+  };
+}
+
+const DESK_RUNNERS = {
+  cad: cadDesk,
+  creative: creativeDesk,
+  assembler: assemblerDesk,
+};
+
+export async function runFurnitureDesks(message, ctx = {}) {
+  ctx = mergeChatContext(ctx);
+  const desks = furnitureBuildDesks();
+  const results = await Promise.all(
+    desks.map(async (agent) => {
+      const runner = DESK_RUNNERS[agent.id];
+      const local = runner ? runner(message, ctx) : { text: "", actions: [] };
+      return { agent, backend: "local-steward", text: local.text, actions: local.actions || [] };
+    }),
+  );
+  const actions = [];
+  const seen = new Set();
+  for (const result of results) {
+    for (const action of result.actions || []) {
+      const key =
+        action.type === "add" || action.type === "add_part"
+          ? `add:${action.partId}:${JSON.stringify(action.pose || {})}`
+          : `${action.type}:${action.tool || action.partId || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      actions.push(action);
+    }
+  }
+  const note = manyAgentsNote(desks);
+  const deskLines = results
+    .map((result) => `${result.agent?.name || "Desk"}: ${result.text}`)
+    .join(" ");
+  return {
+    agent: ROSTER.find((agent) => agent.id === "creative"),
+    backend: "local-steward",
+    text: `${note} ${deskLines}`.trim(),
+    actions,
+    desks: results.map((result) => ({
+      id: result.agent?.id,
+      name: result.agent?.name,
+      backend: result.backend,
+    })),
+    manyAgents: true,
+    from: "many-agents",
+  };
+}
+
 function stewardCanCreate(message, ctx = {}) {
   const text = String(message || "");
   if (planStudioActions(text).handles) return true;
@@ -1123,6 +1237,9 @@ export async function chat(message, ctx = {}) {
   try {
     message = String(message || "").trim();
     ctx = mergeChatContext(ctx);
+    if (isFurnitureBuildAsk(message)) {
+      return runFurnitureDesks(message, ctx);
+    }
     const agent = routeAgent(message);
     const escalate = shouldEscalate(message);
     const creative = isCreativeAsk(message);

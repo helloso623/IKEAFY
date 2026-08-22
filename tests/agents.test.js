@@ -4,10 +4,14 @@ import {
   ROSTER,
   chat,
   describeScene,
+  furnitureBuildDesks,
+  isFurnitureBuildAsk,
+  manyAgentsNote,
   mergeChatContext,
   planCreativeActions,
   planStudioActions,
   routeAgent,
+  runFurnitureDesks,
   shouldEscalate,
 } from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
@@ -406,6 +410,37 @@ test(
     assert.equal(reply.backend, "local-steward");
     assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
     assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
+  }),
+);
+
+test("build this furniture runs CAD, Creative and Assembler in parallel", async () => {
+  assert.equal(isFurnitureBuildAsk("build this furniture"), true);
+  assert.equal(isFurnitureBuildAsk("add a lack table"), false);
+  const desks = furnitureBuildDesks();
+  assert.deepEqual(desks.map((desk) => desk.id), ["cad", "creative", "assembler"]);
+  assert.match(manyAgentsNote(desks), /Many agents: CAD, Creative, Assembler/);
+  assert.match(String(runFurnitureDesks), /Promise\.all/);
+});
+
+test(
+  "chat build this furniture notes many agents and places a table",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("build this furniture", { project });
+    assert.equal(reply.manyAgents, true);
+    assert.equal(reply.from, "many-agents");
+    assert.match(reply.text, /Many agents: CAD, Creative, Assembler ran in parallel/);
+    assert.ok(reply.desks.some((desk) => desk.id === "cad"));
+    assert.ok(reply.desks.some((desk) => desk.id === "creative"));
+    assert.ok(reply.desks.some((desk) => desk.id === "assembler"));
+    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
+    assert.ok(reply.actions.some((action) => action.type === "cad"));
+    assert.ok(reply.actions.some((action) => action.type === "ikeafy"));
+    assert.equal(project.pieces[0].partId, "generic-side-table");
+    assert.equal(project.labTools.fusion.kind, "parametric-model");
+    assert.equal(project.labTools.blender.kind, "scene");
+    const parallel = await runFurnitureDesks("build this furniture", { project: emptyProject() });
+    assert.equal(parallel.manyAgents, true);
   }),
 );
 
