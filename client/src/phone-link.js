@@ -1,13 +1,8 @@
-export function isTailscaleHostname(hostname) {
-  return /(?:^|\.)ts\.net$/i.test(String(hostname || "").replace(/\.$/, ""));
-}
-
 export function preferredPhoneUrl(link = {}) {
   return String(
-    link.tailscaleUrl ||
-      link.url ||
-      link.urls?.[0] ||
+    link.url ||
       link.lanUrl ||
+      link.urls?.[0] ||
       link.apiUrl ||
       "",
   ).trim();
@@ -19,7 +14,7 @@ export function lanFallbackUrl(link = {}, primary = preferredPhoneUrl(link)) {
     candidates.find((candidate) => {
       if (candidate === primary) return false;
       try {
-        return !isTailscaleHostname(new URL(candidate).hostname);
+        return Boolean(new URL(candidate).hostname);
       } catch {
         return false;
       }

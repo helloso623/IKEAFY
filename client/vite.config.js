@@ -13,7 +13,6 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: [".ts.net"],
     proxy: {
       "/api": "http://127.0.0.1:8787",
       "/phone-upload": "http://127.0.0.1:8787",

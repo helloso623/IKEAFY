@@ -1003,15 +1003,15 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     }
     if (fallback) {
       fallback.classList.toggle("hidden", !lanUrl);
-      fallback.textContent = lanUrl ? `LAN fallback: ${lanUrl}` : "";
+      fallback.textContent = lanUrl ? `Alternate LAN link: ${lanUrl}` : "";
       if (lanUrl) fallback.href = lanUrl;
       else fallback.removeAttribute("href");
     }
     if (qr) qr.innerHTML = url ? qrSvg(url) : "";
     if (note && !lastRoomVideoId) {
       note.textContent = url
-        ? `${lan?.tailscaleUrl ? "Tailnet link ready." : "LAN link ready."} Scan the QR or copy the URL, record ~30s, then send.`
-        : "No phone address yet — use Tailscale or join the same Wi-Fi as this computer.";
+        ? "LAN link ready. Scan the QR or copy the URL, record ~30s, then send."
+        : "No phone address yet — join the same Wi-Fi as this computer.";
     }
   }
 
