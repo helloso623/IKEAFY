@@ -135,7 +135,7 @@ test("Lab loadCatalog hides electronics unless you search or toggle them", () =>
   assert.match(main, /enclosure-print/);
   assert.match(main, /arduino-nano/);
   assert.match(main, /\.filter\(isLabShelfPart\)/);
-  assert.match(main, /arduino\|leds\?\|nano\|esp32\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
+  assert.match(main, /arduino\|leds\?\|nano\|esp\(\?:32\)\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
   assert.match(html, /id="show-electronics"/);
   assert.match(html, /Show electronics/);
   assert.doesNotMatch(html, /id="show-electronics"[^>]*checked/);

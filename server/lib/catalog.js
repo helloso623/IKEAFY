@@ -623,7 +623,7 @@ export function labShelfParts(parts = PARTS) {
 
 /** Typed in #search / #omnibox — boards stay hidden until one of these hits. */
 export const ELECTRONICS_SEARCH =
-  /\b(arduino|leds?|nano|esp32?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+  /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
 
 export function isElectronicsQuery(query) {
   return ELECTRONICS_SEARCH.test(String(query || ""));

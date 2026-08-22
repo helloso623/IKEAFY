@@ -262,7 +262,7 @@ function isLabShelfPart(part) {
 }
 
 const ELECTRONICS_SEARCH =
-  /\b(arduino|leds?|nano|esp32?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+  /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
 
 function isElectronicsQuery(query) {
   return ELECTRONICS_SEARCH.test(String(query || ""));
