@@ -793,9 +793,465 @@ export function createWorkshop(canvas) {
     return true;
   }
 
+  /* ---- Lab CAD: sketch-extrude, joint mate, op timeline, dims overlay ----
+     Sketch a rect or circle on the bench plane, pull it up, click to build.
+     Joint picks the piece to move, then the piece to mate it to, flush faces.
+     Every op lands as a chip on #cad-timeline; undo rides the server's edit
+     history. Commits go through callbacks so main.js keeps owning the project
+     API (api.add / api.move / refresh). */
+
+  let knownParts = {};
+  let cadTool = null; // null | "sketch-rect" | "sketch-circle" | "joint"
+  let sketch = null; // { kind, phase: "draw" | "pull", a, b, height }
+  let jointFirstMesh = null;
+  let jointMark = null;
+  let cadBusy = false;
+  let prevPieceLabels = null;
+  let suppressDiff = 0;
+  const ops = [];
+  let onSketchCommit = () => {};
+  let onJointCommit = () => {};
+
+  const timelineEl = document.getElementById("cad-timeline");
+  const dimsEl = document.getElementById("cad-dims");
+  const benchPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const sketchFx = new THREE.Group();
+  scene.add(sketchFx);
+
+  const sketchFill = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.14,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const sketchEdge = new THREE.LineBasicMaterial({ color: 0xffda1a, toneMapped: false });
+  const pullMat = new THREE.MeshStandardMaterial({
+    color: 0xd9d9d9,
+    transparent: true,
+    opacity: 0.5,
+    roughness: 0.6,
+    metalness: 0.04,
+  });
+
+  // Same 10 mm grid the status bar promises.
+  const snap10 = (v) => Math.round(v / 0.01) * 0.01;
+
+  function pointAt(ev) {
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera(pointer, camera);
+  }
+
+  function castBench(ev) {
+    pointAt(ev);
+    const out = new THREE.Vector3();
+    return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  function disposeSketchFx() {
+    sketchFx.traverse((child) => child.geometry?.dispose?.());
+    sketchFx.clear();
+  }
+
+  function clearSketch() {
+    sketch = null;
+    disposeSketchFx();
+    dimsEl?.classList.remove("on");
+  }
+
+  function clearJoint() {
+    jointFirstMesh = null;
+    if (jointMark) {
+      scene.remove(jointMark);
+      jointMark.dispose();
+      jointMark = null;
+    }
+  }
+
+  function setCadTool(next) {
+    clearSketch();
+    clearJoint();
+    cadTool = next || null;
+    orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
+    if (cadTool) transform.detach();
+    else if (selected) transform.attach(selected);
+    for (const btn of document.querySelectorAll("[data-cad-tool]")) {
+      btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
+    }
+  }
+
+  const dimVec = new THREE.Vector3();
+  function placeDims(world, html) {
+    if (!dimsEl) return;
+    dimVec.copy(world).project(camera);
+    if (dimVec.z > 1) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimsEl.style.left = `${(dimVec.x * 0.5 + 0.5) * canvas.clientWidth}px`;
+    dimsEl.style.top = `${(-dimVec.y * 0.5 + 0.5) * canvas.clientHeight}px`;
+    if (dimsEl.dataset.body !== html) {
+      dimsEl.dataset.body = html;
+      dimsEl.innerHTML = html;
+    }
+    dimsEl.classList.add("on");
+  }
+
+  const dimBox = new THREE.Box3();
+  const dimCenter = new THREE.Vector3();
+  function updateDims() {
+    if (!dimsEl || sketch) return;
+    const data = selected?.userData;
+    if (!data?.part || !selected.parent) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimBox.setFromObject(selected);
+    if (dimBox.isEmpty()) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimBox.getCenter(dimCenter);
+    dimCenter.y = dimBox.max.y + 0.025;
+    const d = data.part.dimsMm;
+    const w = Math.max(1, Math.round(d.x * selected.scale.x));
+    const dep = Math.max(1, Math.round(d.y * selected.scale.z));
+    const h = Math.max(1, Math.round(d.z * selected.scale.y));
+    placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
+  }
+
+  function sketchCenter(s) {
+    return s.kind === "rect"
+      ? new THREE.Vector3((s.a.x + s.b.x) / 2, 0, (s.a.z + s.b.z) / 2)
+      : new THREE.Vector3(s.a.x, 0, s.a.z);
+  }
+
+  function redrawSketch() {
+    disposeSketchFx();
+    if (!sketch) return;
+    const s = sketch;
+    const c = sketchCenter(s);
+    const w = Math.max(Math.abs(s.b.x - s.a.x), 0.001);
+    const d = Math.max(Math.abs(s.b.z - s.a.z), 0.001);
+    const r = Math.max(Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z), 0.0005);
+    const flatGeo = s.kind === "rect" ? new THREE.PlaneGeometry(w, d) : new THREE.CircleGeometry(r, 48);
+    const flat = new THREE.Mesh(flatGeo, sketchFill);
+    flat.rotation.x = -Math.PI / 2;
+    flat.position.set(c.x, 0.004, c.z);
+    sketchFx.add(flat);
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(flatGeo), sketchEdge);
+    outline.rotation.x = -Math.PI / 2;
+    outline.position.set(c.x, 0.0045, c.z);
+    sketchFx.add(outline);
+    if (s.phase !== "pull") return;
+    const solidGeo =
+      s.kind === "rect" ? new THREE.BoxGeometry(w, s.height, d) : new THREE.CylinderGeometry(r, r, s.height, 48);
+    const solid = new THREE.Mesh(solidGeo, pullMat);
+    solid.position.set(c.x, s.height / 2, c.z);
+    sketchFx.add(solid);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(solidGeo), sketchEdge);
+    edges.position.copy(solid.position);
+    sketchFx.add(edges);
+  }
+
+  function sketchOverlay() {
+    if (!sketch) return;
+    const s = sketch;
+    const c = sketchCenter(s);
+    const size =
+      s.kind === "rect"
+        ? `${asMm(Math.abs(s.b.x - s.a.x))} × ${asMm(Math.abs(s.b.z - s.a.z))} mm`
+        : `Ø ${asMm(2 * Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z))} mm`;
+    const tail = s.phase === "pull" ? ` · H ${asMm(s.height)} mm` : "";
+    c.y = s.phase === "pull" ? s.height + 0.02 : 0.02;
+    placeDims(
+      c,
+      `<strong>${size}${tail}</strong><small>${
+        s.phase === "pull" ? "click to build · Esc cancels" : "release, then pull up"
+      }</small>`,
+    );
+  }
+
+  function pullHeight(ev) {
+    pointAt(ev);
+    const c = sketchCenter(sketch);
+    const n = new THREE.Vector3().subVectors(camera.position, c);
+    n.y = 0;
+    if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+    n.normalize();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, c);
+    const out = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(plane, out)) return null;
+    return Math.min(1.2, Math.max(0.01, snap10(out.y)));
+  }
+
+  function sketchDown(ev) {
+    if (sketch?.phase === "pull") {
+      commitSketch();
+      return;
+    }
+    const hit = castBench(ev);
+    if (!hit) return;
+    const a = new THREE.Vector3(snap10(hit.x), 0, snap10(hit.z));
+    sketch = { kind: cadTool === "sketch-rect" ? "rect" : "circle", phase: "draw", a, b: a.clone(), height: 0.05 };
+    redrawSketch();
+  }
+
+  window.addEventListener("pointermove", (ev) => {
+    if (!sketch) return;
+    if (sketch.phase === "draw") {
+      const hit = castBench(ev);
+      if (!hit) return;
+      sketch.b.set(snap10(hit.x), 0, snap10(hit.z));
+    } else {
+      const h = pullHeight(ev);
+      if (h == null) return;
+      sketch.height = h;
+    }
+    redrawSketch();
+    sketchOverlay();
+  });
+
+  window.addEventListener("pointerup", () => {
+    if (!sketch || sketch.phase !== "draw") return;
+    const size =
+      sketch.kind === "rect"
+        ? Math.min(Math.abs(sketch.b.x - sketch.a.x), Math.abs(sketch.b.z - sketch.a.z))
+        : Math.hypot(sketch.b.x - sketch.a.x, sketch.b.z - sketch.a.z);
+    if (size < 0.01) {
+      clearSketch();
+      return;
+    }
+    sketch.phase = "pull";
+    sketch.height = 0.05;
+    redrawSketch();
+    sketchOverlay();
+  });
+
+  function commitSketch() {
+    if (!sketch || cadBusy) return;
+    const s = sketch;
+    clearSketch();
+    const stock = s.kind === "rect" ? LAB_STOCK.box : LAB_STOCK.cyl;
+    const dims = knownParts[stock.partId]?.dimsMm || stock.dims;
+    let pose;
+    let label;
+    if (s.kind === "rect") {
+      const w = Math.max(Math.abs(s.b.x - s.a.x), 0.01);
+      const d = Math.max(Math.abs(s.b.z - s.a.z), 0.01);
+      pose = {
+        x: round4((s.a.x + s.b.x) / 2),
+        y: round4(s.height / 2),
+        z: round4((s.a.z + s.b.z) / 2),
+        sx: round4(w / (dims.x * MM)),
+        sy: round4(s.height / (dims.z * MM)),
+        sz: round4(d / (dims.y * MM)),
+        texture: "lab-box",
+        color: LAB_GRAY,
+      };
+      label = `Extrude box ${asMm(w)} × ${asMm(d)} × ${asMm(s.height)} mm`;
+    } else {
+      const r = Math.max(Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z), 0.005);
+      pose = {
+        x: round4(s.a.x),
+        y: round4(s.height / 2),
+        z: round4(s.a.z),
+        sx: round4((2 * r) / (dims.x * MM)),
+        sy: round4(s.height / (dims.z * MM)),
+        sz: round4((2 * r) / (dims.y * MM)),
+        texture: "lab-cyl",
+        color: LAB_GRAY,
+      };
+      label = `Extrude cylinder Ø ${asMm(2 * r)} × ${asMm(s.height)} mm`;
+    }
+    cadBusy = true;
+    suppressDiff += 1; // the refresh after api.add would double-count this op
+    pushOp("E", label);
+    Promise.resolve(onSketchCommit({ partId: stock.partId, pose, label }))
+      .catch(() => {})
+      .finally(() => {
+        cadBusy = false;
+      });
+    setCadTool(null);
+  }
+
+  function mateMoves(aMesh, bMesh) {
+    const a = aMesh.userData;
+    const b = bMesh.userData;
+    const boxA = new THREE.Box3().setFromObject(aMesh);
+    const boxB = new THREE.Box3().setFromObject(bMesh);
+    if (boxA.isEmpty() || boxB.isEmpty()) return null;
+    const hA = boxA.max.y - boxA.min.y;
+    const cA = boxA.getCenter(new THREE.Vector3());
+    const cB = boxB.getCenter(new THREE.Vector3());
+    const moves = [];
+    const plain = !labKindOf(a.piece) && !labKindOf(b.piece);
+    const legToTop = plain && isTableLeg(a.part) && isTableTop(b.part);
+    const topToLeg = plain && isTableTop(a.part) && isTableLeg(b.part);
+    let target;
+    let label;
+    if (legToTop) {
+      const tw = boxB.max.x - boxB.min.x;
+      const td = boxB.max.z - boxB.min.z;
+      const inset = Math.min(0.05, tw * 0.09);
+      const sx = cA.x >= cB.x ? 1 : -1;
+      const sz = cA.z >= cB.z ? 1 : -1;
+      let y = boxB.min.y - hA / 2;
+      if (y < hA / 2 - 1e-6) {
+        // No room under the top: stand the leg on the floor, lift the top onto it.
+        y = hA / 2;
+        moves.push({ id: b.piece.id, pose: { y: round4(cB.y + (hA - boxB.min.y)) } });
+      }
+      target = { x: cB.x + sx * (tw / 2 - inset), y, z: cB.z + sz * (td / 2 - inset) };
+      label = `Joint ${a.part.name} under ${b.part.name}, flush`;
+    } else if (topToLeg) {
+      const tw = boxA.max.x - boxA.min.x;
+      const td = boxA.max.z - boxA.min.z;
+      const inset = Math.min(0.05, tw * 0.09);
+      const sx = cB.x >= cA.x ? 1 : -1;
+      const sz = cB.z >= cA.z ? 1 : -1;
+      target = {
+        x: cB.x - sx * (tw / 2 - inset),
+        y: boxB.max.y + hA / 2,
+        z: cB.z - sz * (td / 2 - inset),
+      };
+      label = `Joint ${a.part.name} onto ${b.part.name}, flush`;
+    } else {
+      target = { x: cB.x, y: boxB.max.y + hA / 2, z: cB.z };
+      label = `Joint ${a.part.name} flush on ${b.part.name}`;
+    }
+    moves.unshift({
+      id: a.piece.id,
+      pose: { x: round4(target.x), y: round4(target.y), z: round4(target.z), rx: 0, ry: 0, rz: 0 },
+    });
+    return {
+      moves,
+      joint: { fromPiece: a.piece.id, toPiece: b.piece.id, kind: "mate-flush", note: label },
+      label,
+    };
+  }
+
+  function jointPick(ev) {
+    pointAt(ev);
+    const hits = ray.intersectObjects(group.children, true);
+    const mesh = hits.length ? hitsWalk(hits[0].object) : null;
+    if (!mesh?.userData?.piece) return;
+    if (!jointFirstMesh) {
+      jointFirstMesh = mesh;
+      jointMark = new THREE.BoxHelper(mesh, 0xffffff);
+      scene.add(jointMark);
+      return;
+    }
+    if (mesh === jointFirstMesh) return;
+    const payload = mateMoves(jointFirstMesh, mesh);
+    setCadTool(null);
+    if (!payload || cadBusy) return;
+    cadBusy = true;
+    pushOp("J", payload.label);
+    Promise.resolve(onJointCommit(payload))
+      .catch(() => {})
+      .finally(() => {
+        cadBusy = false;
+      });
+  }
+
+  function pushOp(chip, label) {
+    ops.push({ chip, label });
+    if (ops.length > 30) ops.shift();
+    renderTimeline();
+  }
+
+  function renderTimeline() {
+    if (!timelineEl) return;
+    if (!ops.length) {
+      timelineEl.innerHTML = "";
+      return;
+    }
+    const last = ops[ops.length - 1];
+    const chips = ops
+      .slice(-8)
+      .map((op) => `<span class="cad-chip" title="${escText(op.label)}">${escText(op.chip)}</span>`)
+      .join("");
+    timelineEl.innerHTML =
+      `<span class="cad-tl-kicker">Timeline</span>${chips}` +
+      `<span class="cad-tl-last" title="${escText(last.label)}">${escText(last.label)}</span>` +
+      `<button type="button" class="cad-tl-undo" title="Undo the last op (Ctrl+Z)">Undo</button>`;
+  }
+
+  timelineEl?.addEventListener("click", (ev) => {
+    if (ev.target.closest(".cad-tl-undo")) document.getElementById("undo-edit")?.click();
+  });
+
+  // Place / delete chips fall out of the piece-list diff between syncs, so
+  // shelf adds, chat adds and deletes all land on the timeline for free.
+  function trackPieces(project, partsById) {
+    const next = new Map();
+    for (const piece of project.pieces) {
+      next.set(piece.id, partsById[piece.partId]?.name || piece.partId);
+    }
+    if (suppressDiff > 0) {
+      suppressDiff -= 1;
+    } else if (prevPieceLabels) {
+      const added = [...next.keys()].filter((id) => !prevPieceLabels.has(id));
+      const removed = [...prevPieceLabels.keys()].filter((id) => !next.has(id));
+      if (added.length && !removed.length) {
+        pushOp("P", added.length === 1 ? `Place ${next.get(added[0])}` : `Place ${added.length} pieces`);
+      } else if (removed.length && !added.length) {
+        pushOp(
+          "D",
+          removed.length === 1 ? `Delete ${prevPieceLabels.get(removed[0])}` : `Delete ${removed.length} pieces`,
+        );
+      }
+    }
+    prevPieceLabels = next;
+  }
+
+  function noteHistory(direction) {
+    suppressDiff += 1;
+    if (direction === "redo") {
+      pushOp("Y", "Redo the last undone op");
+      return;
+    }
+    ops.pop();
+    renderTimeline();
+  }
+
+  // Transform ops become timeline chips; the pose itself is persisted by the
+  // dragging-changed listener above through onPoseCommit.
+  let chipPoseBefore = null;
+  transform.addEventListener("dragging-changed", (e) => {
+    if (e.value) {
+      chipPoseBefore = selected ? JSON.stringify(readPose(selected)) : null;
+      return;
+    }
+    if (!selected || !chipPoseBefore) return;
+    const after = JSON.stringify(readPose(selected));
+    const changed = after !== chipPoseBefore;
+    chipPoseBefore = null;
+    if (!changed) return;
+    const verbs = { translate: "Move", rotate: "Rotate", scale: "Scale" };
+    const verb = verbs[editMode] || "Move";
+    pushOp(verb[0], `${verb} ${selected.userData.part?.name || "piece"}`);
+  });
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-cad-tool]");
+    if (!btn) return;
+    const next = btn.dataset.cadTool;
+    setCadTool(cadTool === next ? null : next);
+  });
+
+  window.addEventListener("keydown", (ev) => {
+    const tag = ev.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+    if (ev.key === "Escape" && cadTool) setCadTool(null);
+  });
+
   function meshFor(piece, part) {
-    const mat = materialFor(part, piece);
-    const root = bodyFor(inferShape(part), part, mat);
+    const lab = labKindOf(piece);
+    const root = lab ? makeLabSolid(lab, part, piece) : bodyFor(inferShape(part), part, materialFor(part, piece));
     shadow(root);
     root.userData = { piece, part, ports: part.ports || [] };
     return root;
@@ -815,6 +1271,7 @@ export function createWorkshop(canvas) {
       const part = partsById[piece.partId];
       const mesh = meshes.get(piece.id);
       if (!part || !mesh) continue;
+      if (labKindOf(piece)) continue; // sketched bodies are stock, not table parts
       if (isTableTop(part)) tops.push({ piece, part, mesh });
       else if (isTableLeg(part)) legs.push({ piece, part, mesh });
     }
@@ -860,6 +1317,8 @@ export function createWorkshop(canvas) {
   }
 
   function sync(project, partsById) {
+    knownParts = partsById;
+    trackPieces(project, partsById);
     const keepId = selected?.userData?.piece?.id || project.selection || null;
     transform.detach();
     group.clear();
@@ -934,7 +1393,16 @@ export function createWorkshop(canvas) {
   }
 
   canvas.addEventListener("pointerdown", (ev) => {
-    if (ev.button === 0 && !transform.dragging) pick(ev);
+    if (ev.button !== 0 || transform.dragging) return;
+    if (cadTool === "sketch-rect" || cadTool === "sketch-circle") {
+      sketchDown(ev);
+      return;
+    }
+    if (cadTool === "joint") {
+      jointPick(ev);
+      return;
+    }
+    pick(ev);
   });
 
   function resize() {
@@ -1040,6 +1508,8 @@ export function createWorkshop(canvas) {
       }
     }
     if (boxHelper && selected) boxHelper.update();
+    if (jointMark && jointFirstMesh) jointMark.update();
+    updateDims();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -1066,8 +1536,18 @@ export function createWorkshop(canvas) {
     },
     getSelected: () => selected?.userData || null,
     getSelectedPose: () => readPose(selected),
+    onSketch: (fn) => {
+      onSketchCommit = fn;
+    },
+    onJoint: (fn) => {
+      onJointCommit = fn;
+    },
+    noteHistory,
+    setCadTool,
+    getCadTool: () => cadTool,
     setMode: (mode) => {
       if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
+      if (cadTool) setCadTool(null);
       editMode = mode;
       transform.setMode(mode);
       return editMode;

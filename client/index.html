@@ -121,6 +121,9 @@
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
         <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
+        <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
+        <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
+        <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame"></canvas>
@@ -210,17 +213,26 @@
         </section>
       </aside>
 
-      <!-- ============ LAB — left browser (catalog / bodies) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Browser">
+      <!-- ============ LAB — outliner (scene collection / bodies) ============ -->
+      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Outliner">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Browser</span>
-          <strong class="lab-pane-title">Catalog / Bodies / Room</strong>
+          <span class="lab-pane-kicker">Outliner</span>
+          <strong class="lab-pane-title">Scene Collection</strong>
         </header>
         <div class="pane bench-nav lab-tree">
+          <details class="lab-folder lab-outliner" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
+              Bodies
+            </summary>
+            <div class="lab-folder-body">
+              <div id="bench-pieces" class="list thin lab-body-list"></div>
+            </div>
+          </details>
           <details class="lab-folder catalog-panel" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
-              Catalog
+              Add · Catalog
             </summary>
             <div class="lab-folder-body">
               <div class="lab-filter">
@@ -233,19 +245,10 @@
               </div>
             </div>
           </details>
-          <details class="lab-folder" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
-              Bodies
-            </summary>
-            <div class="lab-folder-body">
-              <div id="bench-pieces" class="list thin lab-body-list"></div>
-            </div>
-          </details>
-          <details class="lab-folder" id="lab-room" open>
+          <details class="lab-folder" id="lab-room">
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
-              This room
+              Room
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
@@ -286,6 +289,10 @@
             <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
             <button type="button" class="lab-tool" data-undo disabled>Undo</button>
             <button type="button" class="lab-tool" data-redo disabled>Redo</button>
+            <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
+            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>
@@ -341,6 +348,11 @@
                 <div class="row wrap">
                   <button type="button" id="undo-edit" disabled>Undo</button>
                   <button type="button" id="redo-edit" disabled>Redo</button>
+                </div>
+                <div class="row wrap" aria-label="Lab CAD tools">
+                  <button type="button" data-cad-tool="sketch-rect">Sketch rect</button>
+                  <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
+                  <button type="button" data-cad-tool="joint">Joint</button>
                 </div>
                 <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
               </div>
