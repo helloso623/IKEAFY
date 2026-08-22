@@ -552,23 +552,103 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   min-height: 0;
 }
 .studio-side > .panel,
-.studio-side > .card { flex: 0 0 auto; }
+.studio-side > .card,
+.studio-side > .watch { flex: 0 0 auto; }
 
-.bom-list { min-height: 3rem; line-height: 1.75; }
+/* Four IKEAlive watch cards — one Finley chrome (radius, type, border, padding). */
+.studio-side > .watch {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(250, 249, 245, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 24px;
+  padding: 14px 16px 16px;
+  box-shadow:
+    0 18px 48px rgba(93, 151, 209, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+.studio-side > .watch h2 {
+  font-family: "Clash Display", var(--serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 0 0 0.2rem;
+  color: #091410;
+}
+.studio-side > .watch .hint {
+  font-family: "Satoshi", var(--type);
+  font-size: 0.88rem;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.55;
+  color: rgba(9, 20, 16, 0.62);
+  margin: 0 0 0.75rem;
+}
+.studio-side > .watch .copy,
+.studio-side > .watch .field,
+.studio-side > .watch input,
+.studio-side > .watch button {
+  font-family: "Satoshi", var(--type);
+}
+
+.bom-list { min-height: 2.5rem; line-height: 1.55; white-space: normal; }
+.bom-group + .bom-group { margin-top: 0.75rem; }
+.bom-group strong {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: rgba(9, 20, 16, 0.5);
+  margin: 0 0 0.25rem;
+}
+.bom-group p {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: -0.015em;
+  color: #091410;
+  white-space: pre-wrap;
+}
 
 .review-notes {
   min-height: 2.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.65rem;
 }
 .review-notes div {
-  padding: 0.55rem 0;
+  padding: 0;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
 }
+.review-notes strong {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: #091410;
+  margin: 0 0 0.15rem;
+}
+.review-notes p {
+  margin: 0;
+  font-size: 0.84rem;
+  letter-spacing: -0.015em;
+  line-height: 1.5;
+  color: rgba(9, 20, 16, 0.7);
+}
+
+.studio-side > .studio-chat {
+  padding: 0.2rem 0.15rem 0;
+  color: var(--soft);
+  font-size: 0.85rem;
+}
+.studio-side > .studio-chat summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.studio-side > .studio-chat summary::-webkit-details-marker { display: none; }
 
 .field {
   display: block;
@@ -676,30 +756,55 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   outline-offset: 3px;
 }
 
-.process {
+.process,
+.upload-process {
   display: grid;
-  gap: 0.85rem;
+  gap: 0;
   margin: 1.75rem 0 0;
   padding: 0;
   list-style: none;
 }
-.process li {
-  padding: 1.05rem 1.2rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+.process li,
+.upload-process li {
+  padding: 0.95rem 0;
+  border-bottom: 1px solid var(--line);
   color: var(--soft);
-  font-size: 0.95rem;
-  line-height: 1.45;
+  font-size: 0.98rem;
+  line-height: 1.5;
 }
-.process strong {
-  display: block;
-  margin-bottom: 0.15rem;
+.process li:last-child,
+.upload-process li:last-child { border-bottom: 0; }
+.process strong,
+.upload-process strong {
   color: var(--ink);
   font-family: var(--serif);
-  font-size: 1.15rem;
   font-weight: 550;
 }
+
+.upload-file:empty { display: none; }
+.upload-file {
+  display: block;
+  margin-top: 0.45rem;
+  font-style: normal;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.upload-actions { margin: 1rem 0 0; }
+
+.upload-official {
+  margin-top: 1.75rem;
+  color: var(--soft);
+  font-size: 0.9rem;
+}
+.upload-official summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 500;
+}
+.upload-official summary::-webkit-details-marker { display: none; }
+.upload-official[open] summary { margin-bottom: 0.75rem; color: var(--ink); }
+.upload-official .official-picker,
+.upload-official.official-picker { border: 0; padding: 0; }
 
 .feature-grid {
   display: grid;

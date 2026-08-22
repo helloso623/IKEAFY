@@ -60,77 +60,51 @@
       <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
         <div class="landing">
           <p class="kicker">IKEAlive</p>
-          <h1>The booklet, as a film.</h1>
+          <h1>Your manual has a next move.</h1>
           <p class="lede">
-            Upload an IKEA instructions PDF. We turn each plate into a short step you watch, then do.
+            Upload the IKEA instructions PDF. We parse the plates, Veed builds a reel, and you watch one step at a time.
           </p>
 
-          <div class="card upload-card">
-            <label class="upload-drop" for="pdf-upload">
+          <form id="upload-form" class="card upload-card">
+            <label class="upload-drop" id="pdf-drop" for="pdf-upload">
               <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
-              <span class="upload-drop-title">Drop the instructions PDF</span>
-              <span class="upload-drop-hint">Official IKEA booklet. One file.</span>
+              <strong class="upload-drop-title">Drop the IKEA PDF</strong>
+              <span class="upload-drop-hint">or click to choose a file</span>
+              <em id="pdf-name" class="upload-file"></em>
             </label>
 
-            <div id="official-source" class="official-picker">
-              <label class="picker-label" for="official-product">Or a transcribed product</label>
-              <select id="official-product" aria-label="IKEA product"></select>
-              <p class="hint lock-note" id="official-lock-note">
-                Steps come one at a time, in order — just like the paper manual.
-              </p>
-            </div>
-
-            <div id="custom-source" class="custom-parse hidden">
-              <label class="picker-label" for="guide-in">Your instructions</label>
-              <textarea id="guide-in" rows="7" placeholder="Paste any instructions here…"></textarea>
+            <div id="custom-source" class="custom-parse">
+              <label class="picker-label" for="guide-in">Or paste the guide</label>
+              <textarea id="guide-in" rows="5" placeholder="1. Unpack the table top…"></textarea>
               <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
-              <div class="row">
-                <button id="parse-guide" class="primary" data-go-interface="watch">Start my guide</button>
-                <button id="clear-custom-session" class="quiet">Clear</button>
-              </div>
-              <p class="hint">Your own guide can be edited and skipped as you go.</p>
             </div>
 
-            <div class="source-toggle">
-              <button id="official-mode" class="on start-official" aria-pressed="true" data-go-interface="watch">
-                <span class="when-official">Watch the first plate</span>
-                <span class="when-custom">Use the IKEA manual instead</span>
-              </button>
-              <button id="custom-mode" class="quiet" aria-pressed="false">
-                I have my own instructions
-              </button>
+            <div class="row upload-actions">
+              <button type="submit" id="parse-guide" class="primary">Build the reel</button>
+              <button type="button" id="clear-custom-session" class="quiet">Clear</button>
             </div>
-          </div>
+          </form>
 
-          <ul class="process">
-            <li>
-              <strong>Upload</strong>
-              Drop the official booklet. We read the plates in order.
-            </li>
-            <li>
-              <strong>Watch</strong>
-              Each step is a short film — the same move the paper shows.
-            </li>
-            <li>
-              <strong>Confirm</strong>
-              Do the step, then go on. Official sheets never skip ahead.
-            </li>
+          <ul class="upload-process">
+            <li><strong>Upload</strong> the IKEA instructions PDF, or paste a guide</li>
+            <li><strong>Reel</strong> — Veed Fabric turns each plate into a short film</li>
+            <li><strong>Watch</strong> the steps, one plate at a time</li>
+            <li><strong>Help</strong> is on the right: inventory, troubles, identify, small parts</li>
           </ul>
 
-          <div class="feature-grid">
-            <article class="card quiet-card">
-              <h2>One plate at a time</h2>
-              <p>The center of the next screen is the film. Nothing else competes with the move.</p>
-            </article>
-            <article class="card quiet-card">
-              <h2>Kit, beside you</h2>
-              <p>What’s in the box, what to buy, and where other builders slow down.</p>
-            </article>
-            <article class="card quiet-card">
-              <h2>When a part snaps</h2>
-              <p>Identify the fitting and request a spare — no receipt, no store trip for screws.</p>
-            </article>
-          </div>
+          <details id="official-source" class="official-picker upload-official">
+            <summary>Use the official sheet</summary>
+            <label class="picker-label" for="official-product">Official IKEA product</label>
+            <select id="official-product" aria-label="IKEA product"></select>
+            <p class="hint lock-note" id="official-lock-note">
+              LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
+            </p>
+            <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
+              <span class="when-official">Start the official LACK sheet</span>
+              <span class="when-custom">Use the official LACK sheet</span>
+            </button>
+          </details>
+          <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
         </div>
       </section>
 

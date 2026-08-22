@@ -36,8 +36,18 @@ export function initStudio({ api, hud = () => {} } = {}) {
     play: first("#film-play"),
     next: first("#film-wait"),
     back: first("#film-back"),
+    confirm: first("#step-confirm"),
+    confirmLabel: first("#step-confirm-label"),
+    skip: first("#step-skip"),
+    stuck: first("#film-stuck"),
+    colorize: first("#colorize"),
+    render: first("#render-video"),
     scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
+    pdf: first("#pdf-upload"),
+    pdfName: first("#pdf-name"),
+    pdfDrop: first("#pdf-drop", ".upload-drop"),
+    uploadForm: first("#upload-form"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
     brokenNote: first("#broken-note"),
@@ -62,12 +72,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
     guide: null,
     reel: [],
     clipIndex: 0,
+    frames: [],
     frameIndex: 0,
+    playing: 0,
     playingOn: false,
     playGen: 0,
     reelToken: 0,
     timer: null,
+    watched: false,
     broken: null,
+    submitting: false,
     destroyed: false,
   };
 
@@ -92,6 +106,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ---------------------------------------------------------------- source mode
 
+  function setInterface(name) {
+    const next = name === "watch" ? "watch" : "upload";
+    if (typeof window.setIkealiveInterface === "function") {
+      window.setIkealiveInterface(next);
+      return;
+    }
+    document.getElementById("app")?.setAttribute("data-interface", next);
+  }
+
   function setMode(mode) {
     state.mode = mode === "custom" ? "custom" : "official";
     const official = state.mode === "official";
@@ -99,9 +122,32 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.customMode?.classList.toggle("on", !official);
     el.officialMode?.setAttribute("aria-pressed", String(official));
     el.customMode?.setAttribute("aria-pressed", String(!official));
-    el.officialSource?.classList.toggle("hidden", !official);
-    el.customSource?.classList.toggle("hidden", official);
+    const uploading = document.getElementById("app")?.dataset.interface === "upload";
+    if (uploading) {
+      el.officialSource?.classList.remove("hidden");
+      el.customSource?.classList.remove("hidden");
+    } else {
+      el.officialSource?.classList.toggle("hidden", !official);
+      el.customSource?.classList.toggle("hidden", official);
+    }
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function showPdfName(file) {
+    if (el.pdfName) el.pdfName.textContent = file?.name || "";
   }
 
   async function fillProducts() {
@@ -804,9 +850,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   function showClip(index, { play = false, restart = true } = {}) {
     if (!state.reel.length) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
     state.clipIndex = Math.max(0, Math.min(index, state.reel.length - 1));
     const clip = state.reel[state.clipIndex];
     if (restart) state.frameIndex = 0;
+    state.playingOn = Boolean(play);
     const outline = state.outline.find((item) => item.number === clip.number);
     if (outline) {
       state.step = {
@@ -830,11 +879,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     hideVideo();
     const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
     drawFrame(frame);
-    if (play) {
-      state.playingOn = true;
-      renderTransport();
-      playCanvasClip(clip, state.playGen);
-    }
+    renderTransport();
+    if (play) playCanvasClip(clip, state.playGen);
   }
 
   function finishClip() {
@@ -1007,27 +1053,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  async function colorizePlate() {
-    if (!state.run) return null;
-    try {
-      const result = await api.colorize(state.run.cursor);
-      drawFrame({
-        caption: state.frames[Math.max(0, state.frameIndex - 1)]?.caption || state.step?.body,
-        colorized: true,
-      });
-      setOut(
-        el.detail,
-        ["COLORIZED PLATE", ...(result.fills || []).map((f) => `${f.name} ${f.color} ${f.texture}`), result.note]
-          .filter(Boolean)
-          .join("\n"),
-      );
-      announce(result.note || "Plate painted with catalog materials.");
-      return result;
-    } catch (error) {
-      return fail(error);
-    }
-  }
-
   async function attachBroken() {
     if (!state.run) return null;
     try {
@@ -1060,7 +1085,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       const result = await api.spare({
         runId: state.run?.id,
-        stepNumber: state.run?.cursor,
+        stepNumber: currentStepNumber(),
         articleNumber: el.spareArticle?.value || "",
         qty: Number(el.spareQty?.value || 1),
         note: el.brokenNote?.value || "",
