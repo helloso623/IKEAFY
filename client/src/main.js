@@ -12,8 +12,10 @@ import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
+import { applyGeneratedAction } from "./chat-actions.js";
 import { openBuildPacketPrint } from "./build-packet.js";
 import { finishModelSnapshot } from "./model-finish.js";
+import { bindShapeSummonButtons } from "./shape-summon.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
@@ -52,6 +54,19 @@ let highlightedNet = null;
 function hud(text) {
   $("hud").textContent = text;
 }
+
+bindShapeSummonButtons(document, (spec) => {
+  try {
+    const generated = shop.addGeneratedMesh?.(spec);
+    if (!generated?.piece) throw new Error("The shape could not be added.");
+    renderBenchPieces();
+    syncEditButtons();
+    aiDock?.refreshScene();
+    hud(`Summoned ${spec.name}. It is selected and editable.`);
+  } catch (error) {
+    hud(error?.message || "The shape could not be added.");
+  }
+});
 
 const EMPTY_INSPECT = "Nothing selected.";
 
@@ -619,7 +634,10 @@ async function applyShopActions(actions) {
   const added = [];
   for (const action of actions || []) {
     if (!action) continue;
-    if (action.type === "add" || action.type === "add_part") {
+    const generated = applyGeneratedAction(action, shop);
+    if (generated) {
+      if (generated.piece) added.push(generated.piece);
+    } else if (action.type === "add" || action.type === "add_part") {
       if (action.applied && action.piece?.id) {
         added.push(action.piece);
         continue;
@@ -627,9 +645,6 @@ async function applyShopActions(actions) {
       if (!action.partId) continue;
       const piece = await api.add(action.partId, action.pose || {});
       added.push(piece);
-    } else if (action.type === "mesh" && action.mesh) {
-      const generated = shop.addGeneratedMesh?.(action.mesh);
-      if (generated?.piece) added.push(generated.piece);
     } else if (action.type === "camera") {
       shop.setCamera(action);
     } else if (action.type === "move") {
