@@ -908,7 +908,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
         return result;
       }
       applyView(result);
-      await playCurrent();
+      const index = state.reel.findIndex((clip) => clip.number === result.run?.cursor);
+      goToClip(index >= 0 ? index : state.clipIndex + 1);
       announce(`Skipped step ${result.skipped}. Your guide, your call.`);
       return result;
     } catch (error) {
@@ -938,11 +939,30 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  /** Clicking a step reads it. It never moves the cursor, and it never opens a locked plate. */
+  /** Jump the reel to a step. One click in #steps or the scrub list. */
   async function openStep(number) {
+    const target = Number(number);
+    if (!target) return null;
+    const index = state.reel.findIndex((clip) => clip.number === target);
+    if (index >= 0) {
+      const clip = goToClip(index);
+      const outline = state.outline.find((item) => item.number === target);
+      setOut(
+        el.detail,
+        [
+          `Step ${target}${outline?.action ? ` — ${outline.action}` : ""}`,
+          outline?.body || clipCaption(clip),
+          outline?.toolRequired ? `Tool: ${outline.toolRequired}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      announce(`Jumped to step ${target}.`);
+      return clip;
+    }
     if (!state.run) return null;
     try {
-      const result = await api.runPeek(state.run.id, number);
+      const result = await api.runPeek(state.run.id, target);
       if (result.ok === false) {
         setOut(el.detail, result.reason);
         announce(result.reason);
@@ -955,11 +975,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
           result.step.body,
           result.step.toolRequired ? `Tool: ${result.step.toolRequired}` : "Hands only",
           ...(result.step.warnings || []).map((w) => `Watch out: ${w}`),
-          result.step.fittings?.length
-            ? `Free fittings for this step: ${result.step.fittings
-                .map((f) => `${f.name} (${f.articleNumber})`)
-                .join(", ")}`
-            : "",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -1116,15 +1131,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const row = event.target.closest("[data-step]");
     if (row) openStep(Number(row.dataset.step));
   });
-  listen(el.confirm, "change", () => {
-    if (el.next) el.next.disabled = !(el.confirm.checked || !state.run?.locked) || !state.watched;
+  listen(el.scrub, "click", (event) => {
+    const tick = event.target.closest("[data-step]");
+    if (tick) openStep(Number(tick.dataset.step));
   });
+  listen(el.play, "click", togglePlay);
   listen(el.next, "click", nextStep);
   listen(el.back, "click", backStep);
-  listen(el.skip, "click", skipStep);
-  listen(el.stuck, "click", stuckOnStep);
-  listen(el.colorize, "click", colorizePlate);
-  listen(el.render, "click", () => playCurrent());
+  listen(el.video, "ended", () => {
+    if (state.playingOn) finishClip();
+  });
   listen(el.broken, "click", attachBroken);
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);

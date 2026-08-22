@@ -10,6 +10,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap"
       rel="stylesheet"
     />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600&f[]=satoshi@400,500,600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -17,7 +21,7 @@
       id="app"
       class="mode-ikeafy"
       data-mode="ikeafy"
-      data-guide-mode="official"
+      data-guide-mode="custom"
       data-interface="upload"
     >
       <header class="top">
@@ -81,7 +85,7 @@
               <textarea id="guide-in" rows="7" placeholder="Paste any instructions here…"></textarea>
               <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
               <div class="row">
-                <button id="parse-guide" class="primary">Start my guide</button>
+                <button id="parse-guide" class="primary" data-go-interface="watch">Start my guide</button>
                 <button id="clear-custom-session" class="quiet">Clear</button>
               </div>
               <p class="hint">Your own guide can be edited and skipped as you go.</p>
@@ -160,24 +164,24 @@
         </div>
       </main>
 
-      <!-- ============ WATCH — four right-hand cards ============ -->
-      <aside class="rail cards" data-pane="ikeafy" aria-label="Kit and help">
-        <section class="studio-side" aria-label="Kit, tips and spare parts">
-          <div class="panel card bom">
-            <h2>What’s in the box</h2>
-            <p class="hint">Checked against the flat-pack before you begin — plus anything to buy separately.</p>
+      <!-- ============ WATCH — four Finley-style cards ============ -->
+      <aside class="rail cards" data-pane="ikeafy" aria-label="IKEAlive watch">
+        <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
+          <div class="panel watch bom">
+            <h2>Assembly inventory</h2>
+            <p class="hint">Kit in the box, then anything extra to pick up.</p>
             <div id="bom" class="copy bom-list"></div>
           </div>
 
-          <div class="panel card reviews">
-            <h2>Tips from other builders</h2>
-            <p class="hint">Where people slow down, step by step.</p>
+          <div class="panel watch reviews">
+            <h2>Where people had troubles</h2>
+            <p class="hint">The steps other builders slowed down on.</p>
             <div id="reviews" class="copy review-notes"></div>
           </div>
 
-          <div class="panel card broken">
-            <h2>Missing or broken part?</h2>
-            <p class="hint">Show us the part and we’ll find its number for you.</p>
+          <div class="panel watch broken">
+            <h2>Part identification desk</h2>
+            <p class="hint">A photo and a note is enough to match the part number.</p>
             <label class="field file-field" for="broken-photo">
               <span>Photo of the part</span>
               <input id="broken-photo" type="file" accept="image/*" />
@@ -189,15 +193,13 @@
             <button id="broken-btn" class="identify-part">Find my part number</button>
           </div>
 
-          <div class="panel card spare">
-            <h2>Request a spare</h2>
-            <p class="hint">
-              Screws, dowels, cam locks and Allen keys are sent free of charge — no receipt needed.
-            </p>
+          <div class="panel watch spare">
+            <h2>Small parts service</h2>
+            <p class="hint">Screws, dowels, cam locks and Allen keys — no receipt needed.</p>
             <div class="row part-line">
               <label class="field" for="spare-article">
                 <span>Part number</span>
-                <input id="spare-article" placeholder="e.g. 100347" />
+                <input id="spare-article" placeholder="Part number" />
               </label>
               <label class="field qty-field" for="spare-qty">
                 <span>Qty</span>
@@ -218,7 +220,7 @@
             <div id="spare-out" class="copy spare-response" aria-live="polite"></div>
           </div>
 
-          <details class="panel card chat-panel studio-chat">
+          <details class="studio-chat">
             <summary>Ask us anything</summary>
             <div id="ikea-agent-bar" class="agent-bar"></div>
             <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
