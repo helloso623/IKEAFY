@@ -69,10 +69,24 @@ export function captureViewThumb(canvas, { maxWidth = 240, quality = 0.45 } = {}
 
 export function setAiDockOpen(open, { orb, dock, input } = {}) {
   const shown = Boolean(open);
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
   if (dock) {
-    dock.hidden = !shown;
+    if (typeof dock.__closeTimer === "number") clearTimeout(dock.__closeTimer);
     dock.classList.toggle("open", shown);
     dock.setAttribute("aria-hidden", shown ? "false" : "true");
+    if (!shown && !dock.hidden && !reduceMotion) {
+      // Let the .closing animation play out before display:none lands.
+      dock.classList.toggle("closing", true);
+      dock.__closeTimer = setTimeout(() => {
+        dock.classList.toggle("closing", false);
+        dock.hidden = true;
+      }, 220);
+    } else {
+      dock.classList.toggle("closing", false);
+      dock.hidden = !shown;
+    }
   }
   if (orb) {
     orb.classList.toggle("on", shown);
