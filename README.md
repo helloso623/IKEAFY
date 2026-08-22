@@ -11,8 +11,6 @@ Upload an IKEA PDF. Pick **video**, **stills**, or **3D**. Watch the steps.
 IKEAFY is the repo. IKEAlive is the workshop.
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-111111?style=for-the-badge&logo=nodedotjs&logoColor=FFDA1A)](https://nodejs.org)
-[![GitHub stars](https://img.shields.io/github/stars/helloso623/IKEAlive?style=for-the-badge)](https://github.com/helloso623/IKEAlive/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/helloso623/IKEAlive?style=for-the-badge)](https://github.com/helloso623/IKEAlive/issues)
 
 [Open the workshop](#open-the-workshop) ·
 [Three ways to watch](#three-ways-to-watch) ·
