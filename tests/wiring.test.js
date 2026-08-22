@@ -17,6 +17,7 @@ const read = (file) => readFileSync(path.join(root, file), "utf8");
 const html = read("client/index.html");
 const main = read("client/src/main.js");
 const studio = read("client/src/studio.js");
+const house = read("client/src/house.js");
 const apiSource = read("client/src/api.js");
 
 const markupIds = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
@@ -41,6 +42,11 @@ test("every id the studio reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `studio.js looks for ids that index.html does not define: ${missing}`);
 });
 
+test("every id house.js reaches for exists in the markup", () => {
+  const missing = [...idsUsedIn(house)].filter((id) => !markupIds.has(id));
+  assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
+});
+
 test("main.js and the studio do not both own the same control", () => {
   // #app and #film are containers on purpose: main.js decides which tab is up,
   // the studio decides what is inside the plate. Anything else being touched by
@@ -53,7 +59,7 @@ test("main.js and the studio do not both own the same control", () => {
 test("every api call the client makes is exported by the api client", () => {
   const exported = new Set([...apiSource.matchAll(/^\s{2}([\w]+):/gm)].map((m) => m[1]));
   const used = new Set(
-    [...`${main}\n${studio}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
+    [...`${main}\n${studio}\n${house}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
   );
   const missing = [...used].filter((name) => !exported.has(name));
   assert.deepEqual(missing, [], `client calls api methods that do not exist: ${missing}`);
@@ -122,6 +128,35 @@ test("lab tests stay behind a details fold", () => {
   const start = html.indexOf('id="lab-btns"');
   assert.ok(start > 0, "lab buttons must exist");
   assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
+});
+
+test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
+  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo"]) {
+    assert.ok(markupIds.has(id), `House markup is missing #${id}`);
+  }
+  assert.match(main, /initHouse/);
+  assert.match(main, /lab-link/);
+  assert.match(house, /api\.adapt/);
+  assert.match(house, /CHEAPER FITS/);
+  assert.match(house, /drawImage/);
+  assert.match(house, /drawPiece|fillRect/);
+  assert.match(apiSource, /^\s{2}adapt:/m);
+});
+
+test("the lab strip assigns jobs and runs one behavior suite", () => {
+  assert.match(html, /id="lab-strip"/);
+  assert.match(html, /id="fn-btns"/);
+  assert.match(html, /id="sim-behavior"/);
+  assert.match(html, /data-fn="support"/);
+  assert.match(html, /data-fn="light"/);
+  assert.match(html, /data-fn="sense"/);
+  assert.match(html, /data-fn="control"/);
+  assert.match(html, /data-fn="decorate"/);
+  const strip = html.slice(html.indexOf('id="lab-strip"'), html.indexOf('id="electronics-only"'));
+  assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
+  assert.match(main, /simBehavior/);
+  assert.match(main, /data-fn/);
+  assert.match(apiSource, /simBehavior/);
 });
 
 test("the workshop is the app — no leftover Next store", () => {

@@ -13,6 +13,10 @@ test("ten agents sit on the bench", () => {
 
 test("router sends hard and easy work to the right desks", () => {
   assert.equal(routeAgent("run a rain and heat test").id, "lab");
+  assert.equal(routeAgent("make a parametric bracket in Fusion 360").id, "cad");
+  assert.equal(routeAgent("route this KiCad PCB from the schematic").id, "eda");
+  assert.equal(routeAgent("run an FEA load case").id, "sim");
+  assert.equal(routeAgent("render the concept in Blender").id, "creative");
   assert.equal(routeAgent("I am stuck on step 4").id, "assembler");
   assert.equal(routeAgent("move the camera left").id, "shop");
   assert.equal(routeAgent("place this piece in my room photo").id, "stylist");
@@ -34,4 +38,14 @@ test("quick assembly questions stay on the GLiNER desk until they get hard", asy
   const quick = await chat("which tool for this step?", { step: 4 });
   assert.equal(quick.backend, "gliner-2-standin");
   assert.equal(quick.escalated, false);
+});
+
+test("hard lab desks escalate and persist their local artifacts", async () => {
+  const project = emptyProject();
+  assert.equal(shouldEscalate("route this KiCad PCB"), true);
+  assert.equal(shouldEscalate("simulate a load case"), true);
+
+  const reply = await chat("make a parametric bracket in Fusion 360", { project });
+  assert.equal(reply.agent.id, "cad");
+  assert.equal(project.labTools.fusion.kind, "parametric-model");
 });

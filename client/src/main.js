@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
+import { initHouse } from "./house.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 
@@ -11,12 +12,16 @@ let project = { pieces: [], cables: [], tapes: [], chrome: null };
 let selectedIds = [];
 let costBarrier = "";
 let studio = null;
+let house = null;
 
 function hud(text) {
   $("hud").textContent = text;
 }
 
 const EMPTY_INSPECT = "Nothing selected.";
+const PIECE_FUNCTIONS = ["support", "light", "sense", "control", "decorate"];
+const ELECTRONICS_FUNCTIONS = ["light", "sense", "control"];
+let ledTimer = null;
 
 function inspect(text) {
   $("inspect").textContent = text;
@@ -24,6 +29,7 @@ function inspect(text) {
 
 function showEmptyInspect() {
   inspect(EMPTY_INSPECT);
+  syncFunctionStrip();
 }
 
 function selectedPieceId() {
@@ -73,9 +79,11 @@ function applyChrome(chrome) {
   if (!electronics && chrome) hudChromeNote(chrome);
 }
 
+house = initHouse({ api, hud });
 applyChrome(project.chrome);
 showEmptyInspect();
 syncDeleteButton();
+syncFunctionStrip();
 
 let lastChromeNote = "";
 function hudChromeNote(chrome) {
@@ -100,6 +108,7 @@ async function refreshProject() {
     )
     .join("");
   renderBenchPieces();
+  syncFunctionStrip();
 }
 
 function renderBenchPieces() {
@@ -112,7 +121,8 @@ function renderBenchPieces() {
   list.innerHTML = project.pieces
     .map((piece) => {
       const part = partsById[piece.partId];
-      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
+      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -196,6 +206,38 @@ function appendChat(who, text, backend) {
   }
 }
 
+async function applyShopActions(actions) {
+  const added = [];
+  for (const action of actions || []) {
+    if (!action) continue;
+    if (action.type === "add" || action.type === "add_part") {
+      if (action.applied && action.piece?.id) {
+        added.push(action.piece);
+        continue;
+      }
+      if (!action.partId) continue;
+      const piece = await api.add(action.partId, action.pose || {});
+      added.push(piece);
+    } else if (action.type === "camera") {
+      shop.setCamera(action);
+    } else if (action.type === "label") {
+      if (action.applied) continue;
+      const id = action.id || added.find((p) => p.partId === action.partId)?.id;
+      if (id && action.label) await api.label(id, action.label);
+    } else if (action.type === "isolate") {
+      if (action.applied) continue;
+      const ids = action.pieceIds?.length ? action.pieceIds : added.map((p) => p.id).filter(Boolean);
+      if (ids.length) await api.isolate(ids, action.label || "board");
+    } else if (action.type === "adaptation" && action.plan) {
+      setMode("house");
+      house?.applyPlan(action.plan);
+    } else if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
+      inspect("The board is programmed.");
+    }
+  }
+  return added;
+}
+
 async function askShop(message) {
   const text = String(message || "").trim();
   if (!text) return;
@@ -208,13 +250,7 @@ async function askShop(message) {
       partId: shop.getSelected()?.part?.id,
     });
     appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
-    for (const action of reply.actions || []) {
-      if (action.type === "camera") shop.setCamera(action);
-      if (action.type === "adaptation" && $("adapt-out")) $("adapt-out").textContent = action.plan.note;
-      if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
-        inspect("The board is programmed.");
-      }
-    }
+    await applyShopActions(reply.actions);
     await refreshProject();
     hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
   } catch (err) {
@@ -281,20 +317,72 @@ function isElectronics(part) {
   return part?.category === "electronics" || Boolean(part?.firmwareRole);
 }
 
+function suggestFunction(part) {
+  if (part?.firmwareRole === "led") return "light";
+  if (part?.firmwareRole === "button") return "sense";
+  if (part?.firmwareRole === "mcu") return "control";
+  if (part?.category === "electronics") return "control";
+  if (part?.shape === "post" || /leg/.test(part?.id || "")) return "support";
+  if (part?.category === "furniture") return "support";
+  return "decorate";
+}
+
+function selectedPiece() {
+  const id = selectedPieceId();
+  if (!id) return null;
+  const piece = project.pieces.find((p) => p.id === id);
+  if (!piece) return null;
+  return { piece, part: partsById[piece.partId] };
+}
+
+function syncFunctionStrip() {
+  const picked = selectedPiece();
+  const hint = $("fn-hint");
+  if (hint) {
+    hint.textContent = picked
+      ? picked.piece.functionLabel
+        ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
+        : `Assign a job to ${picked.part?.name || "this piece"}.`
+      : "Pick a piece, then assign a job.";
+  }
+  const row = $("fn-btns");
+  if (!row) return;
+  for (const btn of row.querySelectorAll("[data-fn]")) {
+    const fn = btn.dataset.fn;
+    btn.disabled = !picked;
+    btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
+  }
+}
+
+function playLedFrames(run) {
+  if (ledTimer) clearInterval(ledTimer);
+  if (!run?.frames?.length) return;
+  let i = 0;
+  ledTimer = setInterval(() => {
+    shop.setLed(run.frames[i % run.frames.length].led);
+    i += 1;
+    if (i > 16) {
+      clearInterval(ledTimer);
+      ledTimer = null;
+    }
+  }, 200);
+}
+
 function showPart(part, piece) {
   const lines = [part.name];
   const size = sizePlain(part);
   const price = money(part.cost);
   const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
   if (shopLine) lines.push(shopLine);
+  if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
   if (isElectronics(part)) {
-    if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
     const plugs = (part.ports || []).map((x) => x.id);
     if (plugs.length) lines.push(`Plugs: ${plugs.join(", ")}`);
   }
   lines.push("Delete takes this off the bench.");
   inspect(lines.join("\n"));
   syncDeleteButton();
+  syncFunctionStrip();
 }
 
 shop.onSelect((data) => {
@@ -372,13 +460,58 @@ $("isolate-btn").addEventListener("click", async () => {
   hud("Grouped the electrics as one board.");
 });
 
+$("fn-btns").addEventListener("click", async (ev) => {
+  const fn = ev.target.closest("[data-fn]")?.dataset.fn;
+  if (!fn || !PIECE_FUNCTIONS.includes(fn)) return;
+  const picked = selectedPiece() || shop.getSelected();
+  if (!picked?.piece) return hud("Pick a piece, then assign a job.");
+  await api.label(picked.piece.id, fn);
+  await refreshProject();
+  const piece = project.pieces.find((p) => p.id === picked.piece.id);
+  const part = partsById[piece?.partId] || picked.part;
+  if (part && piece) showPart(part, piece);
+  hud(`${part?.name || "Piece"} is now ${fn}.`);
+});
+
+$("sim-behavior").addEventListener("click", async () => {
+  const rain = Boolean($("rain")?.checked);
+  const tempC = Number($("temp")?.value || 22);
+  hud("Running the behavior suite…");
+  const result = await api.simBehavior({
+    rain,
+    tempC,
+    tapeId: "tape-gaffer",
+    forceN: 180,
+    aeroMs: 8,
+    flowMs: 2,
+  });
+  const notes = result.notes?.length ? result.notes : ["Behavior suite finished."];
+  inspect(notes.join("\n"));
+  hud(notes[0]);
+  shop.setSim(true, {
+    rain,
+    heat: tempC > 40,
+    force: true,
+  });
+  $("sim-toggle").checked = true;
+  const fwFns = result.functions || [];
+  if (fwFns.some((fn) => ELECTRONICS_FUNCTIONS.includes(fn))) {
+    await api.flash(fwFns);
+    const run = result.firmware || (await api.runFw(false));
+    playLedFrames(run);
+  }
+});
+
 $("label-btn").addEventListener("click", async () => {
-  const sel = shop.getSelected();
-  if (!sel) return;
-  const label =
-    sel.part.firmwareRole === "led" ? "light" : sel.part.firmwareRole === "button" ? "sense" : "control";
+  const sel = selectedPiece() || shop.getSelected();
+  if (!sel?.piece) return hud("Pick a piece, then assign a job.");
+  const label = suggestFunction(sel.part);
   await api.label(sel.piece.id, label);
-  inspect(`${sel.part.name} is now the ${label}.`);
+  await refreshProject();
+  const piece = project.pieces.find((p) => p.id === sel.piece.id);
+  const part = partsById[piece?.partId] || sel.part;
+  if (part && piece) showPart(part, piece);
+  hud(`${part?.name || "Piece"} is now ${label}.`);
 });
 
 $("bundle-loose").addEventListener("click", async () => hud((await api.bundle("loose")).note));
@@ -397,19 +530,16 @@ $("print-btn").addEventListener("click", async () => {
 });
 
 $("flash-btn").addEventListener("click", async () => {
-  await api.flash(["light", "sense"]);
+  const labeled = project.pieces.map((p) => p.functionLabel).filter((fn) => ELECTRONICS_FUNCTIONS.includes(fn));
+  const functions = labeled.length ? [...new Set(labeled)] : ["light", "sense"];
+  await api.flash(functions);
   const run = await api.runFw(false);
   const sel = shop.getSelected();
   if (isElectronics(sel?.part)) {
     inspect(`The light blinks.\n${run.frames.map((f) => (f.led ? "■" : "□")).join(" ")}`);
   }
   hud("The light blinks.");
-  let i = 0;
-  const timer = setInterval(() => {
-    shop.setLed(run.frames[i % run.frames.length].led);
-    i += 1;
-    if (i > 16) clearInterval(timer);
-  }, 200);
+  playLedFrames(run);
 });
 
 async function removePiece(id) {
@@ -438,6 +568,7 @@ function setMode(mode) {
   app.dataset.mode = mode;
   app.classList.remove("mode-bench", "mode-ikeafy", "mode-house");
   app.classList.add(`mode-${mode}`);
+  app.classList.toggle("lab-open", mode === "bench" || mode === "house");
   for (const btn of document.querySelectorAll("#modes button")) {
     btn.classList.toggle("on", btn.dataset.mode === mode);
   }
@@ -451,10 +582,13 @@ function setMode(mode) {
     node.classList.toggle("hidden", mode !== "bench");
   }
   $("film").classList.toggle("hidden", mode !== "ikeafy");
-  $("ar-photo").classList.toggle("hidden", mode !== "house");
+  house?.setActive(mode === "house");
   if (mode === "bench") {
     applyChrome(project.chrome);
     hud(project.pieces.length ? "Pick a piece, move it, or Delete it." : "Add a piece from the shelf.");
+  }
+  if (mode === "house") {
+    hud("Drop a room photo, set the size and budget, then put a table in.");
   }
   shop.resize();
 }
@@ -463,66 +597,11 @@ for (const btn of document.querySelectorAll("#modes button")) {
   btn.addEventListener("click", () => setMode(btn.dataset.mode));
 }
 
-$("adapt-btn").addEventListener("click", async () => {
-  const plan = await api.adapt({
-    widthM: Number($("room-w").value),
-    depthM: Number($("room-d").value),
-    budget: Number($("room-budget").value),
-    want: "table",
-    photoName: "room.jpg",
-  });
-  $("adapt-out").textContent = [
-    `Pick: ${plan.pick.name} $${plan.pick.cost} (${plan.pick.store})`,
-    `Place at ${plan.ordered[0].x.toFixed(2)} × ${plan.ordered[0].z.toFixed(2)} m`,
-    plan.ordered[0].why,
-    "",
-    "CHEAPER FITS",
-    ...plan.cheaper.map((c) => `• ${c.name} $${c.cost} save $${c.saved}`),
-    "",
-    plan.note,
-  ].join("\n");
-  drawRoom(plan);
+$("lab-link")?.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  const mode = $("app")?.dataset.mode;
+  setMode(mode === "bench" || mode === "house" ? "ikeafy" : "bench");
 });
-
-$("room-photo").addEventListener("change", (ev) => {
-  const file = ev.target.files?.[0];
-  if (!file) return;
-  const img = new Image();
-  img.onload = () => {
-    const c = $("ar-photo");
-    c.width = img.width;
-    c.height = img.height;
-    c.getContext("2d").drawImage(img, 0, 0);
-    c.classList.remove("hidden");
-  };
-  img.src = URL.createObjectURL(file);
-});
-
-function drawRoom(plan) {
-  const c = $("ar-photo");
-  const ctx = c.getContext("2d");
-  if (!c.width) {
-    c.width = 900;
-    c.height = 560;
-  }
-  ctx.fillStyle = "#8a9aaa";
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.fillStyle = "#d8c7a1";
-  ctx.beginPath();
-  ctx.moveTo(40, 520);
-  ctx.lineTo(420, 300);
-  ctx.lineTo(860, 520);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#f3efe6";
-  const x = 200 + plan.ordered[0].x * 80;
-  const y = 360 + plan.ordered[0].z * 20;
-  ctx.fillRect(x, y, 90, 12);
-  ctx.fillStyle = "#e6d7bc";
-  ctx.fillRect(x + 8, y + 12, 10, 40);
-  ctx.fillRect(x + 72, y + 12, 10, 40);
-  c.classList.remove("hidden");
-}
 
 $("chat-form")?.addEventListener("submit", async (ev) => {
   ev.preventDefault();

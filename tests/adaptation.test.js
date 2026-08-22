@@ -6,8 +6,13 @@ import { addPiece, emptyProject, seedLampTable, snapshotSim, resetSim } from "..
 test("room plan stays on budget and offers cheaper wood", () => {
   const plan = planRoom({ widthM: 3, depthM: 4, budget: 20, want: "table" });
   assert.ok(plan.pick.cost <= 20);
+  assert.ok(plan.pick.dimsMm);
+  assert.ok(plan.pick.footprintM.w < 3);
   assert.ok(plan.ordered[0].x < 3);
-  assert.ok(plan.cheaper.length >= 0);
+  assert.ok(plan.overlay.mode === "photo-overlay");
+  assert.ok(plan.cheaper.length >= 1);
+  assert.ok(plan.cheaper.some((item) => item.id === "pine-offcut"));
+  assert.ok(plan.cheaper.every((item) => item.cost < plan.pick.cost && item.cost <= 20));
 });
 
 test("order nudge moves the piece in the photo plane", () => {

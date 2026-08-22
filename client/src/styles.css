@@ -296,7 +296,15 @@ a { color: inherit; text-decoration: none; }
 }
 #view, #ar-photo, #film-frame { width: 100%; display: block; }
 #view { height: 100%; }
-#ar-photo { position: absolute; inset: 0; pointer-events: none; }
+#ar-photo {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
 #hud {
   position: absolute;
   left: 1rem;
@@ -409,6 +417,11 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 
 /* ----------------------------------------------------------- details folds */
 
+.lab-strip { margin-top: 0.75rem; }
+.lab-strip > .hint { margin: 0 0 0.35rem; }
+#fn-btns button { padding: 0.4rem 0.75rem; font-size: 0.82rem; }
+#fn-btns button:disabled { opacity: 0.4; }
+#sim-behavior { width: 100%; }
 .more-tools { margin: 0.65rem 0 0; color: var(--soft); font-size: 0.85rem; }
 .more-tools summary {
   cursor: pointer;
@@ -929,6 +942,9 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 #app.mode-house .rail { display: flex; }
 #app.mode-bench #view,
 #app.mode-house #view { opacity: 1; pointer-events: auto; height: 100%; }
+#app.mode-house #view { opacity: 0.22; pointer-events: none; }
+#app.mode-house.has-room-photo #view { opacity: 0; }
+#app.mode-house #ar-photo { background: rgba(246, 245, 242, 0.2); }
 #app.mode-bench .stage,
 #app.mode-house .stage { background: var(--paper-deep); }
 #app.mode-bench .film,
