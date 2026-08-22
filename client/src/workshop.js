@@ -1024,11 +1024,17 @@ export function createWorkshop(canvas) {
     measureA = null;
     measureB = null;
     measureLocked = false;
+    measureFx.traverse((child) => {
+      if (child.geometry && child.geometry !== measureDotGeo) child.geometry.dispose();
+    });
     measureFx.clear();
     measureEl?.classList.remove("on");
   }
 
   function drawMeasure() {
+    measureFx.traverse((child) => {
+      if (child.geometry && child.geometry !== measureDotGeo) child.geometry.dispose();
+    });
     measureFx.clear();
     if (!measureA) return;
     const a = new THREE.Mesh(measureDotGeo, measureDotMat);
