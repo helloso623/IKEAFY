@@ -1,5 +1,5 @@
 import { getPart, listParts } from "./catalog.js";
-import { hasTavily, searchBuildWayOffers } from "./tavily.js";
+import { hasTavily, searchDiyOffers } from "./tavily.js";
 
 function mm(value) {
   const n = Math.round(Math.abs(Number(value) || 0));
@@ -156,6 +156,15 @@ function sourceLinks(query, ikeaArticle = null) {
   ];
 }
 
+function hardwareSourceLinks(query) {
+  const encoded = encodeURIComponent(query);
+  return [
+    { store: "Home Depot", url: `https://www.homedepot.com/s/${encoded}` },
+    { store: "Lowe's", url: `https://www.lowes.com/search?searchTerm=${encoded}` },
+    { store: "Amazon", url: `https://www.amazon.com/s?k=${encoded}` },
+  ];
+}
+
 function catalogMatches(role, dims) {
   const shape = role === "top" || role === "board" ? "slab" : role === "leg" ? "post" : "";
   return listParts()
@@ -197,6 +206,118 @@ function pieceLine({ id, role, name, qty = 1, dimsMm, shape, material, why, ikea
     sources: sourceLinks(searchQuery, ikeaArticle),
     searchQuery,
   };
+}
+
+function hardwareLine({ id, name, qty, dimensions, shape, material = "zinc-plated steel", why, unitCost = 1 }) {
+  const searchQuery = `${name} ${dimensions}`.replace(/\s+/g, " ").trim();
+  return {
+    id,
+    role: "hardware",
+    name,
+    qty,
+    dimensions,
+    shape,
+    material,
+    category: "connection-hardware",
+    why,
+    ikeaArticle: null,
+    estimatedUnitCost: Number(unitCost) || 0,
+    estimatedCost: Number(((Number(unitCost) || 0) * qty).toFixed(2)),
+    catalogMatches: [],
+    sources: hardwareSourceLinks(searchQuery),
+    searchQuery,
+  };
+}
+
+function hardwareLines(profile) {
+  const supportCount = Math.max(1, profile.posts.length || (profile.tableLike ? 4 : 2));
+  const topThickness = Math.max(18, mm(profile.topDims.z) || 30);
+  if (profile.roundPedestal) {
+    const pedestalDiameter = Math.max(
+      80,
+      mm(profile.wholeTable?.geometry?.pedestal?.radiusBottomMm) * 2 ||
+        Math.round(Math.min(profile.topDims.x, profile.topDims.y) * 0.19),
+    );
+    return [
+      hardwareLine({
+        id: "pedestal-mounting-plate",
+        name: "pedestal mounting plate",
+        qty: 1,
+        dimensions: `${pedestalDiameter} mm pattern`,
+        shape: "round fixing plate",
+        why: "Connects the modeled central pedestal to the tabletop while preserving its centered footprint.",
+        unitCost: 12,
+      }),
+      hardwareLine({
+        id: "pedestal-connector-bolts",
+        name: "connector bolts with washers",
+        qty: 8,
+        dimensions: "M8 × 60 mm",
+        shape: "machine bolt and washer",
+        why: "Clamps the pedestal plate and base connection; verify length against the real stock.",
+        unitCost: 0.8,
+      }),
+    ];
+  }
+  if (profile.tableLike) {
+    const legFace = Math.max(
+      35,
+      Math.min(100, mm(profile.posts[0]?.dimsMm?.x) || Math.round(Math.min(profile.topDims.x, profile.topDims.y) * 0.09)),
+    );
+    const screwLength = Math.max(16, Math.min(30, topThickness - 6));
+    return [
+      hardwareLine({
+        id: "leg-mounting-plates",
+        name: "table-leg mounting plate",
+        qty: supportCount,
+        dimensions: `${Math.max(60, legFace + 20)} × ${Math.max(60, legFace + 20)} mm`,
+        shape: "square fixing plate",
+        why: "Provides one removable connection for each modeled leg.",
+        unitCost: 4.5,
+      }),
+      hardwareLine({
+        id: "top-fixing-screws",
+        name: "countersunk wood screws",
+        qty: supportCount * 4,
+        dimensions: `4 × ${screwLength} mm`,
+        shape: "countersunk screw",
+        why: "Fixes the leg plates below the top without exceeding the modeled tabletop thickness.",
+        unitCost: 0.12,
+      }),
+      hardwareLine({
+        id: "apron-corner-brackets",
+        name: "apron corner brackets",
+        qty: 4,
+        dimensions: "40 × 40 mm",
+        shape: "right-angle bracket",
+        why: "Supports the optional apron-frame construction route at its four leg corners.",
+        unitCost: 2.25,
+      }),
+    ];
+  }
+  if (profile.shelfLike) {
+    return [
+      hardwareLine({
+        id: "shelf-brackets",
+        name: "concealed shelf brackets",
+        qty: 2,
+        dimensions: `${Math.max(100, Math.round(profile.topDims.y * 0.65))} mm pin`,
+        shape: "wall bracket",
+        why: "Supports the modeled board depth while keeping the visible shelf shape.",
+        unitCost: 8,
+      }),
+      hardwareLine({
+        id: "shelf-wall-fixings",
+        name: "wall screws and anchors",
+        qty: 4,
+        dimensions: "6 × 50 mm",
+        shape: "screw and wall anchor",
+        why: "Fixes both brackets; select anchors for the actual wall construction.",
+        unitCost: 0.75,
+      }),
+    ];
+  }
+  return [];
 }
 
 function exactPieceLines(ikeaMatch) {
@@ -451,7 +572,7 @@ function constructionWays(profile, ikeaMatch, lines) {
       id: `ikea-${ikeaMatch.article}`,
       title: `IKEA dimension match: ${ikeaMatch.name}`,
       recommended: false,
-      summary: `Compare complete article ${ikeaMatch.article} with the current silhouette; this is a whole-table route, not a source for screws.`,
+      summary: `Compare complete article ${ikeaMatch.article} with the current silhouette as a ready-made table route.`,
       joinery: "Use the complete product as supplied after confirming silhouette, height, and load needs.",
       uses: [],
       additionalCuts: [],
@@ -478,12 +599,13 @@ export function buildWaysForProject(project = {}) {
   const profile = profileFor(components);
   const ikeaMatch = matchIkeaArticle(components);
   const cutList = visiblePieceLines(components, profile, ikeaMatch);
+  const hardware = hardwareLines(profile);
   const ways = constructionWays(profile, ikeaMatch, cutList);
-  const lines = [...cutList];
+  const lines = [...cutList, ...hardware];
   return {
     ok: true,
     name: String(project.name || "Custom table").trim() || "Custom table",
-    scope: "Construction ways, cut stock, tops, legs, and visible table bodies for this exact modeled shape",
+    scope: "Construction ways, boards, shaped stock, and connection hardware for this exact modeled shape",
     components,
     modelDimensionsMm: modelDimensionsMm(components),
     modelSignature: modelSignature(components),
@@ -497,6 +619,7 @@ export function buildWaysForProject(project = {}) {
     ways,
     lines,
     cutList,
+    hardwareLines: hardware,
     estimatedTotal: Number(lines.reduce((sum, line) => sum + line.estimatedCost, 0).toFixed(2)),
     currency: "USD",
     disclaimer:
@@ -506,11 +629,12 @@ export function buildWaysForProject(project = {}) {
 
 function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
+  const hardware = build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
   return [
     `1. Freeze this model revision at ${dimsText(build.modelDimensionsMm)} and verify its piece list: ${pieces}.`,
     "2. Choose the recommended top-and-leg route or the apron-frame route, then buy or cut every shaped piece to the listed finished millimetres.",
-    "3. Label the tabletop, legs, and any apron or stretcher pairs; preserve the intended faces and grain direction.",
-    "4. Lay out the shaped pieces in the same positions as the current 3D model and dry-fit the complete table.",
+    `3. Match the current-model connection hardware before drilling: ${hardware || "select fasteners for the real material and loads"}.`,
+    "4. Label the tabletop, legs, and any apron or stretcher pairs, then lay out and dry-fit the complete table in the modeled positions.",
     "5. Assemble the selected pieces with joinery appropriate to their real material and thickness, preserving the modeled overhang and offsets.",
     "6. Turn the table upright, compare its footprint and height with this saved revision, and check level and wobble before loading it.",
   ];
@@ -533,7 +657,8 @@ export function buildPlanSource(build) {
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
     `Build scope: ${build.scope}.`,
     match,
-    `Board / stock cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    `Cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    `Connection hardware: ${build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ") || "none"}`,
     "Construction ways:",
     alternatives,
     "",
@@ -549,7 +674,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
   let liveSources = [];
   if (hasTavily()) {
     try {
-      liveSources = await searchBuildWayOffers(build, deps);
+      liveSources = await searchDiyOffers(build, deps);
     } catch {
       liveSources = [];
     }
