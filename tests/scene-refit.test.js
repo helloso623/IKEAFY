@@ -88,11 +88,20 @@ test("the scene scan source carries the baked dimensions, occupancy, and checks 
   const source = scenePlanSource({
     room: { widthM: 3.2, depthM: 3.8, heightM: 2.7 },
     model: { name: "Current table", w: 1, d: 0.6, h: 0.74, x: 1.4, z: 1.2 },
-    occupancy: { resolution: 48, occupiedCells: 126 },
+    occupancy: {
+      width: 32,
+      depth: 38,
+      cellSizeM: 0.1,
+      occupiedCells: 126,
+      removedCells: 60,
+      removedAreaM2: 0.6,
+    },
+    capture: { source: "30-second LAN room video", frameCount: 24, maxSeconds: 30 },
     issues: [{ title: "Collision", message: "Current footprint is clear." }],
   });
   assert.match(source, /1000 × 600 × 740 mm/);
-  assert.match(source, /Binary occupancy: 126 cells at 48²/);
-  assert.match(source, /2\. Clear the old table footprint/);
+  assert.match(source, /Dense room capture: 24 frames/);
+  assert.match(source, /Binary occupancy: 126 occupied cells/);
+  assert.match(source, /2\. Apply the baked binary-removal mask/);
   assert.match(source, /Collision: Current footprint is clear/);
 });

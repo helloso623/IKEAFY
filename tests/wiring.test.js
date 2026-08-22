@@ -496,13 +496,16 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture produces a printable hardware BOM and opens its parsed plan", () => {
+test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Finish &amp; build/);
+  assert.match(html, /Hunt table pieces/);
+  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
+  assert.match(html, /Piece-plan history/);
   assert.match(apiSource, /^\s{2}finishProject:/m);
   assert.match(main, /api\.finishProject\(\)/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {

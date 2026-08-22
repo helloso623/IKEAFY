@@ -33,6 +33,14 @@ import {
   modelEnvelope,
   scenePlanSource,
 } from "./scene-refit.js";
+import {
+  createOccupancyGrid,
+  detectDesignIssues,
+  mergeFrameOccupancy,
+  reconcileFurniturePlacement,
+  stampFootprint,
+  tableModelFromComponents,
+} from "./room-intelligence.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -262,6 +270,28 @@ function horizonOf(img) {
   }
 }
 
+function occupancyEvidence(images = []) {
+  return images
+    .map((img) => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 48;
+        canvas.height = 36;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const luma = new Uint8Array(canvas.width * canvas.height);
+        for (let pixel = 0, source = 0; pixel < luma.length; pixel += 1, source += 4) {
+          luma[pixel] = Math.round(rgba[source] * 0.299 + rgba[source + 1] * 0.587 + rgba[source + 2] * 0.114);
+        }
+        return { width: canvas.width, height: canvas.height, horizon: horizonOf(img), luma };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
 export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRefit, getSelectedPart, getPieces, onAdd } = {}) {
   if (!api?.adapt) throw new Error("initHouse requires api.adapt");
 
@@ -304,6 +334,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
   let modelPlacement = null;
   let lastRefit = null;
   let currentIssues = [];
+  let captureRevision = 0;
 
   function allPhotos() {
     const list = [...videoFrames, photo, ...extraPhotos].filter(Boolean);
@@ -395,6 +426,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       model: null,
       obstacles: [],
       occupancy: null,
+      remainingOccupancy: null,
+      occupancyKey: "",
       dragFootprint: null,
       raf: 0,
       built: false,
@@ -641,25 +674,58 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
 
   function updateRefit(previous, current) {
     if (!three?.room || !current) return null;
-    const roomChanged =
-      !three.occupancy ||
-      three.occupancy.widthM !== three.room.widthM ||
-      three.occupancy.depthM !== three.room.depthM;
-    if (roomChanged) three.occupancy = createBinaryOccupancy(three.room);
-    const result = moveBinaryFootprint(three.occupancy, roomChanged ? null : previous, current);
+    const obstacleKey = three.obstacles
+      .map((item) => `${item.id}:${item.x}:${item.z}:${item.w}:${item.d}`)
+      .sort()
+      .join("|");
+    const occupancyKey =
+      `${three.room.widthM}:${three.room.depthM}:${captureRevision}:` +
+      `${videoFrames.length}:${obstacleKey}`;
+    const resetOccupancy = !three.occupancy || three.occupancyKey !== occupancyKey;
+    if (resetOccupancy) {
+      const base = createOccupancyGrid(three.room, { cellSize: 0.1, boundary: true });
+      const merged = mergeFrameOccupancy(base, occupancyEvidence(videoFrames));
+      for (const obstacle of three.obstacles) stampFootprint(merged.grid, obstacle, obstacle, 1);
+      three.occupancy = merged.grid;
+      three.remainingOccupancy = null;
+      three.occupancyKey = occupancyKey;
+    }
+    const result = reconcileFurniturePlacement(
+      three.occupancy,
+      resetOccupancy ? null : previous,
+      current,
+      { clearance: 0.45, carveCurrentOnFirstFit: true },
+    );
+    three.occupancy = result.grid;
+    three.remainingOccupancy = result.remaining;
+    three.model = result.model;
+    modelPlacement = { x: result.model.x, z: result.model.z };
+    if (three.modelRoot) {
+      three.modelRoot.position.set(result.model.x, 0, result.model.z);
+      three.modelRoot.userData.sceneItem = result.model;
+    }
     lastRefit = result;
     if (refitOut) {
       refitOut.textContent =
-        `Binary scene refit · removed ${result.removedCells} old footprint cells · ` +
-        `${result.occupiedCells} cells occupied at the current fit.`;
+        `Binary removal cut ${result.removedCells} old cells · auto-fit ` +
+        `${result.ok ? `placed at ${result.model.x.toFixed(2)} × ${result.model.z.toFixed(2)} m` : "kept the prior fit"} · ` +
+        `${result.occupiedCells} occupied cells.`;
     }
-    currentIssues = generateDesignIssues({
-      model: current,
+    const table = tableModelFromComponents(getPieces?.() || []);
+    currentIssues = detectDesignIssues({
       room: three.room,
-      obstacles: three.obstacles,
-    });
+      target: result.model,
+      grid: result.remaining,
+      model: table,
+      door: three.room.door,
+    }).map((issue) => ({
+      type: issue.id,
+      level: issue.severity === "error" ? "error" : issue.severity === "warning" ? "warning" : "info",
+      title: issue.title,
+      message: issue.detail,
+    }));
     renderDesignIssues();
-    onRefit?.({ model: { ...current }, room: { ...three.room }, issues: currentIssues, occupancy: result });
+    onRefit?.({ model: { ...result.model }, room: { ...three.room }, issues: currentIssues, occupancy: result });
     return result;
   }
 
@@ -670,16 +736,13 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       x: three.modelRoot.position.x,
       z: three.modelRoot.position.z,
     };
-    const fitted = fitModelToRoom(proposed, three.room);
-    three.modelRoot.position.set(fitted.x, 0, fitted.z);
-    modelPlacement = { x: fitted.x, z: fitted.z };
     const previous = three.dragFootprint || three.model;
     three.dragFootprint = null;
-    three.model = fitted;
-    const result = updateRefit(previous, fitted);
+    const result = updateRefit(previous, proposed);
+    const fitted = result.model;
     hud(
       `Moved the current table to ${fitted.x.toFixed(2)} × ${fitted.z.toFixed(2)} m. ` +
-        `Old binary footprint removed; ${currentIssues.filter((issue) => issue.level !== "ok").length} checks need review.`,
+        `Old binary footprint removed and auto-fit; ${currentIssues.filter((issue) => issue.level !== "info").length} checks need review.`,
     );
     return result;
   }
@@ -953,7 +1016,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       if (img) imgs.push(img);
     }
     if (!imgs.length) return null;
-    videoFrames = imgs.slice(0, 8);
+    videoFrames = imgs.slice(0, 24);
+    captureRevision += 1;
     if (!photo) photo = videoFrames[0];
     markPhoto();
     onPhoto?.(videoFrames[0]);
@@ -987,7 +1051,11 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       const blob = await api.roomVideoFile();
       const url = URL.createObjectURL(blob);
       try {
-        const grabbed = await grabVideoFrames(url, { count: 6, maxDurationSec: ROOM_VIDEO_MAX_SECONDS });
+        const grabbed = await grabVideoFrames(url, {
+          count: 24,
+          maxSide: 720,
+          maxDurationSec: ROOM_VIDEO_MAX_SECONDS,
+        });
         await applyRoomFrames(grabbed.files);
       } finally {
         URL.revokeObjectURL(url);
@@ -1260,9 +1328,17 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
         : null,
       issues: currentIssues.map((issue) => ({ ...issue })),
       occupancy: {
-        resolution: three?.occupancy?.resolution || 0,
+        width: three?.occupancy?.width || 0,
+        depth: three?.occupancy?.depth || 0,
+        cellSizeM: three?.occupancy?.cellSize || 0,
         occupiedCells,
         removedCells: lastRefit?.removedCells || 0,
+        removedAreaM2: lastRefit?.removedAreaM2 || 0,
+      },
+      capture: {
+        source: videoFrames.length ? "30-second LAN room video" : allPhotos().length ? "room photos" : "room dimensions",
+        frameCount: videoFrames.length || allPhotos().length,
+        maxSeconds: ROOM_VIDEO_MAX_SECONDS,
       },
     };
   }

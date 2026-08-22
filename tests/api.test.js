@@ -59,7 +59,7 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   throw new Error(`server did not start: ${lastError}`);
 }
 
-test("finishing a 3D table returns a printable hardware BOM and parsed assembly run", async (t) => {
+test("finishing and remodeling a table returns current ways and preserves prior plans", async (t) => {
   const port = 20500 + (process.pid % 400);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -76,18 +76,36 @@ test("finishing a 3D table returns a printable hardware BOM and parsed assembly 
     body: JSON.stringify({ partId: "generic-side-table" }),
   });
   assert.equal(added.status, 200);
+  const addedPiece = await added.json();
 
   const response = await fetch(`${base}/api/project/finish`, { method: "POST" });
   assert.equal(response.status, 200);
   const packet = await response.json();
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.equal(packet.bom.scope, "Hardware and non-wood components only");
+  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, and legs/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
-  assert.ok(packet.bom.lines.some((line) => line.id === "m6-machine-screw"));
+  assert.ok(packet.bom.ways.length >= 2);
+  assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
+  assert.equal(packet.bom.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
+
+  const moved = await fetch(`${base}/api/project/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: addedPiece.id, sx: 1.2 }),
+  });
+  assert.equal(moved.status, 200);
+  const refreshed = await fetch(`${base}/api/project/finish`, { method: "POST" });
+  assert.equal(refreshed.status, 200);
+  const changed = await refreshed.json();
+  assert.notEqual(changed.bom.modelSignature, packet.bom.modelSignature);
+  assert.equal(changed.bom.ikeaMatch, null);
+  assert.ok(changed.bom.ways.some((way) => way.additionalCuts?.some((line) => line.role === "apron")));
+  const project = await (await fetch(`${base}/api/project`)).json();
+  assert.equal(project.diyHistory.length, 2);
 });
 
 test("POST /api/chat creates a room and table via steward actions", async (t) => {

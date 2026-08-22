@@ -313,12 +313,69 @@
       <!-- ============ LAB — outliner (bodies / scan / room) ============ -->
       <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Outliner</span>
-          <strong class="lab-pane-title">Bodies / Scan / Room</strong>
+          <span class="lab-pane-kicker desk-space">Bench</span>
+          <strong class="lab-pane-title desk-space">Model / Bodies / Scan</strong>
+          <span class="lab-pane-kicker house-space">House</span>
+          <strong class="lab-pane-title house-space">Room photos / 3D rebuild</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <div class="pane bench-nav lab-tree">
-          <details class="lab-folder lab-outliner" open>
+          <details class="lab-folder lab-model desk-space" id="lab-model" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-model" aria-hidden="true"></span>
+              Model
+            </summary>
+            <div class="lab-folder-body">
+              <p class="hint lab-hint">Pick a body, then push it around. Esc drops the active tool.</p>
+              <div class="model-tools" id="model-tools">
+                <span class="model-kicker">Create</span>
+                <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
+                <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
+                <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
+                <span class="model-kicker">Faces</span>
+                <button type="button" class="lab-tool" data-mesh-tool="extrude" title="Extrude: drag a face along its normal — press/pull">Extrude</button>
+                <button type="button" class="lab-tool" data-mesh-tool="inset" title="Inset: drag a face toward its center to taper it">Inset</button>
+                <button type="button" class="lab-tool" data-mesh-tool="bevel" title="Bevel: click near a box edge and drag inward to chamfer it">Bevel</button>
+                <span class="model-kicker">Cuts</span>
+                <button type="button" class="lab-tool" data-mesh-tool="knife" title="Knife: drag a line across the body to cut a real edge into it">Knife</button>
+                <button type="button" class="lab-tool" data-mesh-tool="loopcut" title="Loop cut: click a box body to add an edge loop across it">Loop cut</button>
+                <button type="button" class="lab-tool" data-subdivide title="Subdivide the selected body once">Subdiv</button>
+                <span class="model-kicker">Sculpt</span>
+                <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
+                <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
+                <button type="button" class="lab-tool" data-sculpt="inflate" title="Sculpt: drag to puff the surface out">Inflate</button>
+                <span class="model-kicker">Show</span>
+                <button type="button" class="lab-tool" data-hide-selected title="Hide the selected body (H)">Hide</button>
+                <button type="button" class="lab-tool" data-unhide-all title="Unhide every body (Alt+H)">Unhide all</button>
+              </div>
+            </div>
+          </details>
+          <details class="lab-folder lab-measure-fold desk-space" id="lab-measure-fold" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-measure" aria-hidden="true"></span>
+              Measure + scale
+            </summary>
+            <div class="lab-folder-body">
+              <button type="button" class="lab-tool measure-side" id="side-measure" title="Click two points in the viewport, read millimetres (M)">Measure two points</button>
+              <p class="hint lab-hint measure-readout" id="measure-readout" aria-live="polite">Turn Measure on, then click two points.</p>
+              <div class="row scale-row">
+                <label class="field" for="scale-factor">
+                  <span>Scale ×</span>
+                  <input id="scale-factor" type="number" min="0.01" step="0.05" value="1" />
+                </label>
+                <button type="button" id="scale-apply" class="quiet">Apply</button>
+              </div>
+              <div class="row scale-row">
+                <label class="field" for="scale-target-mm">
+                  <span>Make span (mm)</span>
+                  <input id="scale-target-mm" type="number" min="1" step="1" placeholder="450" />
+                </label>
+                <button type="button" id="scale-to-measure" class="quiet">Scale to fit</button>
+              </div>
+              <p class="hint lab-hint">Numeric scale resizes the selected body. Measure two points on it, then Scale to fit makes that span the typed millimetres — like Fusion's Measure → Scale.</p>
+            </div>
+          </details>
+          <details class="lab-folder lab-outliner desk-space" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
               Bodies
@@ -327,7 +384,7 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
-          <details class="lab-folder scan-object" id="scan-object-panel">
+          <details class="lab-folder scan-object desk-space" id="scan-object-panel">
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
               Scan object
@@ -366,10 +423,10 @@
               <div class="scan-phone" id="scan-phone">
                 <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
                 <div id="scan-phone-card" class="scan-phone-card hidden">
-                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Open the link and record ~30s walking the room. The clip POSTs to <code>/api/scan/video</code>; this browser pulls frames and rebuilds the house.</p>
+                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
                   <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
                   <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
-                  <p class="hint lab-hint" id="scan-phone-status">Waiting for a phone clip…</p>
+                  <p class="hint lab-hint" id="scan-phone-status">Waiting for a 30s phone clip…</p>
                 </div>
               </div>
               <div class="scan-url-row">
@@ -427,7 +484,7 @@
               <div id="catalog"></div>
             </div>
           </div>
-          <details class="lab-folder" id="lab-room" open>
+          <details class="lab-folder house-space" id="lab-room" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
               This room
@@ -488,7 +545,7 @@
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
               <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the current fit and sends it to the IKEAlive to-do / step plan.</p>
+              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish &amp; find ways researches how to make the final table.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -524,21 +581,12 @@
             <button type="button" class="lab-tool" id="undo-edit" data-undo disabled>Undo</button>
             <button type="button" class="lab-tool" id="redo-edit" data-redo disabled>Redo</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
-            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
-            <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
-            <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
-            <button type="button" class="lab-tool" data-sculpt="inflate" title="Sculpt: drag to puff the surface out">Inflate</button>
-            <button type="button" class="lab-tool" data-subdivide title="Subdivide the selected body once">Subdiv</button>
-            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool" id="lab-look" title="Unlit clay view — no shadows">Look</button>
             <button type="button" class="lab-tool" id="lab-look-at" title="Frame selected">Look at</button>
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find real hardware, print a PDF BOM, and create IKEAlive steps">Finish &amp; build</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find ways to make this exact table, print its cut list, and create IKEAlive steps">Finish &amp; find ways</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -611,9 +659,9 @@
             </div>
           </details>
           <details class="lab-sheet" id="diy-build-sheet">
-            <summary class="lab-sheet-sum">DIY build history</summary>
+            <summary class="lab-sheet-sum">Ways-to-make history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish &amp; build searches dimension-matched hardware, makes a BOM PDF, and opens an IKEAlive plan. Older model revisions stay here.</p>
+              <p class="hint lab-hint">Finish &amp; find ways researches construction methods, boards, tops, legs, and cut sizes for the current model. It makes a PDF and IKEAlive todo while older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>

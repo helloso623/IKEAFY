@@ -65,6 +65,7 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
+  diyCurrent: () => req("/api/project/diy"),
   seed: () => post("/api/project/seed", { empty: true }),
   finishProject: () => post("/api/project/finish"),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),

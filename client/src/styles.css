@@ -2077,6 +2077,55 @@ body.lab-resizing * {
 .lab-swatch-body { background: var(--lab-accent-2); }
 .lab-swatch-room { background: #8a9aaa; }
 .lab-swatch-scan { background: #7ac7b7; }
+.lab-swatch-model { background: #ffda1a; }
+.lab-swatch-measure { background: #c0844a; }
+
+/* The Desk left bar is the modeling toolbox; House keeps the room panel. */
+#app.mode-lab[data-lab="house"] .lab-browser .desk-space { display: none !important; }
+#app.mode-lab[data-lab="desk"] .lab-browser .house-space { display: none !important; }
+
+.model-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.model-kicker {
+  grid-column: 1 / -1;
+  font-family: var(--lab-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lab-faint);
+  margin-top: 0.35rem;
+}
+.model-tools > .model-kicker:first-child { margin-top: 0; }
+.model-tools .lab-tool {
+  border-color: var(--lab-line);
+  background: var(--lab-bg);
+  text-align: center;
+  padding: 0.32rem 0.2rem;
+  font-size: 11px;
+}
+.model-tools .lab-tool.on {
+  background: var(--lab-raised);
+  border-color: #ffda1a;
+  color: var(--lab-ink);
+}
+
+.lab-measure-fold .lab-folder-body { display: flex; flex-direction: column; gap: 0.45rem; }
+.lab-tool.measure-side {
+  border-color: var(--lab-line);
+  background: var(--lab-bg);
+  text-align: center;
+  padding: 0.32rem 0.2rem;
+}
+.lab-tool.measure-side.on { border-color: #ffda1a; background: var(--lab-raised); color: var(--lab-ink); }
+.measure-readout { font-family: var(--lab-mono); margin: 0; }
+.scale-row { display: flex; gap: 0.45rem; align-items: flex-end; }
+.scale-row .field { flex: 1 1 auto; min-width: 0; }
+.scale-row .quiet { flex: 0 0 auto; }
+
+.lab-body-list .item.is-hidden > span { opacity: 0.45; }
 
 .scan-object .lab-folder-body { gap: 0.45rem; }
 .scan-object .lab-hint { margin: 0; }
@@ -2926,6 +2975,7 @@ body.lab-resizing * {
 #view.measuring { cursor: crosshair; }
 #view.sculpting { cursor: grab; }
 #view.sculpting:active { cursor: grabbing; }
+#view.modeling { cursor: crosshair; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;

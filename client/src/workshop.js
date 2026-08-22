@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
 
 const MM = 0.001;
@@ -3102,14 +3103,18 @@ export function createWorkshop(canvas) {
   function meshForReconstruction(record) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(record.positions, 3));
+    if (record.colors instanceof Float32Array && record.colors.length === record.positions.length) {
+      geometry.setAttribute("color", new THREE.BufferAttribute(record.colors, 3));
+    }
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
     const material = stdMat({
-      color: new THREE.Color(record.piece.color || "#c9d2da"),
+      color: new THREE.Color(record.colors ? "#ffffff" : record.piece.color || "#c9d2da"),
       roughness: 0.5,
       metalness: 0.04,
       flatShading: false,
       side: THREE.DoubleSide,
+      vertexColors: Boolean(record.colors),
     });
     const root = shadow(new THREE.Mesh(geometry, material));
     root.userData = {
@@ -3117,6 +3122,7 @@ export function createWorkshop(canvas) {
       part: record.part,
       ports: [],
       reconstructed: true,
+      generated: Boolean(record.piece.generated),
       voxelCount: record.voxelCount,
       triangleCount: record.triangleCount,
     };
@@ -3513,7 +3519,7 @@ export function createWorkshop(canvas) {
     };
     const piece = {
       id: spec.id,
-      partId: "scan-mesh",
+      partId: spec.generated ? "ai-mesh" : "scan-mesh",
       x: Number(spec.x) || 0,
       y: Number(spec.y) || (dimsMm.z * MM) / 2,
       z: Number(spec.z) || 0,
@@ -3525,11 +3531,12 @@ export function createWorkshop(canvas) {
       sz: 1,
       color: spec.color || "#c9d2da",
       reconstructed: true,
+      generated: Boolean(spec.generated),
     };
     const part = {
-      id: "scan-mesh",
-      name: spec.name || "Scanned object",
-      category: "scan",
+      id: piece.partId,
+      name: spec.name || (spec.generated ? "AI mesh" : "Scanned object"),
+      category: spec.generated ? "generated" : "scan",
       dimsMm,
       color: piece.color,
     };
@@ -3537,6 +3544,10 @@ export function createWorkshop(canvas) {
       piece,
       part,
       positions: spec.positions,
+      colors:
+        spec.colors instanceof Float32Array && spec.colors.length === spec.positions.length
+          ? spec.colors
+          : null,
       voxelCount: Number(spec.voxelCount) || 0,
       triangleCount: Number(spec.triangleCount) || spec.positions.length / 9,
     };
@@ -3551,9 +3562,30 @@ export function createWorkshop(canvas) {
     poseMesh(mesh, piece, part);
     group.add(mesh);
     meshes.set(piece.id, mesh);
-    pushOp("S", `Scan ${part.name} · ${record.triangleCount.toLocaleString()} triangles`);
+    pushOp(spec.generated ? "A" : "S", `${spec.generated ? "AI mesh" : "Scan"} ${part.name} · ${record.triangleCount.toLocaleString()} triangles`);
     attach(mesh);
     return { piece, part };
+  }
+
+  function addGeneratedMesh(spec = {}) {
+    const built = buildAiMeshGeometry(spec);
+    let suffix = reconstructed.size + 1;
+    let id = String(spec.id || `ai-mesh-${suffix}`).replace(/[^a-z0-9_-]+/gi, "-").slice(0, 64);
+    if (!id) id = `ai-mesh-${suffix}`;
+    while (reconstructed.has(id) || meshes.has(id)) id = `ai-mesh-${++suffix}`;
+    return addReconstructedMesh({
+      id,
+      name: spec.name || "AI mesh",
+      generated: true,
+      positions: built.positions,
+      colors: built.colors,
+      dimensionsMm: built.dimensionsMm,
+      triangleCount: built.triangleCount,
+      color: spec.components?.[0]?.color || "#c99a62",
+      x: Number(spec.position?.x) || 0,
+      y: Number(spec.position?.y) || undefined,
+      z: Number(spec.position?.z) || 0,
+    });
   }
 
   function removeReconstructed(id) {
@@ -3590,10 +3622,12 @@ export function createWorkshop(canvas) {
       id: `scan-mesh-${suffix}`,
       name: `${source.part.name} copy`,
       positions: source.positions,
+      colors: source.colors,
       dimensionsMm: source.part.dimsMm,
       voxelCount: source.voxelCount,
       triangleCount: source.triangleCount,
       color: source.piece.color,
+      generated: source.piece.generated,
       x: source.piece.x + source.part.dimsMm.x * MM + 0.02,
       y: source.piece.y,
       z: source.piece.z,
@@ -3634,13 +3668,15 @@ export function createWorkshop(canvas) {
       onPoseCommit = fn;
     },
     getSelected: () => selected?.userData || null,
-    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, positions, voxelCount, triangleCount }) => ({
+    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, positions, colors, voxelCount, triangleCount }) => ({
       piece,
       part,
       positions,
+      colors,
       voxelCount,
       triangleCount,
     })),
+    addGeneratedMesh,
     addReconstructedMesh,
     removeReconstructed,
     updateReconstructedPose,

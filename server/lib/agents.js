@@ -10,6 +10,12 @@ import {
   GLINER2_BACKEND,
   GLINER2_MODEL,
 } from "./gliner2.js";
+import {
+  AI_MESH_SHAPES,
+  isMeshBuildAsk,
+  localMeshAction,
+  sanitizeMeshAction,
+} from "./mesh-plan.js";
 
 export const ROSTER = [
   {
@@ -139,7 +145,7 @@ const MAKE_STOOL_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
 const MAKE_SHELF_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
-const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "studio", "scan", "move"]);
+const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "mesh", "studio", "scan", "move"]);
 const ROUND_TABLE_PART_ID = "generic-round-pedestal-table";
 const ROUND_FORM_HINT = /\b(round(?:ed)?|circular|circle|disc(?:-shaped)?|disk(?:-shaped)?)\b/i;
 const ROUND_TABLE_OBJECT_HINT = /\b(tables?|table[\s-]*tops?|tops?|pedestals?)\b/i;
@@ -218,6 +224,7 @@ export function routeAgent(text) {
   if (CAD_HINTS.test(t)) return ROSTER.find((a) => a.id === "cad");
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
+  if (isMeshBuildAsk(t)) return ROSTER.find((a) => a.id === "creative");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
   if (isRoundTableDescription(t)) return ROSTER.find((a) => a.id === "creative");
   if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");

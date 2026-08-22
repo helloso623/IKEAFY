@@ -29,17 +29,36 @@ function sourceLinks(line) {
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
   const lines = bom.lines || [];
+  const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
-  const live = bom.liveSources || [];
+  const live = bom.liveSources || bom.researchResults || [];
   const rows = lines
     .map(
       (line) => `<tr>
         <td>${escapeHtml(line.qty)}</td>
         <td><strong>${escapeHtml(line.name)}</strong><small>${escapeHtml(line.why)}</small></td>
         <td>${escapeHtml(line.dimensions)}<small>${escapeHtml(line.shape)}</small></td>
+        <td>${escapeHtml(line.material)}</td>
         <td>$${Number(line.estimatedCost || 0).toFixed(2)}</td>
         <td>${sourceLinks(line)}</td>
       </tr>`,
+    )
+    .join("");
+  const wayRows = ways
+    .map(
+      (way, index) => `<article class="way">
+        <h3>${index + 1}. ${escapeHtml(way.title)}${way.recommended ? " · recommended" : ""}</h3>
+        <p>${escapeHtml(way.summary)}</p>
+        ${way.joinery ? `<p><strong>Construction:</strong> ${escapeHtml(way.joinery)}</p>` : ""}
+        ${
+          (way.additionalPieces || way.additionalCuts)?.length
+            ? `<p><strong>Method-specific cuts:</strong> ${(way.additionalPieces || way.additionalCuts)
+                .map((cut) => `${escapeHtml(cut.qty)} × ${escapeHtml(cut.name)}, ${escapeHtml(cut.dimensions)}`)
+                .join("; ")}</p>`
+            : ""
+        }
+        <p>${sourceLinks(way)}</p>
+      </article>`,
     )
     .join("");
   const stepRows = steps
@@ -67,15 +86,18 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Furniture"} hardware BOM`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
     body { margin: 0; color: #171717; font: 10pt/1.4 Arial, sans-serif; }
     h1 { margin: 0 0 2mm; font-size: 22pt; }
     h2 { margin: 8mm 0 3mm; font-size: 14pt; }
+    h3 { margin: 0 0 2mm; font-size: 11pt; }
     .kicker { color: #585858; text-transform: uppercase; letter-spacing: .08em; }
     .match { padding: 3mm; border-left: 4px solid #ffda1a; background: #f7f7f2; }
+    .way { margin: 0 0 3mm; padding: 3mm; border: 1px solid #bbb; page-break-inside: avoid; }
+    .way p { margin: 1mm 0; }
     table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
     th, td { padding: 2.5mm; border-bottom: 1px solid #ccc; text-align: left; vertical-align: top; }
     th { background: #efefea; }
@@ -88,19 +110,21 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive build packet · hardware only</p>
+  <p class="kicker">IKEAlive build packet · ways to make this model</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
-  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated hardware: $${Number(
+  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
-  <h2>Bill of materials</h2>
+  <h2>Ways to make the final model</h2>
+  ${wayRows}
+  <h2>Cut list and shaped pieces</h2>
   <table>
-    <thead><tr><th>Qty</th><th>Component</th><th>Shape / size</th><th>Estimate</th><th>Legal source links</th></tr></thead>
+    <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  ${liveRows ? `<h2>Live search results</h2><ul>${liveRows}</ul>` : ""}
-  <h2>Custom IKEAlive steps</h2>
+  ${liveRows ? `<h2>Live build research</h2><ul>${liveRows}</ul>` : ""}
+  <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
   <p class="warning">${escapeHtml(bom.disclaimer || "")}</p>
 </body>
@@ -109,7 +133,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the hardware BOM for PDF printing.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();

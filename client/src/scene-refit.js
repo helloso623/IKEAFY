@@ -213,16 +213,20 @@ export function scenePlanSource(snapshot = {}) {
   const model = snapshot.model || {};
   const room = snapshot.room || {};
   const issues = snapshot.issues || [];
+  const occupancy = snapshot.occupancy || {};
+  const capture = snapshot.capture || {};
   const dims = `${Math.round(number(model.w) * 1000)} × ${Math.round(number(model.d) * 1000)} × ${Math.round(number(model.h) * 1000)} mm`;
   const placement = `${number(model.x).toFixed(2)} m × ${number(model.z).toFixed(2)} m`;
-  const issueText = issues.map((issue) => `${issue.title}: ${issue.message}`).join("; ");
+  const issueText = issues.map((issue) => `${issue.title}: ${issue.message || issue.detail}`).join("; ");
+  const grid = `${number(occupancy.width)} × ${number(occupancy.depth)} cells at ${Math.round(number(occupancy.cellSizeM) * 100)} cm`;
   return [
     `${model.name || "Current table"} — room-fit IKEAlive plan`,
     `Baked model envelope: ${dims}. Room: ${number(room.widthM).toFixed(2)} × ${number(room.depthM).toFixed(2)} × ${number(room.heightM).toFixed(2)} m.`,
-    `Placement centre: ${placement}. Binary occupancy: ${number(snapshot.occupancy?.occupiedCells)} cells at ${number(snapshot.occupancy?.resolution)}².`,
+    `Dense room capture: ${number(capture.frameCount)} frames from ${capture.source || "the current room scan"} (up to ${number(capture.maxSeconds, 30)} seconds).`,
+    `Placement centre: ${placement}. Binary occupancy: ${number(occupancy.occupiedCells)} occupied cells on a ${grid}; ${number(occupancy.removedCells)} old-table cells (${number(occupancy.removedAreaM2).toFixed(2)} m²) removed.`,
     "",
-    "1. Verify the current model dimensions and the latest hardware BOM before cutting or drilling.",
-    `2. Clear the old table footprint, then mark the new footprint around centre ${placement}.`,
+    "1. Verify the current model dimensions and the latest tabletop, leg, rail, and board list before cutting.",
+    `2. Apply the baked binary-removal mask to clear the old table footprint, then mark the auto-fitted footprint around centre ${placement}.`,
     "3. Build the current table from its IKEAlive DIY plan, keeping the modeled support orientation and overhang.",
     "4. Move the assembled table into the marked footprint without dragging it across the floor.",
     `5. Inspect the room-fit checks: ${issueText || "no generated issue data"}.`,

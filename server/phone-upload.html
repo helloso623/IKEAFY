@@ -65,12 +65,12 @@
   <body>
     <p style="letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; color: #8a8a8a; margin: 0;">IKEAlive Lab</p>
     <h1>Walk the room for ~30s</h1>
-    <p>Same Wi‑Fi as the Lab computer. Record a slow pan, or upload a clip. It posts to this machine only — frames are pulled in the browser and the house is rebuilt there.</p>
+    <p>This local page came from the Lab link or QR. Record a slow room pan of up to 30 seconds, then send it back to the computer for occupancy and auto-fit.</p>
     <video id="preview" autoplay muted playsinline></video>
     <button type="button" class="primary" id="record">Record 30s</button>
     <label class="file">
-      Upload a clip
-      <input id="file" type="file" accept="video/*" />
+      Record / choose a clip
+      <input id="file" type="file" accept="video/*" capture="environment" />
     </label>
     <p id="status">Waiting to record.</p>
     <script>
@@ -129,6 +129,23 @@
 
       async function postClip(blob) {
         if (!blob || !blob.size) throw new Error("That clip was empty.");
+        if (blob instanceof File) {
+          const duration = await new Promise((resolve) => {
+            const probe = document.createElement("video");
+            const url = URL.createObjectURL(blob);
+            probe.preload = "metadata";
+            probe.onloadedmetadata = () => {
+              URL.revokeObjectURL(url);
+              resolve(Number(probe.duration) || 0);
+            };
+            probe.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve(0);
+            };
+            probe.src = url;
+          });
+          if (duration > 30.6) throw new Error("Choose a room clip that is 30 seconds or shorter.");
+        }
         say("Sending to Lab…");
         const file = new File([blob], blob.type.includes("mp4") ? "room.mp4" : "room.webm", {
           type: blob.type || "video/webm",
@@ -144,7 +161,7 @@
           json = null;
         }
         if (!res.ok) throw new Error(json?.reason || text || "Could not send that clip.");
-        say("Sent. The Lab computer will pull frames and rebuild the room.", "ok");
+        say("Sent. Lab will rebuild occupancy, cut the old table footprint, and auto-fit the current table.", "ok");
       }
 
       async function startRecording() {

@@ -112,18 +112,21 @@ export async function searchToolOffers(name, { fetchFn = fetch } = {}) {
 }
 
 /**
- * One basic Tavily request for the whole hardware BOM keeps a finish action
- * cheap (one credit) and legal. Deterministic catalog/category links remain
- * usable when there is no key or no useful live result.
+ * One legal search for construction methods around the current model. Results
+ * may be plans, cut stock, tops, or legs; loose fasteners are excluded.
  */
-export async function searchHardwareOffers(lines = [], { fetchFn = fetch } = {}) {
+export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
   const key = usableTavilyKey();
-  const items = (lines || [])
-    .slice(0, 8)
-    .map((line) => `${line.name} ${line.dimensions || ""}`.trim())
+  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
+  const items = [...(build.lines || []), ...methodCuts]
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
     .filter(Boolean);
   if (!key || !items.length) return [];
-  const query = `buy furniture hardware ${items.join(" OR ")} -lumber -wood board`;
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
   const res = await fetchFn(SEARCH_URL, {
     method: "POST",
     headers: {

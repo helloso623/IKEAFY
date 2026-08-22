@@ -139,8 +139,8 @@ house = initHouse({
     setLabSpace("house");
   },
   getSelectedPart: () => selectedPiece()?.part || null,
-  // The 3D house places everything on the bench: catalog pieces by their
-  // footprints, scanned reconstructions by their actual triangle meshes.
+  // The 3D house places catalog pieces by their footprints and scanned/AI
+  // bodies by the real triangle meshes already visible on the bench.
   getPieces: () => {
     const catalogPieces = project.pieces.map((piece) => {
       const part = partsById[piece.partId];
@@ -163,11 +163,17 @@ house = initHouse({
     });
     const scanned = (shop.getReconstructed?.() || []).map(({ piece, part, positions }) => ({
       id: piece.id,
-      name: part?.name || "Scanned object",
+      name: part?.name || (piece.generated ? "AI mesh" : "Scanned object"),
       dimsMm: part?.dimsMm,
       color: piece.color,
-      shape: "scan",
+      shape: piece.generated ? "mesh" : "scan",
       positions,
+      w: (Number(part?.dimsMm?.x) || 1) / 1000,
+      d: (Number(part?.dimsMm?.y) || 1) / 1000,
+      h: (Number(part?.dimsMm?.z) || 1) / 1000,
+      x: Number(piece.x) || 0,
+      y: Number(piece.y) || 0,
+      z: Number(piece.z) || 0,
     }));
     return [...catalogPieces, ...scanned];
   },
@@ -197,6 +203,7 @@ async function refreshProject() {
   syncEditButtons();
   renderBenchPieces();
   renderDiyHistory();
+  void refreshCurrentDiy();
   syncMaterialPanel();
   aiDock?.refreshScene();
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
@@ -216,9 +223,11 @@ function renderBenchPieces() {
   list.innerHTML = [...regular, ...scanBodies]
     .map(({ piece, part: entryPart }) => {
       const part = entryPart || partsById[piece.partId];
+      const hidden = shop.isPieceHidden?.(piece.id);
       const on = piece.id === current ? " on" : "";
+      const off = hidden ? " is-hidden" : "";
       const scan = piece.reconstructed ? ` · ${part?.dimsMm ? `${Math.round(part.dimsMm.x)}×${Math.round(part.dimsMm.y)}×${Math.round(part.dimsMm.z)} mm` : "mesh"}` : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      return `<div class="item${on}${off}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${scan}</span><small data-hide-piece="${piece.id}">${hidden ? "Show" : "Hide"}</small><small data-drop="${piece.id}">Delete</small></div>`;
 
     })
     .join("");
@@ -238,6 +247,58 @@ function diyBuilds() {
   return Array.isArray(project.diyHistory) ? project.diyHistory : [];
 }
 
+let liveDiy = null;
+let currentDiyKey = "";
+let diyRefreshVersion = 0;
+
+function modelDiyKey() {
+  return JSON.stringify(
+    (project.pieces || [])
+      .map((piece) => ({
+        id: piece.id,
+        partId: piece.partId,
+        x: piece.x,
+        y: piece.y,
+        z: piece.z,
+        sx: piece.sx,
+        sy: piece.sy,
+        sz: piece.sz,
+      }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+  );
+}
+
+async function refreshCurrentDiy() {
+  const key = modelDiyKey();
+  if (key === currentDiyKey) return liveDiy;
+  currentDiyKey = key;
+  const version = ++diyRefreshVersion;
+  if (!(project.pieces || []).length) {
+    liveDiy = null;
+    renderDiyHistory();
+    return null;
+  }
+  const out = $("finish-build-out");
+  if (out) out.innerHTML = `<span class="hint">Refreshing construction ways and shaped pieces for the current model…</span>`;
+  try {
+    const packet = await api.diyCurrent();
+    if (version !== diyRefreshVersion || packet?.ok === false) return null;
+    liveDiy = {
+      name: packet.bom?.name || "Current model",
+      bom: packet.bom,
+      pdf: packet.pdf,
+      current: true,
+    };
+    renderDiyHistory();
+    return liveDiy;
+  } catch {
+    if (version === diyRefreshVersion && out) {
+      out.innerHTML = `<span class="hint">Current DIY refresh is unavailable; saved revisions are still below.</span>`;
+    }
+    return null;
+  }
+}
+
 function renderDiyHistory(active = null) {
   const history = $("diy-history");
   const out = $("finish-build-out");
@@ -252,48 +313,42 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-bom-build="${escapeHtml(entry.id)}">BOM PDF</button>
+              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Ways PDF</button>
             </li>`,
           )
           .join("")
       : `<li class="hint">No DIY revisions yet.</li>`;
   }
-  const current = active || builds.at(-1);
+  const current = active || liveDiy || builds.at(-1);
   if (out && current) {
     const bom = current.bom || {};
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${bom.lines?.length || 0} hardware lines · estimated $${Number(bom.estimatedTotal || 0).toFixed(2)}${
-        bom.live ? " · live offers" : " · catalog links"
+      <span>${bom.ways?.length || 0} construction ways · ${bom.cutList?.length || 0} shaped-piece / cut-list lines · estimated $${Number(
+        bom.estimatedTotal || 0,
+      ).toFixed(2)}${
+        bom.live ? " · live research" : " · catalog stand-in"
       }</span>
       <div class="row wrap">
-        <button type="button" class="quiet" data-bom-build="${escapeHtml(current.id)}">Print BOM PDF</button>
-        <span class="hint">${escapeHtml(current.planSteps ? `${current.planSteps} IKEAlive steps` : "IKEAlive plan ready")}</span>
+        ${
+          current.id
+            ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
+            : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
+        }
+        <span class="hint">${escapeHtml(
+          current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
+        )}</span>
       </div>`;
   }
 }
 
-function openBomPrint(build) {
+function openWaysPrint(build) {
   const bom = build?.bom;
-  if (!bom?.lines?.length) return hud("That saved revision has no BOM.");
-  const popup = window.open("", "_blank");
-  if (!popup) return hud("Allow pop-ups to open the BOM print dialog.");
-  popup.opener = null;
-  const rows = bom.lines
-    .map(
-      (line) => `<tr><td>${escapeHtml(line.qty)}</td><td>${escapeHtml(line.name)}</td><td>${escapeHtml(
-        line.dimensions,
-      )}</td><td>$${Number(line.estimatedCost || 0).toFixed(2)}</td></tr>`,
-    )
-    .join("");
-  popup.document.write(`<!doctype html><html><head><title>${escapeHtml(
-    build.pdf?.filename || `${bom.name}-hardware-bom.pdf`,
-  )}</title><style>body{font:14px system-ui;margin:32px;color:#111}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ccc;padding:8px;text-align:left}small{color:#666}@media print{button{display:none}}</style></head><body>
-    <h1>${escapeHtml(bom.name)} — hardware BOM</h1><p>${escapeHtml(bom.scope)}</p>
-    <table><thead><tr><th>Qty</th><th>Hardware</th><th>Dimensions</th><th>Estimate</th></tr></thead><tbody>${rows}</tbody></table>
-    <p><strong>Total estimate: $${Number(bom.estimatedTotal || 0).toFixed(2)}</strong></p>
-    <small>${escapeHtml(bom.disclaimer)}</small><p><button onclick="window.print()">Save / print PDF</button></p>
-    <script>window.addEventListener("load",()=>window.print())<\/script></body></html>`);
-  popup.document.close();
+  if (!bom?.lines?.length) return hud("That saved revision has no ways or cut list.");
+  try {
+    openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
+  } catch (error) {
+    hud(error?.message || "Could not open that saved ways-to-make PDF.");
+  }
 }
 
 function searchBoxes() {
@@ -445,6 +500,7 @@ function scenePieces() {
     partId: piece.partId,
     dimsMm: part?.dimsMm || null,
     reconstructed: true,
+    generated: Boolean(piece.generated),
   }));
   return [...regular, ...scanned];
 }
@@ -509,6 +565,9 @@ async function applyShopActions(actions) {
       if (!action.partId) continue;
       const piece = await api.add(action.partId, action.pose || {});
       added.push(piece);
+    } else if (action.type === "mesh" && action.mesh) {
+      const generated = shop.addGeneratedMesh?.(action.mesh);
+      if (generated?.piece) added.push(generated.piece);
     } else if (action.type === "camera") {
       shop.setCamera(action);
     } else if (action.type === "move") {
@@ -614,7 +673,10 @@ async function askShopOnce(message) {
     });
     await applyShopActions(reply.actions);
     await refreshProject();
-    if (house?.hasScene?.() && (reply.actions || []).some((action) => action?.type === "add" || action?.type === "room")) {
+    if (
+      house?.hasScene?.() &&
+      (reply.actions || []).some((action) => action?.type === "add" || action?.type === "mesh" || action?.type === "room")
+    ) {
       house.rebuildHouse3d?.();
     }
 
@@ -677,6 +739,14 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
   const drop = ev.target.closest("[data-drop]")?.dataset.drop;
   if (drop) {
     await removePiece(drop);
+    return;
+  }
+  const hidePiece = ev.target.closest("[data-hide-piece]")?.dataset.hidePiece;
+  if (hidePiece) {
+    const hidden = shop.isPieceHidden?.(hidePiece);
+    shop.setPieceHidden?.(hidePiece, !hidden);
+    renderBenchPieces();
+    hud(hidden ? "Shown again." : "Hidden — the outliner row brings it back.");
     return;
   }
   const id = ev.target.closest("[data-piece]")?.dataset.piece;
@@ -804,7 +874,8 @@ function showPart(part, piece) {
   const size = sizePlain(part);
   if (size) lines.push(size);
 
-  if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
+  if (piece?.generated) lines.push("AI-authored editable triangle mesh · part id ai-mesh.");
+  else if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
 
   inspect(lines.join("\n"));
   syncEditButtons();
@@ -830,6 +901,7 @@ shop.onPoseCommit((pose) => {
 });
 
 shop.onSculpt?.(({ mode, name }) => {
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
@@ -867,7 +939,9 @@ async function commitPose(pose) {
 
   if (shop.updateReconstructedPose?.(pose)) {
     renderBenchPieces();
-    hud("Placed scanned mesh locally.");
+    if (house?.hasScene?.()) house.rebuildHouse3d?.();
+    void refreshCurrentDiy();
+    hud(pose.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
     return;
   }
 
@@ -881,6 +955,8 @@ async function commitPose(pose) {
   project.edit = result.edit || project.edit;
   if (result.piece) shop.applyPose(result.piece);
   syncEditButtons();
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  void refreshCurrentDiy();
   hud("Placed.");
 }
 
@@ -904,7 +980,7 @@ async function duplicateSelected() {
     selectedIds = [scanCopy.piece.id];
     renderBenchPieces();
     showPart(scanCopy.part, scanCopy.piece);
-    hud("Duplicated the scanned mesh locally.");
+    hud(scanCopy.piece.generated ? "Duplicated the AI mesh locally." : "Duplicated the scanned mesh locally.");
     return;
   }
 
@@ -973,6 +1049,14 @@ const SCULPT_HINTS = {
   inflate: "Inflate — drag on the piece to puff the surface out.",
 };
 
+const MESH_HINTS = {
+  extrude: "Extrude — drag a face along its normal to press/pull it.",
+  inset: "Inset — drag a face toward its center to taper it.",
+  bevel: "Bevel — click near a box edge, drag inward to chamfer it.",
+  knife: "Knife — drag a line across the body to cut a real edge into it.",
+  loopcut: "Loop cut — click the body to add an edge loop across it.",
+};
+
 function setSculptTool(mode) {
   if (!shop.getSelected() && shop.getSculptMode() !== mode) {
     hud("Pick a piece, then sculpt it.");
@@ -981,18 +1065,63 @@ function setSculptTool(mode) {
   if (next) hud(SCULPT_HINTS[next]);
 }
 
+function setMeshToolUi(mode) {
+  if (!shop.getSelected() && shop.getMeshTool?.() !== mode) {
+    hud("Pick a body, then use the tool on it.");
+  }
+  const next = shop.setMeshTool?.(shop.getMeshTool?.() === mode ? null : mode);
+  if (next) hud(MESH_HINTS[next]);
+}
+
 function subdivideSelectedBody() {
   if (!shop.getSelected()) return hud("Pick a piece, then Subdiv.");
   if (shop.subdivideSelected()) hud("Subdivided — every face split in four. Now sculpt it.");
   else hud("That body is already dense enough.");
 }
 
+function hideSelectedBody() {
+  if (!shop.getSelected()) return hud("Pick a body, then Hide.");
+  if (shop.hideSelected?.()) {
+    renderBenchPieces();
+    hud("Hidden. Unhide all brings every body back (Alt+H).");
+  }
+}
+
+function unhideAllBodies() {
+  const count = shop.unhideAll?.() || 0;
+  renderBenchPieces();
+  hud(count ? `Unhid ${count} ${count === 1 ? "body" : "bodies"}.` : "Nothing is hidden.");
+}
+
+/* Fusion-style numeric scale: a factor, or scale so a measured span becomes
+   the typed millimetres. Bottom stays on the bench (y scales with the body). */
+async function scaleSelectedBy(factor) {
+  const f = Number(factor);
+  if (!Number.isFinite(f) || f <= 0) return hud("Type a scale factor above 0.");
+  if (Math.abs(f - 1) < 1e-6) return hud("A factor of 1 changes nothing.");
+  const pose = shop.getSelectedPose?.();
+  if (!pose) return hud("Pick a body, then scale it.");
+  await commitPose({
+    id: pose.id,
+    sx: pose.sx * f,
+    sy: pose.sy * f,
+    sz: pose.sz * f,
+    y: pose.y * f,
+  });
+  hud(`Scaled ×${Math.round(f * 1000) / 1000}. Measure it to check the millimetres.`);
+}
+
+async function scaleSelectedToMeasured() {
+  const target = Number($("scale-target-mm")?.value);
+  if (!Number.isFinite(target) || target <= 0) return hud("Type the millimetres the measured span should become.");
+  const measured = shop.getMeasuredMm?.() || 0;
+  if (!measured) return hud("Measure two points on the body first, then Scale to fit.");
+  await scaleSelectedBy(target / measured);
+}
+
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
-  const sculpt = ev.target.closest("[data-sculpt]")?.dataset.sculpt;
-  if (sculpt) setSculptTool(sculpt);
-  if (ev.target.closest("[data-subdivide]")) subdivideSelectedBody();
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-delete]")) deleteSelected();
@@ -1000,11 +1129,31 @@ $("edit-tools")?.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-redo]")) redoLastEdit();
 });
 
+// The Desk left bar: modeling, sculpting and visibility live here. Sketch /
+// joint buttons in the same stack are handled by the workshop's own
+// [data-cad-tool] listener.
+$("model-tools")?.addEventListener("click", (ev) => {
+  const sculpt = ev.target.closest("[data-sculpt]")?.dataset.sculpt;
+  if (sculpt) setSculptTool(sculpt);
+  const meshTool = ev.target.closest("[data-mesh-tool]")?.dataset.meshTool;
+  if (meshTool) setMeshToolUi(meshTool);
+  if (ev.target.closest("[data-subdivide]")) subdivideSelectedBody();
+  if (ev.target.closest("[data-hide-selected]")) hideSelectedBody();
+  if (ev.target.closest("[data-unhide-all]")) unhideAllBodies();
+});
+
+$("scale-apply")?.addEventListener("click", () => {
+  scaleSelectedBy($("scale-factor")?.value);
+});
+$("scale-to-measure")?.addEventListener("click", () => {
+  scaleSelectedToMeasured();
+});
+
 document.addEventListener("click", (event) => {
-  const id = event.target.closest("[data-bom-build]")?.dataset.bomBuild;
+  const id = event.target.closest("[data-ways-build]")?.dataset.waysBuild;
   if (!id) return;
   const build = diyBuilds().find((entry) => entry.id === id);
-  openBomPrint(build);
+  openWaysPrint(build);
 });
 
 let finishingModel = false;
@@ -1014,12 +1163,12 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Finding hardware…";
+  button.textContent = "Finding build ways…";
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Building BOM…</title><p>Finding dimension-matched hardware…</p>");
+    printWindow.document.write("<!doctype html><title>Finding build ways…</title><p>Researching construction routes and shaped pieces for this model…</p>");
   }
-  hud("Matching the model to real hardware by shape and dimensions…");
+  hud("Finding ways to make this exact final table…");
   try {
     const packet = await api.finishProject();
     openBuildPacketPrint(packet, printWindow);
@@ -1028,12 +1177,14 @@ $("finish-model")?.addEventListener("click", async () => {
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "hardware build plan" });
+    await studio?.openAssemblyView?.(packet.assembly, { label: "ways-to-make plan" });
     const match = packet.bom?.ikeaMatch;
     hud(
       match
-        ? `PDF BOM ready · IKEA ${match.article} dimension match · custom steps created.`
-        : `PDF BOM ready · ${packet.bom?.lines?.length || 0} hardware lines · custom steps created.`,
+        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
+        : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
+            packet.bom?.lines?.length || 0
+          } cut-list lines · IKEAlive todo created.`,
     );
   } catch (error) {
     printWindow?.close();
@@ -1042,7 +1193,7 @@ $("finish-model")?.addEventListener("click", async () => {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Finish & build";
+    button.textContent = "Finish & find ways";
   }
 });
 

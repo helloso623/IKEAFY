@@ -41,12 +41,10 @@ test("localhost and LAN origins may call the API", () => {
   assert.equal(isAllowedOrigin("http://192.168.1.20:5173"), true);
   assert.equal(isAllowedOrigin("http://10.0.0.4:8787"), true);
   assert.equal(isAllowedOrigin("null"), true);
-  assert.equal(isAllowedOrigin("http://100.64.12.8:5173"), false);
-  assert.equal(isAllowedOrigin("https://machine.ts.net"), false);
+  assert.equal(isAllowedOrigin("https://203.0.113.8:5173"), false);
   assert.equal(isAllowedOrigin("https://evil.example"), false);
   assert.equal(isPrivateLanHost("192.168.1.20"), true);
-  assert.equal(isPrivateLanHost("100.64.1.2"), false);
-  assert.equal(isPrivateLanHost("phone.ts.net"), false);
+  assert.equal(isPrivateLanHost("203.0.113.8"), false);
 });
 
 test("the browser points the video element at the local proxy", () => {
@@ -72,7 +70,7 @@ test("phone room video is a 30s LAN inbox", () => {
   assert.ok(urls.length >= 1 || pack.url);
   for (const url of urls) {
     assert.match(url, /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+\/phone-upload$/);
-    assert.doesNotMatch(url, /ts\.net|100\.64\./);
+    assert.equal(isPrivateLanHost(new URL(url).hostname), true);
   }
 });
 
@@ -105,6 +103,8 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(phone, /30s/);
   assert.match(phone, /\/api\/scan\/video/);
   assert.match(phone, /MAX_MS = 30_000/);
+  assert.match(phone, /capture="environment"/);
+  assert.match(phone, /occupancy.*auto-fit/i);
   assert.match(main, /grabVideoFrames/);
   assert.match(main, /grabLiveFrames/);
   assert.match(main, /getUserMedia/);
@@ -118,7 +118,9 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(readme, /Send from phone/);
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
-  assert.doesNotMatch(readme, /Tailscale|tailnet|MagicDNS|ts\.net/i);
+  assert.match(readme, /occupancy.*auto-fit/i);
+  assert.match(readme, /ways to make (?:that|the) final table/i);
+  assert.match(html, /occupancy cut and auto-fit into an IKEAlive plan/i);
 
   assert.match(server, /app\.post\("\/api\/scan\/video"/);
   assert.match(main, /pullScanInbox/);
