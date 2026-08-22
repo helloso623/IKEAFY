@@ -14,8 +14,10 @@ import {
   dragLabSide,
   fitLabLayout,
   initLabLayout,
+  labPanelSide,
   layoutCssVars,
   loadLabLayout,
+  moveLabPanel,
   parseLabLayout,
   saveLabLayout,
   toggleLabSide,
@@ -40,6 +42,7 @@ test("default layout is a usable three-column Lab", () => {
   assert.equal(LAB_LAYOUT_DEFAULTS.right, 340);
   assert.equal(LAB_LAYOUT_DEFAULTS.leftOpen, true);
   assert.equal(LAB_LAYOUT_DEFAULTS.rightOpen, true);
+  assert.equal(LAB_LAYOUT_DEFAULTS.swap, false);
   assert.ok(LAB_LAYOUT_MIN < LAB_LAYOUT_DEFAULTS.left);
   assert.ok(LAB_LAYOUT_DEFAULTS.right < LAB_LAYOUT_MAX);
 });
@@ -52,6 +55,7 @@ test("parseLabLayout restores widths and treats missing flags as open", () => {
     right: 400,
     leftOpen: false,
     rightOpen: true,
+    swap: false,
   });
   assert.equal(parseLabLayout({ left: "nope", right: 9999 }).left, LAB_LAYOUT_DEFAULTS.left);
   assert.equal(parseLabLayout({ right: 9999 }).right, LAB_LAYOUT_MAX);
@@ -104,19 +108,43 @@ test("collapsed columns report 0px so the viewport can grow", () => {
   assert.equal(vars["--lab-right"], "340px");
 });
 
+test("swap moves each panel's width to the other column", () => {
+  const state = { left: 300, right: 340, leftOpen: true, rightOpen: true, swap: true };
+  const vars = layoutCssVars(state);
+  assert.equal(vars["--lab-left"], "340px", "the inspector now owns the left column");
+  assert.equal(vars["--lab-right"], "300px", "the outliner now owns the right column");
+  assert.equal(labPanelSide(state, "left"), "right");
+  assert.equal(labPanelSide(state, "right"), "left");
+  assert.equal(labPanelSide({ ...state, swap: false }, "left"), "left");
+});
+
+test("moveLabPanel drags a pane header to the other side and back", () => {
+  const start = { ...LAB_LAYOUT_DEFAULTS };
+  const moved = moveLabPanel(start, "left", "right");
+  assert.equal(moved.swap, true);
+  assert.equal(moved.leftOpen, true, "a moved panel lands open");
+  assert.equal(moveLabPanel(moved, "left", "right"), moved, "already there is a no-op");
+  const back = moveLabPanel(moved, "left", "left");
+  assert.equal(back.swap, false);
+  const closed = moveLabPanel({ ...start, rightOpen: false }, "right", "left");
+  assert.equal(closed.swap, true);
+  assert.equal(closed.rightOpen, true, "dragging a hidden panel out reopens it");
+});
+
 test("initLabLayout is a no-op without a root", () => {
   assert.equal(initLabLayout({ root: null }), null);
 });
 
 test("load and save round-trip through localStorage", () => {
   const storage = memoryStorage();
-  saveLabLayout({ left: 240, right: 360, leftOpen: false, rightOpen: true }, storage);
+  saveLabLayout({ left: 240, right: 360, leftOpen: false, rightOpen: true, swap: true }, storage);
   assert.equal(JSON.parse(storage.dump()[LAB_LAYOUT_KEY]).left, 240);
   assert.deepEqual(loadLabLayout(storage), {
     left: 240,
     right: 360,
     leftOpen: false,
     rightOpen: true,
+    swap: true,
   });
   assert.deepEqual(loadLabLayout(memoryStorage()), LAB_LAYOUT_DEFAULTS);
 });
