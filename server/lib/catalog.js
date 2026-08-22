@@ -818,7 +818,7 @@ export function searchParts({
   }).map((p) => ({
     ...p,
     extra: Boolean(p.extra),
-    matchNote: "Catalog list only — live web scrape is stubbed for now.",
+    matchNote: "Catalog list only — use the optional search API for live links; retailer scraping is disabled.",
   }));
 }
 

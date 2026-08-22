@@ -7,11 +7,12 @@ import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { knownObject } from "./frame-scale.js";
-import { grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
+import { fetchScanInbox, filesFromPostedFrames, filesToPostedFrames, grabLiveFrames, grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
+import { openBuildPacketPrint } from "./build-packet.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
@@ -135,7 +136,7 @@ house = initHouse({
   },
   onScene() {
     setMode("lab");
-    setLabSpace("ar");
+    setLabSpace("house");
   },
   getSelectedPart: () => selectedPiece()?.part || null,
   // The 3D house places everything on the bench: catalog pieces by their
@@ -350,7 +351,7 @@ function restoreConversation() {
 
 function currentLabSpace() {
   const space = $("app")?.dataset.lab;
-  return space === "house" || space === "ar" ? space : "desk";
+  return space === "house" ? space : "desk";
 }
 
 function scenePieces() {
@@ -919,12 +920,46 @@ $("edit-tools")?.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-redo]")) redoLastEdit();
 });
 
+let finishingModel = false;
+$("finish-model")?.addEventListener("click", async () => {
+  if (finishingModel) return;
+  finishingModel = true;
+  const button = $("finish-model");
+  button.disabled = true;
+  button.classList.add("busy");
+  button.textContent = "Finding hardware…";
+  const printWindow = window.open("", "_blank");
+  if (printWindow) {
+    printWindow.document.write("<!doctype html><title>Building BOM…</title><p>Finding dimension-matched hardware…</p>");
+  }
+  hud("Matching the model to real hardware by shape and dimensions…");
+  try {
+    const packet = await api.finishProject();
+    openBuildPacketPrint(packet, printWindow);
+    setMode("ikeafy");
+    await studio?.openAssemblyView?.(packet.assembly, { label: "hardware build plan" });
+    const match = packet.bom?.ikeaMatch;
+    hud(
+      match
+        ? `PDF BOM ready · IKEA ${match.article} dimension match · custom steps created.`
+        : `PDF BOM ready · ${packet.bom?.lines?.length || 0} hardware lines · custom steps created.`,
+    );
+  } catch (error) {
+    printWindow?.close();
+    hud(error?.message || "Could not finish this furniture model.");
+  } finally {
+    finishingModel = false;
+    button.disabled = false;
+    button.classList.remove("busy");
+    button.textContent = "Finish & build";
+  }
+});
+
 function isLab() {
   return $("app")?.dataset.mode === "lab";
 }
 
 function labHud(space) {
-  if (space === "ar") return "AR — the room camera. Drop a photo or place a table.";
   if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
 
@@ -934,13 +969,12 @@ function labHud(space) {
 }
 
 function setLabSpace(space) {
-  if (space !== "house" && space !== "ar") space = "desk";
+  if (space !== "house") space = "desk";
   const app = $("app");
   if (!app) return;
   app.dataset.lab = space;
   app.classList.toggle("lab-desk", space === "desk");
   app.classList.toggle("lab-house", space === "house");
-  app.classList.toggle("lab-ar", space === "ar");
   for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
     btn.classList.toggle("on", btn.dataset.lab === space);
   }
@@ -956,7 +990,7 @@ function setLabSpace(space) {
 }
 
 function setMode(mode) {
-  if (mode === "lab" || mode === "house" || mode === "bench" || mode === "ar" || mode === "desk") {
+  if (mode === "lab" || mode === "house" || mode === "bench" || mode === "desk") {
     mode = "lab";
   } else {
     mode = "ikeafy";
@@ -986,6 +1020,7 @@ function setMode(mode) {
     setLabSpace(app.dataset.lab || "desk");
   } else {
     house?.setSpace("desk");
+    stopScanCamera();
     aiDock?.close?.();
   }
   shop.resize();
@@ -1013,12 +1048,92 @@ for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
 let scanSequence = 0;
 let scanTaps = [];
 let scanTapImage = null;
+let scanInputFrames = {};
+let scanCameraStream = null;
+let scanCameraStart = null;
 
 function setFileInput(input, file) {
   if (!input || !file || typeof DataTransfer !== "function") return;
   const transfer = new DataTransfer();
   transfer.items.add(file);
   input.files = transfer.files;
+}
+
+function setScanViews(views = {}) {
+  scanInputFrames = { ...scanInputFrames, ...views };
+  for (const view of ["front", "side", "top"]) {
+    if (views[view]) setFileInput($(`scan-${view}`), views[view]);
+  }
+}
+
+function setScanCameraStatus(message) {
+  const status = $("scan-camera-status");
+  if (status) status.textContent = message;
+  const toggle = $("scan-camera-toggle");
+  if (toggle) {
+    toggle.textContent = scanCameraStream ? "Close camera" : "Open camera";
+    toggle.setAttribute("aria-pressed", String(Boolean(scanCameraStream)));
+  }
+  const capture = $("scan-camera-capture");
+  if (capture) capture.disabled = !scanCameraStream;
+}
+
+function stopScanCamera() {
+  for (const track of scanCameraStream?.getTracks?.() || []) track.stop();
+  scanCameraStream = null;
+  scanCameraStart = null;
+  const preview = $("scan-camera-preview");
+  if (preview) {
+    preview.pause();
+    preview.srcObject = null;
+    preview.classList.add("hidden");
+  }
+  setScanCameraStatus("Camera off");
+}
+
+async function startScanCamera() {
+  if (scanCameraStream || scanCameraStart) return scanCameraStream || scanCameraStart;
+  const preview = $("scan-camera-preview");
+  if (!preview || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Camera access is unavailable in this browser.");
+  }
+  setScanCameraStatus("Opening camera…");
+  scanCameraStart = navigator.mediaDevices
+    .getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    })
+    .then(async (stream) => {
+      scanCameraStream = stream;
+      preview.srcObject = stream;
+      preview.classList.remove("hidden");
+      await preview.play();
+      setScanCameraStatus("Camera live · frame the front, then move around the object");
+      return stream;
+    })
+    .finally(() => {
+      scanCameraStart = null;
+    });
+  return scanCameraStart;
+}
+
+async function captureScanCamera() {
+  const output = $("scan-reconstruct-out");
+  const capture = $("scan-camera-capture");
+  if (!scanCameraStream) await startScanCamera();
+  if (capture) capture.disabled = true;
+  setScanCameraStatus("Capturing front / side / top · move around the object…");
+  try {
+    const grabbed = await grabLiveFrames($("scan-camera-preview"), { count: 3, intervalMs: 1400 });
+    setScanViews(grabbed.views);
+    if (grabbed.views.front) await showScanTapSource(grabbed.views.front);
+    const message = "Camera captured 3 views. Reconstruct to turn them into a mesh.";
+    if (output) output.textContent = message;
+    setScanCameraStatus(message);
+    hud(message);
+  } finally {
+    if (capture) capture.disabled = !scanCameraStream;
+  }
 }
 
 function scanScaleKind() {
@@ -1098,9 +1213,7 @@ async function pullScanVideo(source) {
   hud("Pulling scan frames from the video…");
   const grabbed = await grabVideoFrames(source, { count: 3 });
   const views = grabbed.views;
-  setFileInput($("scan-front"), views.front);
-  setFileInput($("scan-side"), views.side);
-  setFileInput($("scan-top"), views.top);
+  setScanViews(views);
   if (views.front) await showScanTapSource(views.front);
   const message = `Pulled ${grabbed.files.length} frames for front, side and top. Scale is still local — tap 1 m, a known object, or vanishing.`;
   if (output) output.textContent = message;
@@ -1110,6 +1223,28 @@ async function pullScanVideo(source) {
 
 $("scan-scale-kind")?.addEventListener("change", syncScanScaleUi);
 $("scan-known-object")?.addEventListener("change", syncScanScaleUi);
+$("scan-camera-toggle")?.addEventListener("click", async () => {
+  if (scanCameraStream) {
+    stopScanCamera();
+    return;
+  }
+  try {
+    await startScanCamera();
+  } catch (err) {
+    const message = err?.message || "Could not open the camera.";
+    setScanCameraStatus(message);
+    hud(message);
+  }
+});
+$("scan-camera-capture")?.addEventListener("click", async () => {
+  try {
+    await captureScanCamera();
+  } catch (err) {
+    const message = err?.message || "Could not capture camera frames.";
+    setScanCameraStatus(message);
+    hud(message);
+  }
+});
 $("scan-scale-frame")?.addEventListener("click", (ev) => {
   const kind = scanScaleKind();
   if (kind !== "taps" && kind !== "known") return;
@@ -1121,7 +1256,16 @@ $("scan-scale-frame")?.addEventListener("click", (ev) => {
   scanTaps = [...scanTaps, { x, y }].slice(-2);
   drawScanTapFrame();
 });
-$("scan-front")?.addEventListener("change", () => showScanTapSource($("scan-front")?.files?.[0]));
+$("scan-front")?.addEventListener("change", () => {
+  scanInputFrames.front = $("scan-front")?.files?.[0] || null;
+  showScanTapSource(scanInputFrames.front);
+});
+$("scan-side")?.addEventListener("change", () => {
+  scanInputFrames.side = $("scan-side")?.files?.[0] || null;
+});
+$("scan-top")?.addEventListener("change", () => {
+  scanInputFrames.top = $("scan-top")?.files?.[0] || null;
+});
 $("scan-video")?.addEventListener("change", async () => {
   const files = [...($("scan-video")?.files || [])];
   if (!files.length) return;
@@ -1136,9 +1280,7 @@ $("scan-video")?.addEventListener("change", async () => {
         URL.revokeObjectURL(url);
       }
     } else if (images.length) {
-      setFileInput($("scan-front"), images[0]);
-      setFileInput($("scan-side"), images[1] || images[0]);
-      setFileInput($("scan-top"), images[2] || images[0]);
+      setScanViews({ front: images[0], side: images[1] || images[0], top: images[2] || images[0] });
       await showScanTapSource(images[0]);
       hud(`Loaded ${images.length} still${images.length === 1 ? "" : "s"} into front / side / top.`);
     }
@@ -1182,9 +1324,9 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
   const button = $("scan-reconstruct");
   const output = $("scan-reconstruct-out");
   const files = {
-    front: $("scan-front")?.files?.[0],
-    side: $("scan-side")?.files?.[0],
-    top: $("scan-top")?.files?.[0],
+    front: $("scan-front")?.files?.[0] || scanInputFrames.front,
+    side: $("scan-side")?.files?.[0] || scanInputFrames.side,
+    top: $("scan-top")?.files?.[0] || scanInputFrames.top,
   };
   if (!files.front || !files.side || !files.top) {
     const message = "Choose front, side and top photos first.";

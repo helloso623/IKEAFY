@@ -1166,13 +1166,10 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   pointer-events: none;
   background: #14181e;
 }
-#ar-camera {
+#app.mode-lab:not([data-lab="house"]) #ar-photo {
   display: none !important;
 }
-#app.mode-lab:not([data-lab="ar"]) #ar-photo {
-  display: none !important;
-}
-#app.mode-lab[data-lab="ar"] #ar-photo {
+#app.mode-lab[data-lab="house"] #ar-photo {
   pointer-events: auto;
 }
 
@@ -1184,39 +1181,12 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   padding: 0.32rem 0.7rem;
   font-size: 0.78rem;
 }
-.ar-capture {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0.45rem 0 0.7rem;
-}
-.ar-capture #ar-toggle {
-  flex: 0 0 auto;
-  min-width: 5rem;
-}
-.ar-capture #ar-toggle[aria-pressed="true"] {
-  background: #c93d32;
-  color: #fff;
-}
-.ar-capture #ar-status {
-  min-width: 0;
-  margin: 0;
-}
-#app.mode-lab[data-lab="ar"] #view {
-  opacity: 0;
-  pointer-events: none;
-}
-#app.mode-lab[data-lab="ar"] .lab-viewport,
-#app.mode-lab[data-lab="ar"] .viewport-strip,
-#app.mode-lab[data-lab="ar"] .vs-out {
-  display: none !important;
-}
 #app.mode-lab #view {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* House — the same reconstructed scene is available in House and AR. */
+/* House — room photo overlay and reconstructed scene share one space. */
 #room-scene {
   position: absolute;
   inset: 0;
@@ -1232,10 +1202,9 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   cursor: grabbing;
 }
 #room-scene.hidden,
-#app.mode-lab:not([data-lab="ar"]):not([data-lab="house"]) #room-scene {
+#app.mode-lab:not([data-lab="house"]) #room-scene {
   display: none !important;
 }
-#app.mode-lab[data-lab="ar"] #room-scene,
 #app.mode-lab[data-lab="house"] #room-scene {
   pointer-events: auto;
 }
@@ -1664,8 +1633,18 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   display: block;
 }
 
-.rail.lab-browser .lab-split { right: -1px; }
-.rail.lab-inspector .lab-split { left: -1px; }
+/* The splitter hugs the panel's inner edge, whichever side it sits on. */
+.rail.left .lab-split { right: -1px; left: auto; }
+.rail.right .lab-split { left: -1px; right: auto; }
+
+/* Swapped panels flip their column borders too. */
+.rail.left.lab-inspector { border-left: 0; border-right: 1px solid var(--lab-line); }
+.rail.right.lab-browser { border-right: 0; border-left: 1px solid var(--lab-line); }
+
+/* Drag the pane header to carry a panel to the other side. */
+#app.mode-lab .lab-pane-head { cursor: grab; touch-action: none; user-select: none; }
+body.lab-moving,
+body.lab-moving * { cursor: grabbing !important; user-select: none !important; }
 
 .lab-split:hover,
 .lab-split:focus-visible,
@@ -1884,6 +1863,19 @@ body.lab-resizing * {
   object-fit: contain;
 }
 .scan-views canvas[width="0"] { display: none; }
+.scan-camera {
+  display: grid;
+  gap: 0.35rem;
+}
+#scan-camera-preview {
+  width: 100%;
+  max-height: 150px;
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+  background: #191919;
+  object-fit: contain;
+}
+.scan-camera .hint { margin: 0; }
 .scan-url-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -2247,6 +2239,18 @@ body.lab-resizing * {
   background: var(--lab-raised);
   border-color: var(--lab-line);
   color: var(--lab-ink);
+}
+
+.lab-tool.lab-finish {
+  margin-right: 0.45rem;
+  border-color: #b89e00;
+  background: #ffda1a;
+  color: #171717;
+  font-weight: 700;
+}
+
+.lab-tool.lab-finish.busy {
+  opacity: 0.65;
 }
 
 .lab-tool-rule {
@@ -2997,12 +3001,11 @@ summary:focus-visible {
 .vs-out:not(:empty) { animation: fade-down 0.3s var(--ease-out); }
 #app.mode-lab .cad-timeline:not(:empty) { animation: fade-up 0.35s var(--ease-out); }
 
-/* Desk / House / AR: the stage cross-fades between the bench render and the
-   room photo / rebuilt house. */
+/* Desk / House: cross-fade between bench and room photo / rebuilt house. */
 .stage { transition: background-color 0.5s var(--ease-inout); }
 #view { transition: opacity 0.4s var(--ease-inout); }
-#app.mode-lab[data-lab="ar"] #ar-photo { animation: fade-in 0.45s var(--ease-inout); }
-#app.mode-lab[data-lab="ar"] #room-scene { animation: fade-in 0.45s var(--ease-inout); }
+#app.mode-lab[data-lab="house"] #ar-photo { animation: fade-in 0.45s var(--ease-inout); }
+#app.mode-lab[data-lab="house"] #room-scene { animation: fade-in 0.45s var(--ease-inout); }
 
 /* Folders and sheets: the caret turns instead of swapping glyphs, and the
    body settles in when a fold opens. */

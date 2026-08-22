@@ -544,6 +544,16 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     return view;
   }
 
+  async function openAssemblyView(view, { label = "custom IKEAlive plan" } = {}) {
+    if (!view || view.ok === false) return fail(new Error(view?.reason || "Could not open the custom plan."));
+    setMode("custom");
+    announce(`Opening ${label}…`);
+    applyView(view);
+    await renderReviews();
+    await afterGuideReady();
+    return view;
+  }
+
   async function startFromGuide(guideText, { instructions = "", label = "custom IKEAlive plan" } = {}) {
     const raw = String(guideText || "").trim();
     if (!raw) return fail(new Error("No guide to bake."));
@@ -1841,6 +1851,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     setInterface,
     startOfficial,
     startFromGuide,
+    openAssemblyView,
     parseCustom,
     chooseRenderMode,
     lookupProductManual,

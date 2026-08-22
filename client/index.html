@@ -36,7 +36,6 @@
         <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
           <button type="button" data-lab="desk" class="on">Bench</button>
           <button type="button" data-lab="house">House</button>
-          <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
         </nav>
         <div class="top-actions">
@@ -161,8 +160,7 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
-        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
+        <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
@@ -321,6 +319,14 @@
                 <span>Video or extra frames</span>
                 <input id="scan-video" type="file" accept="video/*,image/*" multiple />
               </label>
+              <div class="scan-camera">
+                <video id="scan-camera-preview" class="hidden" autoplay muted playsinline aria-label="Live object scan camera"></video>
+                <div class="row wrap">
+                  <button type="button" id="scan-camera-toggle" class="quiet" aria-pressed="false">Open camera</button>
+                  <button type="button" id="scan-camera-capture" class="quiet" disabled>Capture 3 views</button>
+                </div>
+                <span id="scan-camera-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
               <div class="scan-url-row">
                 <label class="field" for="scan-video-url">
                   <span>Video URL</span>
@@ -392,13 +398,8 @@
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
-                Uploads still work when a camera is unavailable.
+                Upload room photos to rebuild the room in 3D. Object camera and video capture live under Scan.
               </p>
-              <div class="ar-capture">
-                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
-                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
-              </div>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
@@ -495,6 +496,7 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find real hardware, print a PDF BOM, and create IKEAlive steps">Finish &amp; build</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />

@@ -66,6 +66,7 @@ export const api = {
   },
   project: () => req("/api/project"),
   seed: () => post("/api/project/seed", { empty: true }),
+  finishProject: () => post("/api/project/finish"),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
@@ -128,4 +129,5 @@ export const api = {
   scan: (body) => post("/api/adaptation/scan", body),
   scanPlan: (body) => post("/api/ikeafy/scan-plan", body),
   scanVideoUrl: (url) => `/api/scan/video?url=${encodeURIComponent(url)}`,
+  scanVideoPost: (body) => post("/api/scan/video", body),
 };

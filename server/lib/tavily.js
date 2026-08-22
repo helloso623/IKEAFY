@@ -111,6 +111,37 @@ export async function searchToolOffers(name, { fetchFn = fetch } = {}) {
   return offersFromResults(json.results || json.data || []);
 }
 
+/**
+ * One basic Tavily request for the whole hardware BOM keeps a finish action
+ * cheap (one credit) and legal. Deterministic catalog/category links remain
+ * usable when there is no key or no useful live result.
+ */
+export async function searchHardwareOffers(lines = [], { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (lines || [])
+    .slice(0, 8)
+    .map((line) => `${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const query = `buy furniture hardware ${items.join(" OR ")} -lumber -wood board`;
+  const res = await fetchFn(SEARCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: "basic",
+      max_results: 8,
+      include_answer: false,
+    }),
+  });
+  if (!res.ok) return [];
+  const json = await res.json();
+  return offersFromResults(json.results || json.data || []);
+}
+
 function extraLineFromId(id) {
   const part = getPart(id);
   if (part) {
