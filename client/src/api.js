@@ -3,12 +3,25 @@ async function req(url, opts) {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+  const text = await res.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = { ok: false, reason: text };
   }
-  return res.json();
+  if (!res.ok) {
+    // A refusal from the step gate is data, not a crash: 409/423 carry the reason.
+    if (body && (res.status === 409 || res.status === 423 || res.status === 400)) return body;
+    const error = new Error(body?.reason || body?.error || text || res.statusText);
+    error.status = res.status;
+    error.body = body;
+    throw error;
+  }
+  return body;
 }
+
+const post = (url, body) => req(url, { method: "POST", body: JSON.stringify(body || {}) });
 
 export const api = {
   health: () => req("/api/health"),
@@ -17,35 +30,50 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
-  seed: (empty = false) => req("/api/project/seed", { method: "POST", body: JSON.stringify({ empty }) }),
-  add: (partId, pose) => req("/api/project/add", { method: "POST", body: JSON.stringify({ partId, pose }) }),
-  move: (body) => req("/api/project/move", { method: "POST", body: JSON.stringify(body) }),
-  tape: (tapeId, pieceIds) =>
-    req("/api/project/tape", { method: "POST", body: JSON.stringify({ tapeId, pieceIds }) }),
-  isolate: (pieceIds, label) =>
-    req("/api/project/isolate", { method: "POST", body: JSON.stringify({ pieceIds, label }) }),
-  label: (id, label) => req("/api/project/label", { method: "POST", body: JSON.stringify({ id, label }) }),
-  simStart: () => req("/api/project/sim/start", { method: "POST" }),
-  simReset: () => req("/api/project/sim/reset", { method: "POST" }),
-  physics: (body) => req("/api/physics/run", { method: "POST", body: JSON.stringify(body) }),
-  system: (body) => req("/api/physics/system", { method: "POST", body: JSON.stringify(body) }),
-  bundle: (style) => req("/api/cables/bundle", { method: "POST", body: JSON.stringify({ style }) }),
-  parseGuide: (guide, instructions) =>
-    req("/api/ikeafy/parse", { method: "POST", body: JSON.stringify({ guide, instructions }) }),
+  seed: (empty = false) => post("/api/project/seed", { empty }),
+  add: (partId, pose) => post("/api/project/add", { partId, pose }),
+  remove: (id) => post("/api/project/remove", { id }),
+  move: (body) => post("/api/project/move", body),
+  tape: (tapeId, pieceIds) => post("/api/project/tape", { tapeId, pieceIds }),
+  isolate: (pieceIds, label) => post("/api/project/isolate", { pieceIds, label }),
+  label: (id, label) => post("/api/project/label", { id, label }),
+  simStart: () => post("/api/project/sim/start"),
+  simReset: () => post("/api/project/sim/reset"),
+  physics: (body) => post("/api/physics/run", body),
+  system: (body) => post("/api/physics/system", body),
+  bundle: (style) => post("/api/cables/bundle", { style }),
+
+  // Guides: the official sheet is read-only, a pasted guide is yours to edit.
+  official: (article) => req(`/api/ikeafy/official${article ? `?article=${encodeURIComponent(article)}` : ""}`),
+  officialProducts: () => req("/api/ikeafy/official/products"),
+  parseGuide: (guide, instructions) => post("/api/ikeafy/parse", { guide, instructions }),
   defaultGuide: () => req("/api/ikeafy/default"),
-  expand: (step, note) => req("/api/ikeafy/expand", { method: "POST", body: JSON.stringify({ step, note }) }),
-  video: () => req("/api/ikeafy/video", { method: "POST", body: "{}" }),
-  colorize: (step) => req("/api/ikeafy/colorize", { method: "POST", body: JSON.stringify({ step }) }),
+  expand: (step, note) => post("/api/ikeafy/expand", { step, note }),
+  video: () => post("/api/ikeafy/video"),
+  renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
+  colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),
-  broken: (step, note) =>
-    req("/api/ikeafy/broken", { method: "POST", body: JSON.stringify({ step, note, photoName: "broken.jpg" }) }),
+  broken: (step, note, photoName = "broken.jpg") =>
+    post("/api/ikeafy/broken", { step, note, photoName }),
   shopping: () => req("/api/ikeafy/shopping"),
+
+  // Assembly runs — the server owns the cursor, so these are the only way forward.
+  runStart: (body = {}) => post("/api/assembly/start", body),
+  runView: (id) => req(`/api/assembly/${id}`),
+  runPeek: (id, step) => req(`/api/assembly/${id}/step/${step}`),
+  runConfirm: (id, body = {}) => post(`/api/assembly/${id}/confirm`, body),
+  runBack: (id, step) => post(`/api/assembly/${id}/back`, { step }),
+  runSkip: (id, step) => post(`/api/assembly/${id}/skip`, { step }),
+  runEdit: (id, step, patch = {}) => post(`/api/assembly/${id}/edit`, { step, ...patch }),
+  runStuck: (id, note) => post(`/api/assembly/${id}/stuck`, { note }),
+
+  fittings: () => req("/api/spares/fittings"),
+  spare: (body = {}) => post("/api/spares/request", body),
+
   agents: () => req("/api/agents"),
-  chat: (message, extra = {}) =>
-    req("/api/agents/chat", { method: "POST", body: JSON.stringify({ message, ...extra }) }),
-  print: () => req("/api/export/print", { method: "POST", body: "{}" }),
-  flash: (functions) => req("/api/firmware/generate", { method: "POST", body: JSON.stringify({ functions }) }),
-  runFw: (buttonDown) =>
-    req("/api/firmware/run", { method: "POST", body: JSON.stringify({ buttonDown }) }),
-  adapt: (body) => req("/api/adaptation/plan", { method: "POST", body: JSON.stringify(body) }),
+  chat: (message, extra = {}) => post("/api/agents/chat", { message, ...extra }),
+  print: () => post("/api/export/print"),
+  flash: (functions) => post("/api/firmware/generate", { functions }),
+  runFw: (buttonDown) => post("/api/firmware/run", { buttonDown }),
+  adapt: (body) => post("/api/adaptation/plan", body),
 };
