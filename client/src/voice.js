@@ -1,12 +1,12 @@
 /**
- * Watch / shop mic: Web Speech API → transcript → existing /api/agents/chat.
- * No paid voice vendor. Missing speech APIs fail visibly.
+ * Lab / shop / watch mic: Web Speech API → transcript → existing /api/agents/chat.
+ * No paid voice vendor. Missing speech APIs fail visibly; type instead.
  */
 import { ikealiveLog, ikealiveWarn } from "./log.js";
 
-function speechCtor() {
-  if (typeof window === "undefined") return null;
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+export function speechCtor(scope = typeof window === "undefined" ? undefined : window) {
+  if (!scope) return null;
+  return scope.SpeechRecognition || scope.webkitSpeechRecognition || null;
 }
 
 export function bindVoice({
@@ -56,7 +56,11 @@ export function bindVoice({
     };
     rec.onerror = (event) => {
       setListening(false);
-      fail(event?.error === "not-allowed" ? "Microphone permission denied." : `Voice failed: ${event?.error || "unknown"}.`);
+      fail(
+        event?.error === "not-allowed"
+          ? "Microphone permission denied. Type instead."
+          : `Voice failed: ${event?.error || "unknown"}. Type instead.`,
+      );
     };
     rec.onend = () => setListening(false);
     rec.onresult = (event) => {
@@ -69,7 +73,7 @@ export function bindVoice({
     try {
       rec.start();
     } catch (error) {
-      fail(error?.message || "Could not start the microphone.");
+      fail(error?.message || "Could not start the microphone. Type instead.");
     }
   }
 

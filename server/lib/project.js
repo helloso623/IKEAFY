@@ -1,4 +1,4 @@
-import { getPart, listParts } from "./catalog.js";
+import { getPart, isLabShelfPart, listParts } from "./catalog.js";
 import { buildNetlist, ercReport, routeCable } from "./cables.js";
 import { normalizeFunction } from "./functions.js";
 
@@ -73,6 +73,7 @@ export function emptyProject() {
   };
 }
 
+/** Test fixture: LACK table plus a Nano/LED board. Lab seed never calls this. */
 export function seedLampTable() {
   const project = emptyProject();
   project.name = "Lamp table";
@@ -440,8 +441,8 @@ export function persistLabTool(project, tool, value) {
 }
 
 /**
- * Lab is furniture-only for now. Catalog may still list boards and cables,
- * but ports, nets, isolate-as-board and firmware stay off the inspect panel.
+ * Lab is furniture-first. The shelf hides boards and cables;
+ * search can still find them. Ports, nets, isolate-as-board and firmware stay off the inspect panel.
  */
 export function benchChrome(project) {
   const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);
@@ -473,13 +474,15 @@ export function benchChrome(project) {
 }
 
 export function catalogPreview() {
-  return listParts().map((p) => ({
-    id: p.id,
-    name: p.name,
-    cost: p.cost,
-    category: p.category,
-    color: p.color,
-    dimsMm: p.dimsMm,
-    store: p.store,
-  }));
+  return listParts()
+    .filter(isLabShelfPart)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      cost: p.cost,
+      category: p.category,
+      color: p.color,
+      dimsMm: p.dimsMm,
+      store: p.store,
+    }));
 }

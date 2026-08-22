@@ -14,7 +14,7 @@ const PARTS = [
     dimsMm: { x: 550, y: 550, z: 450 },
     massG: 6100,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: false,
     strengthMpa: 12,
@@ -38,7 +38,7 @@ const PARTS = [
     dimsMm: { x: 550, y: 550, z: 36 },
     massG: 4200,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: false,
     strengthMpa: 12,
@@ -66,7 +66,7 @@ const PARTS = [
     dimsMm: { x: 50, y: 50, z: 414 },
     massG: 480,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: true,
     strengthMpa: 10,
@@ -85,7 +85,7 @@ const PARTS = [
     cost: 25.0,
     store: "IKEA",
     storeUrl: "https://www.ikea.com/search?q=LINNMON",
-    dimsMm: { x: 1000, y: 600, z: 25 },
+    dimsMm: { x: 1000, y: 600, z: 34 },
     massG: 8200,
     material: "particleboard",
     color: "#ffffff",
@@ -106,7 +106,7 @@ const PARTS = [
     cost: 6.0,
     store: "IKEA",
     storeUrl: "https://www.ikea.com/search?q=ADILS",
-    dimsMm: { x: 38, y: 38, z: 700 },
+    dimsMm: { x: 40, y: 40, z: 700 },
     massG: 1100,
     material: "steel",
     color: "#222222",
@@ -591,6 +591,35 @@ const PARTS = [
     specs: { loadKg: 12 },
   },
 ];
+
+const LAB_SHELF_SKIP_IDS = new Set([
+  "arduino-nano",
+  "esp32-dev",
+  "led-5mm",
+  "ws2812-strip",
+  "tactile-btn",
+  "breadboard",
+  "resistor-220",
+  "psu-5v2a",
+  "jumper-m2m",
+  "usb-mini-cable",
+  "soldering-iron",
+  "multimeter",
+  "enclosure-print",
+]);
+
+/** Lab shelf: furniture, hardware, tape, and hand tools — no boards or robotics. */
+export function isLabShelfPart(part) {
+  if (!part) return false;
+  if (part.category === "electronics" || part.category === "cable") return false;
+  if (LAB_SHELF_SKIP_IDS.has(part.id)) return false;
+  if (part.firmwareRole) return false;
+  return true;
+}
+
+export function labShelfParts(parts = PARTS) {
+  return parts.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
 
 export function listParts() {
   return PARTS.map((p) => ({ ...p }));
