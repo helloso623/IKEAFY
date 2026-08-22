@@ -49,22 +49,32 @@ npm run electron
 Both commands start the Vite client and Express API; `npm run electron` also opens the Electron window.
 The Electron command starts the same Vite client and Express API inside the desktop shell.
 
-## Optional services
+## Partners in the app
+
+Where each hosted partner runs in IKEAlive:
+
+| Surface | Partner | Role |
+| --- | --- | --- |
+| **Upload / parse** | Pioneer GLiNER 2 | Structures extracted PDF text into ordered assembly steps; normalizes fal plate-vision output when drawings need a second pass. Uses the Pioneer API (`PIONEER_API_KEY` → [gliner.pioneer.ai](https://gliner.pioneer.ai)); local Hugging Face weights are optional fallback only. |
+| **Upload / parse** | fal plate vision | When PDF text has no grounded steps, reads rasterized drawing plates via `openrouter/router/vision` (`FAL_KEY`). |
+| **Search** | Tavily | **Find PDF** looks up an official IKEA instruction PDF by product name; also live shop links for missing tools, and optional Finish / Find a way board and hardware research (`TAVILY_API_KEY`). Does not write manuals. |
+| **Video instructions** | fal → Seedance 2.5 | Watch reel: one Seedance MP4 per tutorial plate (`FAL_KEY`). |
+| **Image instructions** | fal → Nano Banana 2 | Watch stills: one Nano Banana 2 plate image per step (`FAL_KEY`). |
+| **3D instructions** | fal → Tripo H3.1 | Watch / workshop: one Tripo H3.1 GLB mesh per step (`FAL_KEY`). |
+| **Chat** | Pioneer GLiNER 2 | Guide Q&A grounded in the active assembly (`PIONEER_API_KEY`). |
+
+Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction. Missing keys report what they need; they do not silently pretend a render or search completed.
+
+## Optional keys
 
 Copy `.env.example` to `.env` when you want hosted services. Never commit the populated file.
 
-- `FAL_KEY` — drawing-plate interpretation through fal's multimodal vision endpoint, plus Seedance films, Nano Banana stills, and Tripo meshes
-- `PIONEER_API_KEY` — preferred Pioneer/Fastino GLiNER 2 cloud API ([gliner.pioneer.ai](https://gliner.pioneer.ai)); avoids local Hugging Face downloads
+- `PIONEER_API_KEY` — Pioneer GLiNER 2 (parse + guide chat); preferred over Hugging Face downloads
+- `FAL_KEY` — plate vision, Seedance 2.5, Nano Banana 2, Tripo H3.1
+- `TAVILY_API_KEY` — official PDF lookup, missing-tool shops, Finish / Find a way research
 - `OPENAI_API_KEY` — hosted Lab bench assistance
-- `OPENAI_MODEL_HARD` — model used for harder hosted requests
-- `OPENAI_MODEL_EASY` — model used for lighter hosted requests
-- `TAVILY_API_KEY` — official IKEA PDF and missing-tool lookup
-- `PORT` — Express API port; defaults to `8787`
-- `CLIENT_PORT` — client port recorded in local configuration; Vite runs on `5173`
-
-PDF text is extracted first and structured with Pioneer/Fastino GLiNER 2 (cloud API when `PIONEER_API_KEY` is set, otherwise optional local `fastino/gliner2-base-v1`). When that text does not contain grounded assembly steps, fal's `openrouter/router/vision` endpoint reads the rasterized plates with `google/gemini-2.5-flash`. GLiNER 2 then normalizes the returned plate description when possible; if normalization yields no steps, the structured fal JSON is used directly. This PDF path does not use `OPENAI_API_KEY`.
-
-Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction available. Drawing-only PDF parsing, hosted renders, and live searches report the specific key they need; they do not silently pretend to have run.
+- `OPENAI_MODEL_HARD` / `OPENAI_MODEL_EASY` — hosted request models
+- `PORT` — Express API (default `8787`); `CLIENT_PORT` — client port recorded for Electron (Vite serves `5173`)
 
 ## Work around the guide
 
@@ -74,24 +84,7 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 
 **Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
 
-When a furniture model is ready, **Finish / Find a way** analyzes its geometry and finish, ranks construction methods, derives dimensioned tops, legs, aprons, stretchers, boards, and shaped cuts, prepares a printable ways-to-make PDF, and creates an IKEAlive watch / plan / todo.
-
-## Structure
-
-## Connect the optional services
-
-Copy `.env.example` to `.env`, add only the services you need, and keep the populated file out of Git.
-
-- `FAL_KEY` enables Seedance 2.5 films, Nano Banana 2 stills, Tripo H3.1 meshes, and drawing-plate vision.
-- `PIONEER_API_KEY` enables Pioneer-hosted GLiNER 2 for PDF text extraction and guide Q&A (preferred over local Hugging Face downloads).
-- `TAVILY_API_KEY` enables official-manual lookup and live tool offers.
-- `OPENAI_API_KEY` enables hosted Lab bench assistance.
-- `OPENAI_MODEL_HARD` and `OPENAI_MODEL_EASY` select the hosted request models.
-- `PORT` sets the API port. `CLIENT_PORT` sets the client port used by Electron.
-
-After modeling or remodeling an object, click **Finish / Find a way**. IKEAlive scores practical construction routes against the current dimensions, rotation, silhouette, support layout, material family, and piece breakdown. It derives a cut list of primary bodies such as tops, legs, boards, aprons, and shaped pedestal parts, then produces a printable PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily can optionally research current-model boards, stock, and close piece matches; without it, shape and dimension matches plus ordinary public sourcing links remain available. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
-
-The app and locked LACK flow run without hosted keys. Features that require a missing key report that requirement instead of presenting a generated fallback as a completed render or search.
+When a furniture model is ready, **Finish / Find a way** analyzes its geometry and finish, ranks construction methods, derives dimensioned tops, legs, aprons, stretchers, boards, and shaped cuts, prepares a printable ways-to-make PDF, and creates an IKEAlive watch / plan / todo. Each changed model gets a new saved revision. Tavily can optionally research boards, stock, and hardware for that revision; without it, shape and dimension matches plus ordinary public sourcing links remain. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
 
 ## Move around the evidence
 
