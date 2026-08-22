@@ -8,6 +8,7 @@ import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
+import { ikealiveLog } from "./log.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -858,7 +859,7 @@ function setLabSpace(space) {
   house?.setActive(space === "ar");
   if (isLab()) hud(labHud(space));
   shop.resize();
-  if (isLab()) console.log("[ikealive:lab]", "space", space);
+  if (isLab()) ikealiveLog("lab", "space", space);
 }
 
 function setMode(mode) {
@@ -895,7 +896,7 @@ function setMode(mode) {
     aiDock?.close?.();
   }
   shop.resize();
-  console.log("[ikealive:lab]", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });
+  ikealiveLog("lab", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });
 }
 
 for (const btn of document.querySelectorAll("#modes button")) {
