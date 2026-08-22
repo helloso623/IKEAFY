@@ -239,7 +239,7 @@ test("parseGuideAsync uses the OpenAI result for this input, not LACK", async ()
   try {
     const guide = await parseGuideAsync("Hang the rail on the two wall plugs.", {}, { fetchFn });
     assert.equal(guide.parser, "openai");
-    assert.equal(guide.title, "Wall shelf");
+    assert.equal(guide.title, "Wall shelf (IKEAlive)");
     assert.equal(guide.steps.length, 1);
     assert.match(guide.steps[0].body, /rail/);
     assert.doesNotMatch(guide.title, /LACK/i);
