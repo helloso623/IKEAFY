@@ -65,8 +65,8 @@
       <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
         <div class="landing landing-split">
           <div class="landing-copy">
-            <p class="kicker">IKEAlive</p>
-            <h1>Watch the manual instead of reading it.</h1>
+            <p class="kicker"><span class="kicker-spark" aria-hidden="true">✨</span> IKEAlive engine</p>
+            <h1>Watch the manual<br />instead of <span class="hl">reading it.</span></h1>
 
             <ul class="upload-feature-grid">
               <li class="feature-item">
@@ -76,7 +76,7 @@
                   </svg>
                 </span>
                 <strong>Upload</strong>
-                <p>Drop in the IKEA PDF, or just type the product name.</p>
+                <p>Drop in the IKEA PDF, or just type the exact product name.</p>
               </li>
               <li class="feature-item">
                 <span class="feature-icon" aria-hidden="true">
@@ -86,7 +86,7 @@
                   </svg>
                 </span>
                 <strong>Generate</strong>
-                <p>Every page becomes a short film you can play.</p>
+                <p>Every page becomes a sequential short film you can play.</p>
               </li>
               <li class="feature-item">
                 <span class="feature-icon" aria-hidden="true">
@@ -96,7 +96,7 @@
                   </svg>
                 </span>
                 <strong>Watch</strong>
-                <p>One step at a time, at your own pace.</p>
+                <p>One step at a time, at your own pace. Rewind if needed.</p>
               </li>
               <li class="feature-item">
                 <span class="feature-icon" aria-hidden="true">
@@ -107,7 +107,7 @@
                   </svg>
                 </span>
                 <strong>Ask</strong>
-                <p>Find a part, identify hardware, or get unstuck without leaving the page.</p>
+                <p>Find a part, identify hardware, or get unstuck without leaving.</p>
               </li>
             </ul>
           </div>
@@ -135,27 +135,40 @@
             <form id="upload-form" class="card upload-card">
               <label class="upload-drop" id="pdf-drop" for="pdf-upload">
                 <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
+                <span class="upload-drop-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="#666" stroke-width="1.4" stroke-linejoin="round" /><path d="M14 2v6h6" stroke="#666" stroke-width="1.4" stroke-linejoin="round" /><path d="M12 12v6m0-6-2.4 2.4M12 12l2.4 2.4" stroke="#666" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </span>
                 <strong class="upload-drop-title">Drop the IKEA PDF</strong>
                 <span class="upload-drop-hint">or click to choose a file</span>
                 <em id="pdf-name" class="upload-file"></em>
               </label>
 
-              <p class="upload-or">or type the product name</p>
+              <p class="upload-or"><span>or type it</span></p>
               <div class="product-lookup">
-                <label class="picker-label" for="product-name">IKEA product name</label>
+                <label class="picker-label" for="product-name">Product name</label>
                 <div class="row product-lookup-row">
+                  <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8a8378" stroke-width="1.5" /><path d="m20 20-3.5-3.5" stroke="#8a8378" stroke-width="1.5" stroke-linecap="round" /></svg>
+                  </span>
                   <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
-                  <button type="button" id="product-lookup">Find the PDF</button>
+                  <button type="button" id="product-lookup">Find PDF</button>
                 </div>
               </div>
 
               <div id="custom-source" class="custom-parse">
                 <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
-                <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
+                <div class="row product-lookup-row">
+                  <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-7.4 7.4a2 2 0 0 1-1 .55l-3 .65.65-3a2 2 0 0 1 .55-1l7.2-7.6Z" stroke="#8a8378" stroke-width="1.4" stroke-linejoin="round" /></svg>
+                  </span>
+                  <input id="guide-notes" placeholder="Allen key, screwdriver…" />
+                </div>
               </div>
 
               <div class="row upload-actions">
-                <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
+                <button type="submit" id="parse-guide" class="primary">
+                  <span class="btn-spark" aria-hidden="true">✦</span> Get the Reel
+                </button>
                 <button type="button" id="clear-custom-session" class="quiet">Clear</button>
               </div>
               <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
