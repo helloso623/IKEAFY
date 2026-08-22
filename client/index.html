@@ -41,7 +41,6 @@
           <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
             <button type="button" data-lab="desk" class="on">Bench</button>
             <button type="button" data-lab="house">House</button>
-            <button type="button" data-lab="ar">AR</button>
             <button type="button" id="scan-btn">Scan</button>
           </nav>
         </div>
@@ -55,11 +54,11 @@
           />
         </form>
         <div class="top-right">
-        <button type="button" id="omnibox-ask">Ask</button>
-        <div class="top-actions">
-          <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
-          <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
-        </div>
+          <button type="button" id="omnibox-ask">Ask</button>
+          <div class="top-actions">
+            <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
+            <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
+          </div>
         </div>
       </header>
 
@@ -187,8 +186,7 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
-        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
+        <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
@@ -305,12 +303,69 @@
       <!-- ============ LAB — outliner (bodies / scan / room) ============ -->
       <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Outliner</span>
-          <strong class="lab-pane-title">Bodies / Scan / Room</strong>
+          <span class="lab-pane-kicker desk-space">Bench</span>
+          <strong class="lab-pane-title desk-space">Model / Bodies / Scan</strong>
+          <span class="lab-pane-kicker house-space">House</span>
+          <strong class="lab-pane-title house-space">Room photos / 3D rebuild</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <div class="pane bench-nav lab-tree">
-          <details class="lab-folder lab-outliner" open>
+          <details class="lab-folder lab-model desk-space" id="lab-model" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-model" aria-hidden="true"></span>
+              Model
+            </summary>
+            <div class="lab-folder-body">
+              <p class="hint lab-hint">Pick a body, then push it around. Esc drops the active tool.</p>
+              <div class="model-tools" id="model-tools">
+                <span class="model-kicker">Create</span>
+                <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
+                <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
+                <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
+                <span class="model-kicker">Faces</span>
+                <button type="button" class="lab-tool" data-mesh-tool="extrude" title="Extrude: drag a face along its normal — press/pull">Extrude</button>
+                <button type="button" class="lab-tool" data-mesh-tool="inset" title="Inset: drag a face toward its center to taper it">Inset</button>
+                <button type="button" class="lab-tool" data-mesh-tool="bevel" title="Bevel: click near a box edge and drag inward to chamfer it">Bevel</button>
+                <span class="model-kicker">Cuts</span>
+                <button type="button" class="lab-tool" data-mesh-tool="knife" title="Knife: drag a line across the body to cut a real edge into it">Knife</button>
+                <button type="button" class="lab-tool" data-mesh-tool="loopcut" title="Loop cut: click a box body to add an edge loop across it">Loop cut</button>
+                <button type="button" class="lab-tool" data-subdivide title="Subdivide the selected body once">Subdiv</button>
+                <span class="model-kicker">Sculpt</span>
+                <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
+                <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
+                <button type="button" class="lab-tool" data-sculpt="inflate" title="Sculpt: drag to puff the surface out">Inflate</button>
+                <span class="model-kicker">Show</span>
+                <button type="button" class="lab-tool" data-hide-selected title="Hide the selected body (H)">Hide</button>
+                <button type="button" class="lab-tool" data-unhide-all title="Unhide every body (Alt+H)">Unhide all</button>
+              </div>
+            </div>
+          </details>
+          <details class="lab-folder lab-measure-fold desk-space" id="lab-measure-fold" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-measure" aria-hidden="true"></span>
+              Measure + scale
+            </summary>
+            <div class="lab-folder-body">
+              <button type="button" class="lab-tool measure-side" id="side-measure" title="Click two points in the viewport, read millimetres (M)">Measure two points</button>
+              <p class="hint lab-hint measure-readout" id="measure-readout" aria-live="polite">Turn Measure on, then click two points.</p>
+              <div class="row scale-row">
+                <label class="field" for="scale-factor">
+                  <span>Scale ×</span>
+                  <input id="scale-factor" type="number" min="0.01" step="0.05" value="1" />
+                </label>
+                <button type="button" id="scale-apply" class="quiet">Apply</button>
+              </div>
+              <div class="row scale-row">
+                <label class="field" for="scale-target-mm">
+                  <span>Make span (mm)</span>
+                  <input id="scale-target-mm" type="number" min="1" step="1" placeholder="450" />
+                </label>
+                <button type="button" id="scale-to-measure" class="quiet">Scale to fit</button>
+              </div>
+              <p class="hint lab-hint">Numeric scale resizes the selected body. Measure two points on it, then Scale to fit makes that span the typed millimetres — like Fusion's Measure → Scale.</p>
+            </div>
+          </details>
+          <details class="lab-folder lab-outliner desk-space" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
               Bodies
@@ -319,7 +374,7 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
-          <details class="lab-folder scan-object" id="scan-object-panel">
+          <details class="lab-folder scan-object desk-space" id="scan-object-panel">
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
               Scan object
@@ -347,13 +402,31 @@
                 <span>Video or extra frames</span>
                 <input id="scan-video" type="file" accept="video/*,image/*" multiple />
               </label>
+              <div class="scan-camera">
+                <video id="scan-camera-preview" class="hidden" autoplay muted playsinline aria-label="Live object scan camera"></video>
+                <div class="row wrap">
+                  <button type="button" id="scan-camera-toggle" class="quiet" aria-pressed="false">Open camera</button>
+                  <button type="button" id="scan-camera-capture" class="quiet" disabled>Capture 3 views</button>
+                </div>
+                <span id="scan-camera-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
+              <div class="scan-phone" id="scan-phone">
+                <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
+                <div id="scan-phone-card" class="scan-phone-card hidden">
+                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
+                  <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
+                  <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
+                  <p class="hint lab-hint" id="scan-phone-status">Waiting for a 30s phone clip…</p>
+                </div>
+              </div>
               <div class="scan-url-row">
                 <label class="field" for="scan-video-url">
                   <span>Video URL</span>
-                  <input id="scan-video-url" type="url" inputmode="url" placeholder="https://phone.ts.net/clip.mp4" />
+                  <input id="scan-video-url" type="url" inputmode="url" placeholder="http://192.168.1.20/clip.mp4" />
                 </label>
                 <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
               </div>
+              <p class="hint lab-hint">Walk-arounds can be a local file, a same-Wi-Fi URL, or <strong>Send from phone</strong>. Leave the URL empty to pull the last POST to <code>/api/scan/video</code>.</p>
               <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
                 <label class="field" for="scan-scale-kind">
                   <span>Scale from</span>
@@ -394,16 +467,6 @@
           </details>
           <!-- Wiring hooks stay hidden. Catalog cards, shop labels, and electronics dumps stay off the Lab. -->
           <div class="hidden" aria-hidden="true">
-            <form id="omnibox-form" class="omnibox-form" role="search" hidden>
-              <input
-                id="omnibox"
-                type="search"
-                placeholder="Add a table, generate a lamp, or ask…"
-                autocomplete="off"
-                aria-label="Search the catalog or ask AI"
-              />
-              <button type="button" id="omnibox-ask">Ask</button>
-            </form>
             <input id="cost" type="number" min="0" step="1" />
             <input id="search" type="search" />
             <p id="catalog-hint"><span id="catalog-count">0</span></p>
@@ -411,20 +474,15 @@
               <div id="catalog"></div>
             </div>
           </div>
-          <details class="lab-folder" id="lab-room" open>
+          <details class="lab-folder house-space" id="lab-room" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
               This room
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
-                Uploads still work when a camera is unavailable.
+                Upload room photos, or Lab → Scan → <strong>Send from phone</strong> for a ~30s walk. Frames stay on this machine.
               </p>
-              <div class="ar-capture">
-                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
-                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
-              </div>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
@@ -471,7 +529,13 @@
                 <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
                 <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
               </div>
-              <p class="hint" id="room-orbit-hint">Drag to orbit · scroll to zoom · WASD to walk · Space to frame</p>
+              <p class="hint" id="room-orbit-hint">Drag the table gizmo to move · drag empty space to orbit · WASD to walk · Space to frame</p>
+              <p class="hint scene-refit-status" id="scene-refit-status" aria-live="polite">Place a table to create a binary room footprint.</p>
+              <div id="design-issues" class="design-issues" aria-live="polite">
+                <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
+              </div>
+              <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
+              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish &amp; find ways researches how to make the final table.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -507,15 +571,12 @@
             <button type="button" class="lab-tool" id="undo-edit" data-undo disabled>Undo</button>
             <button type="button" class="lab-tool" id="redo-edit" data-redo disabled>Redo</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
-            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
-            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool" id="lab-look" title="Unlit clay view — no shadows">Look</button>
             <button type="button" class="lab-tool" id="lab-look-at" title="Frame selected">Look at</button>
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Hunt dimension-matched tops, legs, aprons, stretchers, and boards; print the cut list; and create IKEAlive steps">Hunt table pieces</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -587,6 +648,14 @@
               <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
             </div>
           </details>
+          <details class="lab-sheet" id="diy-build-sheet">
+            <summary class="lab-sheet-sum">Piece-plan history</summary>
+            <div class="lab-sheet-body">
+              <p class="hint lab-hint">Hunt table pieces finds dimension-matched tops, legs, aprons, stretchers, and boards for the current model. It makes a PDF and IKEAlive todo while older revisions stay here.</p>
+              <div id="finish-build-out" class="build-result" aria-live="polite"></div>
+              <ol id="diy-history" class="diy-history"></ol>
+            </div>
+          </details>
         </div>
         <div
           class="lab-split"
@@ -613,19 +682,23 @@
       <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="AI chat">
         <header class="ai-dock-head">
           <strong>AI</strong>
-          <button type="button" id="ai-dock-close" class="quiet">Close</button>
+          <div class="ai-dock-head-actions">
+            <button type="button" id="ai-dock-max" class="quiet" aria-pressed="false" title="Maximize the AI dock">Maximize</button>
+            <button type="button" id="ai-dock-close" class="quiet">Close</button>
+          </div>
         </header>
         <section class="ai-scene" aria-label="Scene context">
           <h3>Scene</h3>
           <p id="ai-scene">Upload</p>
         </section>
         <div id="agent-bar" class="agent-bar"></div>
+        <p id="many-agents-note" class="hint">Lab many agents: CAD, Creative and Assembler run in parallel on “build this furniture”.</p>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="chat-form" class="ai-form">
           <input
             id="chat-in"
             autocomplete="off"
-            placeholder="Add a table, generate a lamp, or ask about this scene…"
+            placeholder="build this furniture, add a table, or ask about this scene…"
             aria-label="Message AI"
           />
           <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>

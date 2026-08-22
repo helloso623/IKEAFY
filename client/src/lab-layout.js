@@ -2,8 +2,14 @@
  * Lab columns — Blender-style left outliner + center viewport + right inspector.
  *
  * `[` toggles the outliner, `]` toggles the inspector. Drag a splitter to
- * resize. Widths and open/closed state persist in localStorage so the next
- * Lab visit opens the same way. IKEAlive upload/watch never see this chrome.
+ * resize, drag a pane header across the middle of the stage to move that
+ * panel to the other side (`swap`). Widths, sides, and open/closed state
+ * persist in localStorage so the next Lab visit opens the same way.
+ * IKEAlive upload/watch never see this chrome.
+ *
+ * State vocabulary: `left`/`leftOpen` always describe the OUTLINER and
+ * `right`/`rightOpen` the INSPECTOR, whichever screen side they sit on.
+ * `swap: true` puts the outliner on the right column and vice versa.
  */
 
 export const LAB_LAYOUT_KEY = "ikealive.lab.layout";
@@ -13,6 +19,7 @@ export const LAB_LAYOUT_DEFAULTS = {
   right: 340,
   leftOpen: true,
   rightOpen: true,
+  swap: false,
 };
 
 export const LAB_LAYOUT_MIN = 180;
@@ -43,7 +50,23 @@ export function parseLabLayout(raw) {
     right: clampSide(data.right, LAB_LAYOUT_DEFAULTS.right),
     leftOpen: data.leftOpen !== false,
     rightOpen: data.rightOpen !== false,
+    swap: data.swap === true,
   };
+}
+
+/** Moves a panel ("left" = outliner, "right" = inspector) to a screen side. */
+export function moveLabPanel(state, panel, toScreenSide) {
+  const key = panel === "right" ? "right" : "left";
+  const currentSide = state.swap ? (key === "left" ? "right" : "left") : key;
+  const target = toScreenSide === "right" ? "right" : "left";
+  if (currentSide === target) return state;
+  return { ...state, swap: !state.swap, [`${key}Open`]: true };
+}
+
+/** Screen side ("left" | "right") a panel currently occupies. */
+export function labPanelSide(state, panel) {
+  const key = panel === "right" ? "right" : "left";
+  return state.swap ? (key === "left" ? "right" : "left") : key;
 }
 
 export function toggleLabSide(state, side) {
@@ -82,10 +105,11 @@ export function fitLabLayout(state, totalWidth) {
 }
 
 export function layoutCssVars(state) {
-  const fitted = state;
+  const outliner = state.leftOpen ? `${state.left}px` : "0px";
+  const inspector = state.rightOpen ? `${state.right}px` : "0px";
   return {
-    "--lab-left": fitted.leftOpen ? `${fitted.left}px` : "0px",
-    "--lab-right": fitted.rightOpen ? `${fitted.right}px` : "0px",
+    "--lab-left": state.swap ? inspector : outliner,
+    "--lab-right": state.swap ? outliner : inspector,
   };
 }
 
@@ -106,6 +130,7 @@ export function saveLabLayout(state, storage = globalThis.localStorage) {
         right: clampSide(state.right, LAB_LAYOUT_DEFAULTS.right),
         leftOpen: state.leftOpen !== false,
         rightOpen: state.rightOpen !== false,
+        swap: state.swap === true,
       }),
     );
   } catch {
@@ -128,17 +153,23 @@ export function initLabLayout({
 
   let preferred = loadLabLayout(storage);
   let drag = null;
+  let move = null;
   let frame = 0;
 
   function paint() {
     const fitted = fitLabLayout(preferred, root.clientWidth || 0);
     const vars = layoutCssVars(fitted);
+    const swap = preferred.swap === true;
+    // Column-side flags follow whichever panel sits in that column.
+    const screenLeftOpen = swap ? preferred.rightOpen : preferred.leftOpen;
+    const screenRightOpen = swap ? preferred.leftOpen : preferred.rightOpen;
     root.style.setProperty("--lab-left", vars["--lab-left"]);
     root.style.setProperty("--lab-right", vars["--lab-right"]);
-    root.classList.toggle("lab-left-off", !preferred.leftOpen);
-    root.classList.toggle("lab-right-off", !preferred.rightOpen);
-    root.dataset.labLeft = preferred.leftOpen ? "on" : "off";
-    root.dataset.labRight = preferred.rightOpen ? "on" : "off";
+    root.classList.toggle("lab-left-off", !screenLeftOpen);
+    root.classList.toggle("lab-right-off", !screenRightOpen);
+    root.classList.toggle("lab-swapped", swap);
+    root.dataset.labLeft = screenLeftOpen ? "on" : "off";
+    root.dataset.labRight = screenRightOpen ? "on" : "off";
 
     for (const btn of root.querySelectorAll("[data-lab-toggle]")) {
       const open = btn.dataset.labToggle === "right" ? preferred.rightOpen : preferred.leftOpen;
@@ -151,10 +182,20 @@ export function initLabLayout({
     for (const tab of root.querySelectorAll(".lab-edge-tab")) {
       const open = tab.dataset.labToggle === "right" ? preferred.rightOpen : preferred.leftOpen;
       tab.hidden = open;
+      // The bring-back tab sits on the edge its panel would reopen on.
+      const side = labPanelSide(preferred, tab.dataset.labToggle === "right" ? "right" : "left");
+      tab.classList.toggle("lab-edge-left", side === "left");
+      tab.classList.toggle("lab-edge-right", side === "right");
     }
 
-    const leftRail = root.querySelector(".rail.left.lab-browser");
-    const rightRail = root.querySelector(".rail.right.lab-inspector");
+    const leftRail = root.querySelector(".lab-browser");
+    const rightRail = root.querySelector(".lab-inspector");
+    // Swap the grid columns by swapping the .left/.right rail classes; every
+    // width, border, and collapse rule keys off the screen side.
+    leftRail?.classList.toggle("left", !swap);
+    leftRail?.classList.toggle("right", swap);
+    rightRail?.classList.toggle("right", !swap);
+    rightRail?.classList.toggle("left", swap);
     leftRail?.setAttribute("aria-expanded", preferred.leftOpen ? "true" : "false");
     rightRail?.setAttribute("aria-expanded", preferred.rightOpen ? "true" : "false");
 
@@ -209,17 +250,36 @@ export function initLabLayout({
       if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
         ev.preventDefault();
         const dir = ev.key === "ArrowRight" ? 1 : -1;
-        const signed = side === "left" ? dir : -dir;
+        const signed = labPanelSide(preferred, side) === "left" ? dir : -dir;
         preferred = dragLabSide(preferred, side, (preferred[`${side}Open`] ? preferred[side] : 0) + signed * step);
         persist();
       }
     });
   }
 
+  // Dragging a pane header across the middle of the app moves that panel to
+  // the other side. Buttons inside the header keep their own clicks.
+  function bindMove(head, panel) {
+    if (!head) return;
+    head.addEventListener("pointerdown", (ev) => {
+      if (!isLab() || ev.button || ev.target.closest("button")) return;
+      move = { panel, startX: ev.clientX, live: false, x: ev.clientX };
+      head.setPointerCapture?.(ev.pointerId);
+    });
+  }
+
   function onPointerMove(ev) {
+    if (move) {
+      move.x = ev.clientX;
+      if (!move.live && Math.abs(ev.clientX - move.startX) > 8) {
+        move.live = true;
+        document.body.classList.add("lab-moving");
+      }
+      return;
+    }
     if (!drag) return;
     const dx = ev.clientX - drag.startX;
-    const signed = drag.side === "left" ? dx : -dx;
+    const signed = labPanelSide(preferred, drag.side) === "left" ? dx : -dx;
     preferred = dragLabSide(preferred, drag.side, drag.startW + signed);
     if (frame) return;
     frame = requestAnimationFrame(() => {
@@ -229,6 +289,21 @@ export function initLabLayout({
   }
 
   function onPointerUp() {
+    if (move) {
+      const { panel, live, x } = move;
+      move = null;
+      document.body.classList.remove("lab-moving");
+      if (live) {
+        const rect = root.getBoundingClientRect();
+        const target = x > rect.left + rect.width / 2 ? "right" : "left";
+        const next = moveLabPanel(preferred, panel, target);
+        if (next !== preferred) {
+          preferred = next;
+          persist();
+        }
+      }
+      return;
+    }
     if (!drag) return;
     drag = null;
     document.body.classList.remove("lab-resizing");
@@ -261,6 +336,8 @@ export function initLabLayout({
 
   bindSplit(root.querySelector("[data-lab-split='left']"));
   bindSplit(root.querySelector("[data-lab-split='right']"));
+  bindMove(root.querySelector(".lab-browser .lab-pane-head"), "left");
+  bindMove(root.querySelector(".lab-inspector .lab-pane-head"), "right");
   paint();
 
   return {

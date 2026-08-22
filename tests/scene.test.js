@@ -50,6 +50,9 @@ test("promptForStepScene uses the real step body, not a canned LACK plate", () =
   assert.match(prompt, /Hang the rail on the two wall plugs/);
   assert.match(prompt, /keep the grain visible/);
   assert.match(prompt, /3D furniture model/);
+  assert.match(prompt, /arrow|callout|plate|exploded/i);
+  assert.match(prompt, /exploded assembly|assembly diagram/i);
+  assert.doesNotMatch(prompt, /^cinematic photo of/i);
   assert.doesNotMatch(prompt, /table top face down/i);
   assert.doesNotMatch(prompt, /Unpack the pieces in the photos/i);
   assert.ok(prompt.length <= 1024);

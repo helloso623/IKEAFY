@@ -1,11 +1,12 @@
 /**
  * Three-view silhouette visual hull reconstruction.
  *
- * This dependency-free implementation is offered under the MIT License. It
- * uses no hosted service, paid API, model weights, or uploaded image storage.
- * Photos are segmented and meshed locally in the browser.
+ * Photos are segmented and carved locally. Polygonization uses Mikola
+ * Lysenko's zero-dependency `isosurface` package from its open GitHub
+ * repository (MIT License); no hosted service, model weights, or image upload.
  */
 
+import isosurface from "isosurface";
 import { resolveScanScale } from "./frame-scale.js";
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
@@ -220,104 +221,40 @@ export function carveVisualHull({ front, side, top }, { resolution = 28, scaleMm
   return { occupancy, resolution: n, voxelCount, dimensionsMm };
 }
 
-const CUBE_CORNERS = [
-  [0, 0, 0],
-  [1, 0, 0],
-  [1, 1, 0],
-  [0, 1, 0],
-  [0, 0, 1],
-  [1, 0, 1],
-  [1, 1, 1],
-  [0, 1, 1],
-];
-const TETRAHEDRA = [
-  [0, 5, 1, 6],
-  [0, 1, 2, 6],
-  [0, 2, 3, 6],
-  [0, 3, 7, 6],
-  [0, 7, 4, 6],
-  [0, 4, 5, 6],
-];
-
-function average(points) {
-  const total = points.reduce((sum, point) => [sum[0] + point[0], sum[1] + point[1], sum[2] + point[2]], [0, 0, 0]);
-  return total.map((value) => value / points.length);
-}
-
-function midpoint(a, b) {
-  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
-}
-
-function pushTriangle(target, a, b, c, outward) {
-  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-  const normal = [
-    ab[1] * ac[2] - ab[2] * ac[1],
-    ab[2] * ac[0] - ab[0] * ac[2],
-    ab[0] * ac[1] - ab[1] * ac[0],
-  ];
-  const flip = normal[0] * outward[0] + normal[1] * outward[1] + normal[2] * outward[2] < 0;
-  const vertices = flip ? [a, c, b] : [a, b, c];
-  for (const point of vertices) target.push(point[0], point[1], point[2]);
-}
-
 /**
- * Polygonize the binary field with a six-tetrahedra marching-cubes variant.
- * The returned triangle positions are in metres for direct BufferGeometry use.
+ * Polygonize the padded binary field with `isosurface.marchingTetrahedra`.
+ * Cells may be triangles or quads; quads are split for THREE.BufferGeometry.
+ * Returned positions are non-indexed triangles in metres.
  */
 export function meshVisualHull({ occupancy, resolution: n, dimensionsMm }) {
   const grid = n + 2;
-  const scalar = new Uint8Array(grid * grid * grid);
-  const at = (x, y, z) => x + grid * (y + grid * z);
-  for (let z = 0; z < n; z += 1) {
-    for (let y = 0; y < n; y += 1) {
-      for (let x = 0; x < n; x += 1) {
-        scalar[at(x + 1, y + 1, z + 1)] = occupancy[x + n * (y + n * z)];
-      }
-    }
-  }
-  const scale = [dimensionsMm.x / 1000, dimensionsMm.z / 1000, dimensionsMm.y / 1000];
-  const point = (x, y, z) => [
-    (((x - 1 + 0.5) / n) - 0.5) * scale[0],
-    (((y - 1 + 0.5) / n) - 0.5) * scale[1],
-    (((z - 1 + 0.5) / n) - 0.5) * scale[2],
-  ];
+  const sample = (x, y, z) => {
+    const vx = Math.round(x) - 1;
+    const vy = Math.round(y) - 1;
+    const vz = Math.round(z) - 1;
+    if (vx < 0 || vy < 0 || vz < 0 || vx >= n || vy >= n || vz >= n) return 1;
+    return occupancy[vx + n * (vy + n * vz)] ? -1 : 1;
+  };
+  const mesh = isosurface.marchingTetrahedra([grid, grid, grid], sample);
+  const metres = [dimensionsMm.x / 1000, dimensionsMm.z / 1000, dimensionsMm.y / 1000];
+  const point = (index) => {
+    const source = mesh.positions[index];
+    return source.map((value, axis) => (((value - 0.5) / n) - 0.5) * metres[axis]);
+  };
   const positions = [];
-  for (let z = 0; z + 1 < grid; z += 1) {
-    for (let y = 0; y + 1 < grid; y += 1) {
-      for (let x = 0; x + 1 < grid; x += 1) {
-        const cubeValues = CUBE_CORNERS.map(([dx, dy, dz]) => scalar[at(x + dx, y + dy, z + dz)]);
-        const count = cubeValues.reduce((sum, value) => sum + value, 0);
-        if (count === 0 || count === 8) continue;
-        const cubePoints = CUBE_CORNERS.map(([dx, dy, dz]) => point(x + dx, y + dy, z + dz));
-        for (const tetra of TETRAHEDRA) {
-          const inside = tetra.filter((index) => cubeValues[index]);
-          if (inside.length === 0 || inside.length === 4) continue;
-          const outside = tetra.filter((index) => !cubeValues[index]);
-          const outward = average(outside.map((index) => cubePoints[index])).map(
-            (value, axis) => value - average(inside.map((index) => cubePoints[index]))[axis],
-          );
-          if (inside.length === 1 || inside.length === 3) {
-            const lone = inside.length === 1 ? inside[0] : outside[0];
-            const others = inside.length === 1 ? outside : inside;
-            const crossings = others.map((index) => midpoint(cubePoints[lone], cubePoints[index]));
-            pushTriangle(positions, crossings[0], crossings[1], crossings[2], outward);
-          } else {
-            const [i0, i1] = inside;
-            const [o0, o1] = outside;
-            const a = midpoint(cubePoints[i0], cubePoints[o0]);
-            const b = midpoint(cubePoints[i0], cubePoints[o1]);
-            const c = midpoint(cubePoints[i1], cubePoints[o0]);
-            const d = midpoint(cubePoints[i1], cubePoints[o1]);
-            pushTriangle(positions, a, b, d, outward);
-            pushTriangle(positions, a, d, c, outward);
-          }
-        }
-      }
+  for (const cell of mesh.cells) {
+    if (cell.length < 3) continue;
+    const first = point(cell[0]);
+    for (let index = 1; index + 1 < cell.length; index += 1) {
+      positions.push(...first, ...point(cell[index]), ...point(cell[index + 1]));
     }
   }
   if (!positions.length) throw new Error("The voxel hull did not produce a surface.");
-  return { positions: new Float32Array(positions), triangleCount: positions.length / 9 };
+  return {
+    positions: new Float32Array(positions),
+    triangleCount: positions.length / 9,
+    polygonizer: "isosurface.marchingTetrahedra",
+  };
 }
 
 async function imageDataFromFile(file) {

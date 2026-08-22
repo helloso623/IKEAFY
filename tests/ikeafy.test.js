@@ -247,7 +247,7 @@ test("parseGuideAsync visibly uses the local parser when GLiNER 2 is unavailable
   }
 });
 
-test("text-rich PDF uses mocked GLiNER 2 without OpenAI plate vision", async () => {
+test("text-rich PDF uses mocked GLiNER 2 without fal plate vision", async () => {
   let request;
   const guide = await parseGuideAsync(
     "shelf.pdf: 1 page.\nPage 1: Wall shelf. Step 1. Hang the rail with two wall plugs and check the wall type.",
@@ -269,7 +269,7 @@ test("text-rich PDF uses mocked GLiNER 2 without OpenAI plate vision", async () 
           ],
         };
       },
-      fetchFn: async () => assert.fail("OpenAI must not run when GLiNER 2 has grounded PDF steps"),
+      falVisionFn: async () => assert.fail("fal vision must not run when GLiNER 2 has grounded PDF steps"),
     },
   );
   assert.equal(request.operation, "extract_json");
@@ -281,59 +281,9 @@ test("text-rich PDF uses mocked GLiNER 2 without OpenAI plate vision", async () 
   assert.equal(guide.locked, false);
 });
 
-test("parseGuideAsync uses the OpenAI result for this input, not LACK", async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = "sk-test";
-  let sent = "";
-  const fetchFn = async (_url, init = {}) => {
-    sent = String(init.body || "");
-    return {
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                title: "Wall shelf",
-                steps: [
-                  {
-                    number: 1,
-                    action: "place",
-                    body: "Hang the rail on the two wall plugs.",
-                    partsUsed: [],
-                    toolRequired: "screwdriver",
-                    warnings: [],
-                  },
-                ],
-              }),
-            },
-          },
-        ],
-      }),
-    };
-  };
-  try {
-    const guide = await parseGuideAsync(
-      "Hang the rail on the two wall plugs.",
-      {},
-      { fetchFn, glinerInfer: async () => ({}) },
-    );
-    assert.equal(guide.parser, "openai");
-    assert.equal(guide.title, "Wall shelf");
-    assert.equal(guide.steps.length, 1);
-    assert.match(guide.steps[0].body, /rail/);
-    assert.doesNotMatch(guide.title, /LACK/i);
-    assert.match(sent, /Hang the rail on the two wall plugs/);
-    assert.match(sent, /Do not invent a LACK table/);
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
-  }
-});
-
-test("PDF plates are not parsed as plain text without vision", async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+test("PDF plates are not parsed as plain text without fal vision", async () => {
+  const previous = process.env.FAL_KEY;
+  delete process.env.FAL_KEY;
   try {
     const images = [{ name: "billy-1.jpg", type: "image/jpeg", dataUrl: "data:image/jpeg;base64,abc" }];
     const guide = await parseGuideAsync(
@@ -344,100 +294,79 @@ test("PDF plates are not parsed as plain text without vision", async () => {
     assert.equal(guide.steps.length, 0);
     assert.equal(
       guide.parseError,
-      "GLiNER 2 found no readable text in this drawing-only manual. Set OPENAI_API_KEY for plate vision.",
+      "GLiNER 2 found insufficient extractable PDF text. Set FAL_KEY so fal plate vision can read the drawing plates.",
     );
     assert.doesNotMatch(guide.title, /LACK/i);
     assert.doesNotMatch(String(guide.raw || ""), /stream junk/);
   } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
+    if (previous === undefined) delete process.env.FAL_KEY;
+    else process.env.FAL_KEY = previous;
   }
 });
 
-test("PDF plate vision surfaces a safe OpenAI API failure", async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = "sk-test";
-  try {
-    const guide = await parseGuideAsync(
-      "BILLY.pdf: 16 pages; the first 8 plates were read.",
-      { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
-      {
-        glinerInfer: async () => ({}),
-        fetchFn: async () => ({
-          ok: false,
-          status: 400,
-          text: async () =>
-            JSON.stringify({
-              error: {
-                type: "invalid_request_error",
-                code: "unsupported_model",
-                message: "The configured model cannot process images.",
-              },
-            }),
-        }),
+test("PDF plate vision surfaces a safe fal failure", async () => {
+  const guide = await parseGuideAsync(
+    "BILLY.pdf: 16 pages; the first 8 plates were read.",
+    { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      glinerInfer: async () => ({}),
+      falVisionFn: async () => {
+        throw new Error("fal plate vision failed (HTTP 400): model cannot process images");
       },
-    );
-    assert.equal(guide.steps.length, 0);
-    assert.match(guide.parseError, /HTTP 400/);
-    assert.match(guide.parseError, /cannot process images/);
-    assert.doesNotMatch(guide.parseError, /sk-test|base64/);
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
-  }
+    },
+  );
+  assert.equal(guide.steps.length, 0);
+  assert.match(guide.parseError, /HTTP 400/);
+  assert.match(guide.parseError, /cannot process images/);
+  assert.doesNotMatch(guide.parseError, /base64/);
 });
 
-test("PDF plate vision returns the mocked BILLY guide without substituting LACK", async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = "sk-test";
-  let request;
-  let glinerCalled = false;
+test("drawing PDF uses fal vision then GLiNER 2 normalization without OpenAI", async () => {
+  const previousOpenAi = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  let falRequest;
+  let glinerCalls = 0;
   try {
     const guide = await parseGuideAsync(
       "BILLY.pdf: 16 pages; the first 8 plates were read.",
       { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
       {
-        glinerInfer: async () => {
-          glinerCalled = true;
-          return {};
-        },
-        fetchFn: async (url, init) => {
-          request = { url, body: JSON.parse(init.body) };
+        falVisionFn: async (request) => {
+          falRequest = request;
           return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              choices: [
-                {
-                  message: {
-                    content: JSON.stringify({
-                      title: "BILLY bookcase",
-                      steps: [
-                        {
-                          action: "fasten",
-                          body: "Fasten the BILLY side panel to the base.",
-                          partsUsed: [],
-                          warnings: [],
-                        },
-                      ],
-                    }),
-                  },
-                },
-              ],
-            }),
+            title: "BILLY bookcase",
+            steps: [{ number: 1, body: "Fasten side panel 1 to base 2 with dowels.", action: "fasten" }],
+          };
+        },
+        glinerInfer: async ({ text }) => {
+          glinerCalls += 1;
+          if (!String(text).includes("Fasten side panel 1")) return {};
+          return {
+            assembly_guide: [{ title: "BILLY bookcase" }],
+            assembly_step: [
+              {
+                sequence_number: "1",
+                instruction: "Fasten side panel 1 to base 2 with dowels.",
+                action: "fasten",
+                parts: ["side panel 1", "base 2", "dowels"],
+                tool: "",
+                warnings: [],
+              },
+            ],
           };
         },
       },
     );
     assert.equal(guide.title, "BILLY bookcase");
     assert.equal(guide.steps.length, 1);
-    assert.equal(glinerCalled, true);
+    assert.equal(guide.parser, "gliner2:fastino/gliner2-base-v1+fal-plate-vision");
+    assert.ok(glinerCalls >= 2, "GLiNER runs on extracted PDF text and fal vision output");
+    assert.equal(falRequest.endpoint, "https://fal.run/openrouter/router/vision");
+    assert.equal(falRequest.model, "google/gemini-2.5-flash");
+    assert.equal(falRequest.image_urls.length, 1);
     assert.doesNotMatch(guide.title, /LACK/i);
-    assert.equal(request.url, "https://api.openai.com/v1/chat/completions");
-    assert.equal(request.body.model, process.env.OPENAI_MODEL_HARD || process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini");
-    assert.equal(request.body.messages[1].content[1].type, "image_url");
   } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
+    if (previousOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousOpenAi;
   }
 });

@@ -44,7 +44,7 @@ export function sceneContext({
 export function sceneSummary(scene = {}) {
   const bits = [];
   if (scene.mode === "lab") {
-    const space = scene.lab === "ar" ? "AR" : scene.lab === "house" ? "House" : "Bench";
+    const space = scene.lab === "house" ? "House" : "Bench";
     bits.push(`Lab · ${space}`);
   } else if (scene.interface === "watch") {
     bits.push(scene.step ? `Watch · step ${scene.step}` : "Watch");

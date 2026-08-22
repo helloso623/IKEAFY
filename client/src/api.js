@@ -45,7 +45,8 @@ async function req(url, opts = {}) {
   }
 }
 
-const post = (url, body) => req(url, { method: "POST", body: JSON.stringify(body || {}) });
+const post = (url, body, opts = {}) =>
+  req(url, { ...opts, method: "POST", body: JSON.stringify(body || {}) });
 
 async function postChat(body) {
   try {
@@ -65,7 +66,9 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
+  diyCurrent: () => req("/api/project/diy"),
   seed: () => post("/api/project/seed", { empty: true }),
+  finishProject: () => post("/api/project/finish"),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
@@ -107,7 +110,7 @@ export const api = {
   lookupManual: (productName) => post("/api/ikeafy/manual", { productName }),
 
   // Assembly runs — the server owns the cursor, so these are the only way forward.
-  runStart: (body = {}) => post("/api/assembly/start", body),
+  runStart: (body = {}, opts = {}) => post("/api/assembly/start", body, opts),
   runView: (id) => req(`/api/assembly/${id}`),
   runPeek: (id, step) => req(`/api/assembly/${id}/step/${step}`),
   runConfirm: (id, body = {}) => post(`/api/assembly/${id}/confirm`, body),
@@ -128,4 +131,23 @@ export const api = {
   scan: (body) => post("/api/adaptation/scan", body),
   scanPlan: (body) => post("/api/ikeafy/scan-plan", body),
   scanVideoUrl: (url) => `/api/scan/video?url=${encodeURIComponent(url)}`,
+  scanVideoPost: (body) => post("/api/scan/video", body),
+  phoneLink: () => req("/api/scan/phone-link"),
+  scanInbox: () => req("/api/scan/inbox"),
+  lan: () => req("/api/scan/phone-link"),
+  roomVideoMeta: () => req("/api/scan/inbox"),
+  roomVideoFile: async () => {
+    const res = await fetch(`${apiRoot()}/api/phone/room-video/file`);
+    if (!res.ok) {
+      let reason = "No room video yet.";
+      try {
+        const body = await res.json();
+        reason = body?.reason || reason;
+      } catch {
+        // ignore
+      }
+      throw new Error(reason);
+    }
+    return res.blob();
+  },
 };

@@ -20,10 +20,119 @@ export const GENERIC_SIDE_TABLE_M = Object.freeze({
   h: GENERIC_SIDE_TABLE.heightMm / 1000,
 });
 
+export const ROUND_PEDESTAL_TABLE_GEOMETRY = Object.freeze({
+  type: "round-pedestal-table",
+  tabletop: Object.freeze({
+    type: "cylinder",
+    radiusMm: 450,
+    heightMm: 36,
+    radialSegments: 64,
+  }),
+  pedestal: Object.freeze({
+    type: "cylinder",
+    radiusTopMm: 55,
+    radiusBottomMm: 85,
+    heightMm: 654,
+    radialSegments: 48,
+    count: 1,
+  }),
+  base: Object.freeze({
+    type: "cylinder",
+    radiusMm: 250,
+    heightMm: 50,
+    radialSegments: 64,
+  }),
+});
+
+export const ROUND_PEDESTAL_TABLE = Object.freeze({
+  id: "generic-round-pedestal-table",
+  diameterMm: ROUND_PEDESTAL_TABLE_GEOMETRY.tabletop.radiusMm * 2,
+  heightMm:
+    ROUND_PEDESTAL_TABLE_GEOMETRY.tabletop.heightMm +
+    ROUND_PEDESTAL_TABLE_GEOMETRY.pedestal.heightMm +
+    ROUND_PEDESTAL_TABLE_GEOMETRY.base.heightMm,
+  color: "#d5aa72",
+  geometry: ROUND_PEDESTAL_TABLE_GEOMETRY,
+});
+
 function colorOf(THREE, hex, mul = 1) {
   const color = new THREE.Color(hex || GENERIC_SIDE_TABLE.color);
   if (mul !== 1) color.multiplyScalar(mul);
   return color;
+}
+
+/** Build one selectable table from a circular top, central pedestal and disc base. */
+export function makeRoundPedestalTable(
+  THREE,
+  {
+    geometry = ROUND_PEDESTAL_TABLE_GEOMETRY,
+    color = ROUND_PEDESTAL_TABLE.color,
+  } = {},
+) {
+  const tabletopSpec = geometry.tabletop || ROUND_PEDESTAL_TABLE_GEOMETRY.tabletop;
+  const pedestalSpec = geometry.pedestal || ROUND_PEDESTAL_TABLE_GEOMETRY.pedestal;
+  const baseSpec = geometry.base || ROUND_PEDESTAL_TABLE_GEOMETRY.base;
+  const mm = 0.001;
+  const topH = tabletopSpec.heightMm * mm;
+  const pedestalH = pedestalSpec.heightMm * mm;
+  const baseH = baseSpec.heightMm * mm;
+  const totalH = topH + pedestalH + baseH;
+  const group = new THREE.Group();
+  const topMaterial = new THREE.MeshStandardMaterial({
+    color: colorOf(THREE, color),
+    roughness: 0.48,
+    metalness: 0.02,
+  });
+  const pedestalMaterial = new THREE.MeshStandardMaterial({
+    color: colorOf(THREE, color, 0.72),
+    roughness: 0.55,
+    metalness: 0.08,
+  });
+  const baseMaterial = pedestalMaterial.clone();
+  baseMaterial.color = colorOf(THREE, color, 0.62);
+
+  const tabletop = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      tabletopSpec.radiusMm * mm,
+      tabletopSpec.radiusMm * mm,
+      topH,
+      tabletopSpec.radialSegments,
+    ),
+    topMaterial,
+  );
+  tabletop.position.y = totalH / 2 - topH / 2;
+  tabletop.userData.roundTableRole = "tabletop";
+  group.add(tabletop);
+
+  const pedestal = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      pedestalSpec.radiusTopMm * mm,
+      pedestalSpec.radiusBottomMm * mm,
+      pedestalH,
+      pedestalSpec.radialSegments,
+    ),
+    pedestalMaterial,
+  );
+  pedestal.position.y = -totalH / 2 + baseH + pedestalH / 2;
+  pedestal.userData.roundTableRole = "pedestal";
+  group.add(pedestal);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      baseSpec.radiusMm * mm,
+      baseSpec.radiusMm * mm,
+      baseH,
+      baseSpec.radialSegments,
+    ),
+    baseMaterial,
+  );
+  base.position.y = -totalH / 2 + baseH / 2;
+  base.userData.roundTableRole = "base";
+  group.add(base);
+
+  group.userData.geometryType = geometry.type;
+  group.userData.editable = true;
+  return group;
 }
 
 /** Build an editable top and four legs in room-scale metres. */

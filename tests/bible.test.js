@@ -37,6 +37,8 @@ test("two steps of the same custom guide share product and setting strings", () 
     assert.match(prompt, /Pine crate/);
     assert.match(prompt, /birch workshop/);
     assert.match(prompt, /north window/);
+    assert.match(prompt, /arrow|callout|plate|exploded/i);
+    assert.doesNotMatch(prompt, /^cinematic photo of/i);
     assert.ok(prompt.includes(bible.lockText), "every step reuses the same lock block");
   }
   assert.match(first, /Screw the side onto the base/);
@@ -63,6 +65,30 @@ test("a BILLY guide must not mention LACK in later step prompts", () => {
     }
   }
   assert.match(promptForStep(guide, 3, "", bible), /Fasten the top with screws/);
+});
+
+test("custom-guide prompts are tutorial plates, not cinematic photos", () => {
+  const guide = parseGuide(CUSTOM);
+  const bible = sceneBibleFromGuide(guide);
+  const video = promptForStep(guide, 1, "", bible);
+  const image = promptForStepImage(guide, 1, "", bible);
+  const mesh = promptForStepScene(guide, 1, "", bible);
+
+  for (const prompt of [video, image, mesh]) {
+    assert.match(prompt, /arrow|callout|plate|exploded/i);
+    assert.match(prompt, /Instruction-manual plate/);
+    assert.match(prompt, /lifestyle|Instagram|cinematic photo/);
+    assert.doesNotMatch(prompt, /^cinematic photo of/i);
+    assert.notEqual(prompt.trim().toLowerCase(), "cinematic photo of the product");
+    assert.ok(prompt.includes(bible.lockText));
+  }
+  assert.match(video, /arrows/);
+  assert.match(image, /instruction still/);
+  assert.match(image, /callouts/);
+  assert.match(mesh, /3D furniture model/);
+  assert.match(mesh, /exploded assembly/i);
+  assert.match(mesh, /assembly diagram/i);
+  assert.ok(mesh.length <= 1024);
 });
 
 test("an assembly run stores one bible and one seed for every renderer", () => {
@@ -148,5 +174,6 @@ test("render logs bible seed and step without secrets", () => {
   assert.match(text, /99/);
   assert.match(text, /2/);
   assert.match(text, /BILLY/);
+  assert.match(text, /"tutorial":true/);
   assert.doesNotMatch(text, /FAL_KEY|fal-secret|fal-test/i);
 });
