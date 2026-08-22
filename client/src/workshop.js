@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -735,6 +736,10 @@ export function createWorkshop(canvas) {
 
   const floorMap = grayWoodMap({ planks: 12, seed: 2 });
   floorMap.repeat.set(3, 3);
+  // One ground only. A GridHelper on y = 0 sat on the same plane as this
+  // disk and the bench top — do not add one back. Sink the mesh, offset
+  // its depth, and never receiveShadow: shadow maps on a huge coplanar
+  // ground flicker even after the helper is gone.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
@@ -742,21 +747,18 @@ export function createWorkshop(canvas) {
       map: floorMap,
       roughness: 0.86,
       metalness: 0.02,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 8,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
+  floor.position.y = -0.12;
+  floor.renderOrder = -1;
+  floor.receiveShadow = false;
+  floor.castShadow = false;
+  floor.userData.baseMaterial = floor.material;
   scene.add(floor);
-
-  const grid = new THREE.GridHelper(4, 20, 0xffffff, 0x6a6a6a);
-  grid.position.y = 0.002;
-  const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
-  for (const mat of gridMats) {
-    mat.transparent = true;
-    mat.opacity = 0.28;
-    mat.toneMapped = false;
-  }
-  scene.add(grid);
 
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
   benchMap.repeat.set(2, 1.2);
@@ -771,6 +773,7 @@ export function createWorkshop(canvas) {
   );
   bench.position.set(0, -0.03, 0);
   bench.receiveShadow = true;
+  bench.userData.baseMaterial = bench.material;
   scene.add(bench);
 
   const group = new THREE.Group();
@@ -784,6 +787,9 @@ export function createWorkshop(canvas) {
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const meshes = new Map();
+  // Photo scans are intentionally client-only. Their compact triangle buffers
+  // survive project syncs in this map and render as ordinary selectable bodies.
+  const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
   let snapOn = true;
@@ -1032,7 +1038,10 @@ export function createWorkshop(canvas) {
 
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
+  // Look is unlit clay — MeshBasicMaterial, no shadows — so the bench reads as form.
   let shading = "material";
+  let lookOn = false;
+  let measureOn = false;
   const solidMat = new THREE.MeshStandardMaterial({
     color: 0xcfcfcf,
     roughness: 0.85,
@@ -1040,22 +1049,64 @@ export function createWorkshop(canvas) {
     flatShading: true,
   });
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, wireframe: true, toneMapped: false });
+  const unlitMat = new THREE.MeshBasicMaterial({ color: 0xd4d0c8, toneMapped: false });
+  const unlitFloorMat = new THREE.MeshBasicMaterial({
+    color: 0xd4d0c8,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 8,
+  });
+
+  function emitViewport() {
+    canvas.dispatchEvent(new CustomEvent("ikealive-viewport", { detail: { look: lookOn, measure: measureOn } }));
+  }
+
+  function applyLookLights() {
+    renderer.shadowMap.enabled = !lookOn;
+    key.castShadow = !lookOn;
+    key.intensity = lookOn ? 0 : 1.3;
+    fill.intensity = lookOn ? 0 : 0.32;
+    rim.intensity = lookOn ? 0 : 0.18;
+    hemi.intensity = lookOn ? 1 : 0.9;
+    floor.receiveShadow = false;
+    bench.receiveShadow = !lookOn;
+  }
+
+  function meshOverride() {
+    if (lookOn) return unlitMat;
+    if (shading === "solid") return solidMat;
+    if (shading === "wire") return wireMat;
+    return null;
+  }
 
   function applyShading() {
+    applyLookLights();
+    const override = meshOverride();
     for (const root of [group, cableGroup]) {
       root.traverse((child) => {
         if (!child.isMesh) return;
         if (!child.userData.baseMaterial) child.userData.baseMaterial = child.material;
-        child.material =
-          shading === "solid" ? solidMat : shading === "wire" ? wireMat : child.userData.baseMaterial;
+        child.material = override || child.userData.baseMaterial;
       });
     }
+    floor.material = lookOn ? unlitFloorMat : floor.userData.baseMaterial;
+    bench.material = lookOn ? unlitMat : bench.userData.baseMaterial;
   }
 
   function setShading(mode) {
     if (!["solid", "material", "wire"].includes(mode)) return;
     shading = mode;
+    lookOn = false;
     applyShading();
+    emitViewport();
+  }
+
+  function setLook(on) {
+    lookOn = Boolean(on);
+    applyShading();
+    emitViewport();
+    return lookOn;
   }
 
   function frameSelected() {
@@ -1540,6 +1591,30 @@ export function createWorkshop(canvas) {
     return root;
   }
 
+  function meshForReconstruction(record) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(record.positions, 3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const material = stdMat({
+      color: new THREE.Color(record.piece.color || "#c9d2da"),
+      roughness: 0.5,
+      metalness: 0.04,
+      flatShading: false,
+      side: THREE.DoubleSide,
+    });
+    const root = shadow(new THREE.Mesh(geometry, material));
+    root.userData = {
+      piece: record.piece,
+      part: record.part,
+      ports: [],
+      reconstructed: true,
+      voxelCount: record.voxelCount,
+      triangleCount: record.triangleCount,
+    };
+    return root;
+  }
+
   function poseMesh(mesh, piece, part) {
     mesh.position.set(piece.x, piece.y || (part.dimsMm.z * MM) / 2, piece.z);
     mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
@@ -1789,7 +1864,7 @@ export function createWorkshop(canvas) {
 
   function setLed(on) {
     // Emission only draws in material shading — same rule as Blender's solid view.
-    if (shading !== "material") return;
+    if (lookOn || shading !== "material") return;
     meshes.forEach((mesh) => {
       if (mesh.userData.part?.firmwareRole !== "led") return;
       mesh.traverse((child) => {
@@ -1831,12 +1906,114 @@ export function createWorkshop(canvas) {
   }
   tick();
 
+  function addReconstructedMesh(spec) {
+    if (!spec?.id || !(spec.positions instanceof Float32Array) || spec.positions.length < 9) {
+      throw new Error("The reconstructed body has no triangle vertices.");
+    }
+    const dimsMm = {
+      x: Math.max(1, Number(spec.dimensionsMm?.x) || 1),
+      y: Math.max(1, Number(spec.dimensionsMm?.y) || 1),
+      z: Math.max(1, Number(spec.dimensionsMm?.z) || 1),
+    };
+    const piece = {
+      id: spec.id,
+      partId: "scan-mesh",
+      x: Number(spec.x) || 0,
+      y: Number(spec.y) || (dimsMm.z * MM) / 2,
+      z: Number(spec.z) || 0,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      sx: 1,
+      sy: 1,
+      sz: 1,
+      color: spec.color || "#c9d2da",
+      reconstructed: true,
+    };
+    const part = {
+      id: "scan-mesh",
+      name: spec.name || "Scanned object",
+      category: "scan",
+      dimsMm,
+      color: piece.color,
+    };
+    const record = {
+      piece,
+      part,
+      positions: spec.positions,
+      voxelCount: Number(spec.voxelCount) || 0,
+      triangleCount: Number(spec.triangleCount) || spec.positions.length / 9,
+    };
+    reconstructed.set(piece.id, record);
+    const old = meshes.get(piece.id);
+    if (old) {
+      group.remove(old);
+      old.geometry?.dispose?.();
+      old.material?.dispose?.();
+    }
+    const mesh = meshForReconstruction(record);
+    poseMesh(mesh, piece, part);
+    group.add(mesh);
+    meshes.set(piece.id, mesh);
+    pushOp("S", `Scan ${part.name} · ${record.triangleCount.toLocaleString()} triangles`);
+    attach(mesh);
+    return { piece, part };
+  }
+
+  function removeReconstructed(id) {
+    if (!reconstructed.has(id)) return false;
+    const mesh = meshes.get(id);
+    if (mesh) {
+      if (selected === mesh) attach(null);
+      group.remove(mesh);
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+      meshes.delete(id);
+    }
+    reconstructed.delete(id);
+    pushOp("D", "Delete scanned object");
+    return true;
+  }
+
+  function updateReconstructedPose(pose) {
+    const record = reconstructed.get(pose?.id);
+    if (!record) return false;
+    for (const key of ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz"]) {
+      if (Number.isFinite(Number(pose[key]))) record.piece[key] = Number(pose[key]);
+    }
+    applyPose(record.piece);
+    return true;
+  }
+
+  function duplicateReconstructed(id) {
+    const source = reconstructed.get(id);
+    if (!source) return null;
+    let suffix = reconstructed.size + 1;
+    while (reconstructed.has(`scan-mesh-${suffix}`)) suffix += 1;
+    return addReconstructedMesh({
+      id: `scan-mesh-${suffix}`,
+      name: `${source.part.name} copy`,
+      positions: source.positions,
+      dimensionsMm: source.part.dimsMm,
+      voxelCount: source.voxelCount,
+      triangleCount: source.triangleCount,
+      color: source.piece.color,
+      x: source.piece.x + source.part.dimsMm.x * MM + 0.02,
+      y: source.piece.y,
+      z: source.piece.z,
+    });
+  }
+
   return {
     sync,
     setSim,
     setCamera,
     setShading,
     getShading: () => shading,
+    setLook,
+    getLook: () => lookOn,
+    setMeasure,
+    getMeasure: () => measureOn,
     frameSelected,
     explode,
     setLed,

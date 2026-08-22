@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from "node:fs";
 import {
   cheaperAlternatives,
   getPart,
+  isLabShelfPart,
   listParts,
   PARTNERS,
   searchParts,

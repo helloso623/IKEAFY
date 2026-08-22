@@ -276,23 +276,7 @@
           <strong class="lab-pane-title">Catalog / Bodies / Room</strong>
         </header>
         <div class="pane bench-nav lab-tree">
-          <details class="lab-folder catalog-panel" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
-              Catalog
-            </summary>
-            <div class="lab-folder-body">
-              <div class="lab-filter">
-                <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
-                <input id="search" type="search" placeholder="Filter library" />
-              </div>
-              <p class="hint lab-hint" id="catalog-hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalogue.</p>
-              <div id="catalog-well" class="well scroll samples lab-well">
-                <div id="catalog" class="list samples"></div>
-              </div>
-            </div>
-          </details>
-          <details class="lab-folder" open>
+          <details class="lab-folder lab-outliner" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
               Bodies
@@ -332,9 +316,21 @@
             </div>
           </details>
         </div>
+        <div
+          class="lab-split"
+          id="lab-split-left"
+          data-lab-split="left"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-browser"
+          aria-label="Resize outliner"
+          tabindex="0"
+        ></div>
       </aside>
 
       <div class="lab-viewport" aria-hidden="true">
+        <button type="button" class="lab-edge-tab lab-edge-left" id="lab-show-left" data-lab-toggle="left" title="Show outliner ([)" hidden>[</button>
+        <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
         <div class="lab-view-bar">
           <div class="lab-view-tools" id="edit-tools">
             <button type="button" class="lab-tool on" data-edit="translate">Move</button>
@@ -468,6 +464,16 @@
           </form>
           <p id="lab-voice-status" class="voice-status hint" aria-live="polite"></p>
         </div>
+        <div
+          class="lab-split"
+          id="lab-split-right"
+          data-lab-split="right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-inspector"
+          aria-label="Resize inspector"
+          tabindex="0"
+        ></div>
       </aside>
     </div>
     <script>

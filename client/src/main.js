@@ -2,6 +2,8 @@ import { api } from "./api.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
+import { initLabLayout } from "./lab-layout.js";
+import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
@@ -37,7 +39,12 @@ function showEmptyInspect() {
 
 function selectedPieceId() {
   const id = selectedIds[0] || shop.getSelected()?.piece?.id;
-  if (id && project.pieces.some((p) => p.id === id)) return id;
+  if (
+    id &&
+    (project.pieces.some((p) => p.id === id) || shop.getReconstructed?.().some((entry) => entry.piece.id === id))
+  ) {
+    return id;
+  }
   return "";
 }
 
@@ -170,7 +177,8 @@ async function refreshProject() {
   project = await api.project();
   shop.sync(project, partsById);
   applyChrome(project.chrome);
-  const still = selectedIds.filter((id) => project.pieces.some((p) => p.id === id));
+  const scanIds = new Set(shop.getReconstructed?.().map((entry) => entry.piece.id) || []);
+  const still = selectedIds.filter((id) => project.pieces.some((p) => p.id === id) || scanIds.has(id));
   const lostSelection = selectedIds.length > 0 && still.length === 0;
   selectedIds = still;
   if (lostSelection) showEmptyInspect();
@@ -183,8 +191,9 @@ async function refreshProject() {
 function renderBenchPieces() {
   const list = $("bench-pieces");
   if (!list) return;
-  if (!project.pieces.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
+  const scanBodies = shop.getReconstructed?.() || [];
+  if (!project.pieces.length && !scanBodies.length) {
+    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask the shop.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -217,31 +226,19 @@ function activeQuery() {
   return String(focused?.value ?? $("omnibox")?.value ?? $("search")?.value ?? "");
 }
 
-function catalogEmptyHtml(typed, budget) {
-  const query = escapeHtml(String(typed || "").trim());
-  const cap = budget ? ` under $${escapeHtml(budget)}` : "";
-  if (query) {
-    return `<div class="hint empty-catalog">Nothing on the shelf matches “${query}”${cap}. Try a shorter name, or <button type="button" class="quiet" data-ask="${query}">Ask the shop</button>.</div>`;
-  }
-  return `<p class="hint empty-catalog">Nothing on the shelf${cap}. Raise the budget or clear the filter.</p>`;
+function updateCatalogHint(parts) {
+  const node = $("catalog-count");
+  if (node) node.textContent = String(parts.length);
 }
 
-function updateCatalogHint(parts, typed) {
-  const hint = $("catalog-hint");
-  const query = String(typed || "").trim();
-  const count = parts.length;
-  if (!hint) {
-    const node = $("catalog-count");
-    if (node) node.textContent = String(count);
-    return;
+function isLabShelfPart(part) {
+  if (!part) return false;
+  if (part.category === "electronics" || part.category === "cable") return false;
+  if (/^(arduino-nano|esp32-dev|led-5mm|ws2812-strip|tactile-btn|breadboard|resistor-220|psu-5v2a|jumper-m2m|usb-mini-cable|soldering-iron|multimeter|enclosure-print)$/.test(part.id)) {
+    return false;
   }
-  if (query && !count) {
-    hint.innerHTML = `No matches for “${escapeHtml(query)}”. Ask, or try “table” or “lack”.`;
-  } else if (query) {
-    hint.innerHTML = `<span id="catalog-count">${count}</span> match${count === 1 ? "" : "es"} for “${escapeHtml(query)}”.`;
-  } else {
-    hint.innerHTML = `The shelf scrolls — <span id="catalog-count">${count}</span> parts in the catalogue.`;
-  }
+  if (part.firmwareRole) return false;
+  return true;
 }
 
 async function loadCatalog(raw) {
@@ -251,17 +248,9 @@ async function loadCatalog(raw) {
   if (budget) q.maxCost = budget;
   const parts = (await api.catalog(q)).filter((p) => p.category !== "electronics" && p.category !== "cable");
   for (const p of parts) partsById[p.id] = p;
-  updateCatalogHint(parts, typed);
+  updateCatalogHint(parts);
   const shelf = $("catalog");
-  if (!shelf) return;
-  shelf.innerHTML = parts.length
-    ? parts
-        .map(
-          (p) =>
-            `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>${money(p.cost)}${p.store ? ` · ${p.store}` : ""}</small></div>`,
-        )
-        .join("")
-    : catalogEmptyHtml(typed, budget);
+  if (shelf) shelf.replaceChildren();
 }
 
 function appendChat(who, text, backend) {
@@ -383,6 +372,8 @@ $("cost")?.addEventListener("change", () => {
 function selectedPiece() {
   const id = selectedPieceId();
   if (!id) return null;
+  const scan = shop.getReconstructed?.().find((entry) => entry.piece.id === id);
+  if (scan) return scan;
   const piece = project.pieces.find((p) => p.id === id);
   if (!piece) return null;
   return { piece, part: partsById[piece.partId] };
@@ -392,17 +383,19 @@ function syncFunctionStrip() {
   const picked = selectedPiece();
   const hint = $("fn-hint");
   if (hint) {
-    hint.textContent = picked
-      ? picked.piece.functionLabel
+    hint.textContent = picked?.piece.reconstructed
+      ? "Scanned meshes can be moved, scaled, duplicated, or deleted locally."
+      : picked
+        ? picked.piece.functionLabel
         ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
         : `Assign a job to ${picked.part?.name || "this piece"}.`
-      : "Pick a piece, then assign a job.";
+        : "Pick a piece, then assign a job.";
   }
   const row = $("fn-btns");
   if (!row) return;
   for (const btn of row.querySelectorAll("[data-fn]")) {
     const fn = btn.dataset.fn;
-    btn.disabled = !picked;
+    btn.disabled = !picked || Boolean(picked.piece.reconstructed);
     btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
   }
 }
@@ -630,6 +623,14 @@ async function redoLastEdit() {
 
 async function removePiece(id) {
   if (!id) return;
+  if (shop.removeReconstructed?.(id)) {
+    selectedIds = selectedIds.filter((pieceId) => pieceId !== id);
+    showEmptyInspect();
+    renderBenchPieces();
+    syncDeleteButton();
+    hud("Deleted scanned object.");
+    return;
+  }
   const result = await api.remove(id);
   if (result?.ok === false) {
     hud(result.error || "Could not delete that piece.");
@@ -750,6 +751,85 @@ for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
   });
 }
 
+for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
+  btn.addEventListener("click", () => {
+    setMode("lab");
+    setLabSpace(btn.dataset.lab);
+  });
+}
+
+let scanSequence = 0;
+$("scan-btn")?.addEventListener("click", () => {
+  setMode("lab");
+  setLabSpace("desk");
+  const panel = $("scan-object-panel");
+  if (panel) {
+    panel.open = true;
+    panel.scrollIntoView({ block: "nearest" });
+  }
+  hud("Scan object — add aligned front, side and top photos, then enter its scale.");
+});
+
+$("scan-reconstruct")?.addEventListener("click", async () => {
+  const button = $("scan-reconstruct");
+  const output = $("scan-reconstruct-out");
+  const files = {
+    front: $("scan-front")?.files?.[0],
+    side: $("scan-side")?.files?.[0],
+    top: $("scan-top")?.files?.[0],
+  };
+  if (!files.front || !files.side || !files.top) {
+    const message = "Choose front, side and top photos first.";
+    if (output) output.textContent = message;
+    hud(message);
+    return;
+  }
+  button.disabled = true;
+  if (output) output.textContent = "Segmenting silhouettes and carving a binary visual hull…";
+  hud("Reconstructing locally from three silhouettes…");
+  try {
+    // Let the busy label paint before the CPU-only voxel pass starts.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const result = await reconstructFromFiles(files, {
+      scaleMm: Number($("scan-scale-mm")?.value),
+      scaleKind: $("scan-scale-kind")?.value || "circumference",
+      resolution: 28,
+    });
+    for (const viewName of ["front", "side", "top"]) {
+      drawSilhouettePreview($(`scan-${viewName}-preview`), result.masks[viewName]);
+    }
+    scanSequence += 1;
+    let id = `scan-mesh-${scanSequence}`;
+    const used = new Set(shop.getReconstructed?.().map((entry) => entry.piece.id) || []);
+    while (used.has(id)) id = `scan-mesh-${++scanSequence}`;
+    const added = shop.addReconstructedMesh({
+      id,
+      name: `Scanned object ${scanSequence}`,
+      positions: result.positions,
+      dimensionsMm: result.dimensionsMm,
+      voxelCount: result.voxelCount,
+      triangleCount: result.triangleCount,
+    });
+    selectedIds = [id];
+    renderBenchPieces();
+    showPart(added.part, added.piece);
+    shop.frameSelected?.();
+    const dims = result.dimensionsMm;
+    const summary =
+      `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
+      `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
+      `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm.`;
+    if (output) output.textContent = summary;
+    hud("Reconstructed a real triangle mesh and added it to Bodies.");
+  } catch (err) {
+    const message = err?.message || "Could not reconstruct those photos.";
+    if (output) output.textContent = message;
+    hud(message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("back-ikealive")?.addEventListener("click", (ev) => {
   ev.preventDefault();
   setMode("ikeafy");
@@ -807,7 +887,7 @@ window.addEventListener("keydown", (ev) => {
 
 async function boot() {
   const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
-  for (const p of all) partsById[p.id] = p;
+  for (const p of all.filter(isLabShelfPart)) partsById[p.id] = p;
   const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
   $("agent-bar").innerHTML = roster;
   const studioBar = $("ikea-agent-bar");
@@ -819,6 +899,13 @@ async function boot() {
   await loadCatalog();
   await refreshProject();
   initLabStrip({ api, shop, hud, getProject: () => project, partsById, refreshProject });
+  initLabLayout({
+    root: $("app"),
+    isLab,
+    onChange() {
+      shop.resize();
+    },
+  });
   setMode("ikeafy");
   hud(
     health.video?.live

@@ -73,6 +73,7 @@ export function emptyProject() {
   };
 }
 
+/** Test fixture: LACK table plus a Nano/LED board. Lab seed never calls this. */
 export function seedLampTable() {
   const project = emptyProject();
   project.name = "Lamp table";
@@ -473,13 +474,15 @@ export function benchChrome(project) {
 }
 
 export function catalogPreview() {
-  return listParts().map((p) => ({
-    id: p.id,
-    name: p.name,
-    cost: p.cost,
-    category: p.category,
-    color: p.color,
-    dimsMm: p.dimsMm,
-    store: p.store,
-  }));
+  return listParts()
+    .filter(isLabShelfPart)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      cost: p.cost,
+      category: p.category,
+      color: p.color,
+      dimsMm: p.dimsMm,
+      store: p.store,
+    }));
 }

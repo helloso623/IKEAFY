@@ -47,6 +47,12 @@ test("every id house.js reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
 });
 
+test("every id lab-layout.js reaches for exists in the markup", () => {
+  const layout = read("client/src/lab-layout.js");
+  const missing = [...idsUsedIn(layout)].filter((id) => !markupIds.has(id));
+  assert.deepEqual(missing, [], `lab-layout.js looks for ids that index.html does not define: ${missing}`);
+});
+
 test("main.js and the studio do not both own the same control", () => {
   // #app and #film are containers on purpose: main.js decides which tab is up,
   // the studio decides what is inside the plate. Anything else being touched by
@@ -141,7 +147,7 @@ test("electronics stays off the Lab header and inspect", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
   assert.match(html, /id="lab-spaces"/);
@@ -158,11 +164,32 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
-test("the bench catalog scrolls in one well of sample cards", () => {
+test("Lab loadCatalog hides electronics, cables, and bench irons", () => {
+  assert.match(main, /function isLabShelfPart/);
+  assert.match(main, /category === "electronics"/);
+  assert.match(main, /category === "cable"/);
+  assert.match(main, /soldering-iron/);
+  assert.match(main, /multimeter/);
+  assert.match(main, /enclosure-print/);
+  assert.match(main, /arduino-nano/);
+  assert.match(main, /\.filter\(isLabShelfPart\)/);
+  const server = read("server/index.js");
+  assert.match(server, /state\.project = emptyProject\(\)/);
+  assert.doesNotMatch(server, /req\.body\?\.lamp \? seedLampTable/);
+  assert.doesNotMatch(html, /Arduino Nano|ESP32|Half breadboard|Soldering iron|Digital multimeter|Printable lamp enclosure/);
+});
+
+test("the bench catalog ids stay hidden and empty — no parts shelf", () => {
   assert.match(html, /id="catalog-well"/);
   assert.match(html, /id="catalog"/);
+  assert.doesNotMatch(html, /catalog-panel/);
+  assert.doesNotMatch(html, /Filter library/);
+  assert.doesNotMatch(html, /parts in the catalogue/);
+  assert.match(html, /class="hidden"[^>]*>[\s\S]*id="catalog-well"/);
   const css = read("client/src/styles.css");
   assert.match(css.replace(/\s+/g, " "), /#catalog-well[^}]*overflow-y: auto/);
+  assert.doesNotMatch(main, /data-add="\$\{p\.id\}"/);
+  assert.match(main, /shelf\.replaceChildren\(\)/);
 });
 
 test("lab tests stay behind a details fold", () => {
@@ -306,8 +333,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /class="[^"]*lab-browser/, "left pane is the Fusion-style browser");
   assert.match(html, /class="[^"]*lab-viewport/, "center pane is the CAD viewport");
   assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
-  assert.match(html, /Catalog/);
   assert.match(html, /Bodies/);
+  assert.doesNotMatch(html, /Add · Catalog/);
   assert.match(html, /Parameters/);
   assert.match(html, /Functions/);
   assert.doesNotMatch(html, /Parameters · Functions · Nets/);
@@ -322,4 +349,7 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
   assert.match(html, /class="panel watch bom"/);
   assert.match(html, /class="studio-side"/);
+  assert.match(html, /data-lab-split="left"/);
+  assert.match(html, /data-lab-toggle="right"/);
+  assert.match(css, /--lab-left/);
 });
