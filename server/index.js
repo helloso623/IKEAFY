@@ -85,6 +85,7 @@ import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { PLATE_VISION_ENDPOINT, PLATE_VISION_MODEL } from "./lib/plate-vision.js";
+import { logGliner2Configuration } from "./lib/gliner2.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import { finishFurnitureBuild } from "./lib/build-plan.js";
 import {
@@ -352,11 +353,18 @@ app.post("/api/ikeafy/parse", async (req, res) => {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
-  const guide = await parseGuideAsync(raw, {
-    instructions: req.body?.instructions || "",
-    availableTools: req.body?.availableTools || [],
-    images,
-  });
+  const guide = await parseGuideAsync(
+    raw,
+    {
+      instructions: req.body?.instructions || "",
+      availableTools: req.body?.availableTools || [],
+      images,
+    },
+    {
+      requestId: req.body?.requestId || null,
+      requireGliner: Boolean(req.body?.pdfBase64 || hasPlates),
+    },
+  );
   state.guide = guide;
   res.json(guide);
 });
@@ -1451,7 +1459,14 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
   const link = phoneUploadUrls({ apiPort: port });
   ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
-  ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
+  const gliner = logGliner2Configuration();
+  ikealiveLog("parse", "GLiNER 2 configuration", {
+    status: gliner.status,
+    model: gliner.model,
+    python: gliner.python,
+    setupCommand: gliner.setupCommand,
+    falPlateVision: hasFal(),
+  });
   ikealiveLog("tavily", "configuration", {
     keyVisible: hasTavily(),
     envFile: existsSync(path.join(__dirname, "..", ".env")),

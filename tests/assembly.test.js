@@ -185,6 +185,28 @@ test("drawing-only PDF plates accurately require FAL plate vision", async () => 
   }
 });
 
+test("assembly start surfaces GLiNER 2 setup errors for PDF text", async () => {
+  const result = await startAssemblyAsync(
+    {
+      mode: "custom",
+      guide: "Crate\n1. Screw the side onto the base.",
+      pdfBase64: Buffer.from("%PDF-1.4 crate text").toString("base64"),
+    },
+    {
+      glinerInfer: async () => {
+        const error = new Error(
+          "GLiNER 2 local runtime is unavailable (sidecar exited). Run `npm run setup:gliner2` from the project root, then restart IKEAlive.",
+        );
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_RUNTIME_UNAVAILABLE";
+        throw error;
+      },
+    },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /setup:gliner2/);
+});
+
 test("an assembly run stores the chosen instruction render mode", () => {
   assert.equal(normalizeRenderMode("video"), "video");
   assert.equal(normalizeRenderMode("images"), "images");
