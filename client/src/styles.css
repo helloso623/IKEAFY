@@ -1241,6 +1241,47 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   border: 1px solid rgba(17, 17, 17, 0.25);
 }
 .house-status { min-height: 1rem; }
+.scene-refit-status {
+  margin: 0.55rem 0 0;
+  color: #2d7067;
+}
+.design-issues {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.55rem 0;
+}
+.design-issue {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--line, #d9d4c8);
+  border-left: 3px solid #69a696;
+  border-radius: 5px;
+  font-size: 0.72rem;
+}
+.design-issue.warning { border-left-color: #c68a2d; }
+.design-issue.error { border-left-color: #c2544c; }
+.design-issue span { color: var(--muted, #6f6a61); line-height: 1.35; }
+.scene-bake-plan { width: 100%; }
+.build-result {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+}
+.build-result .row { align-items: center; }
+.diy-history {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.diy-history li {
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--line, #d9d4c8);
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
 
 #app.mode-lab .lab-browser,
 #app.mode-lab .rail.left {
@@ -1876,6 +1917,54 @@ body.lab-resizing * {
   object-fit: contain;
 }
 .scan-camera .hint { margin: 0; }
+.scan-phone { display: grid; gap: 0.4rem; }
+.scan-phone-card {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+  background: #141414;
+}
+.scan-phone-qr {
+  justify-self: center;
+  width: 148px;
+  height: 148px;
+  padding: 6px;
+  background: #fff;
+  border-radius: 8px;
+}
+.scan-phone-qr svg { display: block; width: 100%; height: 100%; }
+.scan-phone-url {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: var(--lab-mono);
+  font-size: 11px;
+  color: var(--lab-ink, var(--ink));
+}
+.phone-upload {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.6rem 0.65rem;
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+}
+.phone-upload .field { gap: 0.2rem; }
+.phone-upload .field > span {
+  color: var(--lab-soft);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+#phone-upload-url {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-family: var(--lab-mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .scan-url-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -2711,6 +2800,14 @@ body.lab-resizing * {
   border-color: #3c4454;
   color: #9aa3b5;
   background: #1b1f26;
+}
+#ai-dock .agent-bar span.on {
+  border-color: #c7a45a;
+  color: #f2e6c9;
+}
+#ai-dock #many-agents-note {
+  margin: 0.35rem 0 0.55rem;
+  font-size: 0.72rem;
 }
 #ai-dock .chat-log {
   height: 11rem;

@@ -61,12 +61,20 @@ import { extractPdfText } from "./lib/pdf-text.js";
 import {
   SCAN_VIDEO_MAX_BYTES,
   SCAN_VIDEO_TIMEOUT_MS,
+  ROOM_VIDEO_MAX_SECONDS,
+  advertisedPhoneLink,
   classifyScanParts,
+  getScanInboxMeta,
   inboxGetPayload,
   isAllowedOrigin,
+  isPrivateLanHost,
   parseMultipartParts,
   parseVideoUrl,
+  phoneUploadUrls,
   readLimitedBody,
+  roomVideoFile,
+  roomVideoMeta,
+  storeRoomVideo,
   storeScanFrames,
   storeScanVideo,
   decodeBase64Payload,
@@ -83,6 +91,7 @@ import {
   addJoint,
   addPiece,
   addTape,
+  appendDiyBuild,
   benchChrome,
   catalogPreview,
   discardLastEdit,
@@ -928,27 +937,40 @@ app.post("/api/project/finish", async (_req, res) => {
   const assembly = await startAssemblyAsync({
     mode: "custom",
     guide: packet.planSource,
-    instructions: "Use only the dimension-matched hardware BOM. Wood and sheet goods are intentionally excluded.",
+    instructions: "Use the dimension-matched tabletop, legs, aprons, stretchers, and boards for this exact model.",
   });
   if (!assembly.ok) {
     return res.status(500).json({ ok: false, reason: assembly.reason || "Could not parse the custom build plan." });
   }
   const stored = getAssembly(assembly.run?.id);
   if (stored?.guide) state.guide = stored.guide;
+  const dims = packet.bom.modelDimensionsMm;
+  const build = appendDiyBuild(state.project, {
+    id: `diy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: Date.now(),
+    name: packet.bom.name,
+    signature: packet.bom.modelSignature,
+    dimensions: `${dims.x} × ${dims.y} × ${dims.z} mm`,
+    bom: packet.bom,
+    pdf: packet.pdf,
+    runId: assembly.run?.id || null,
+    planSteps: assembly.outline?.length || assembly.run?.total || 0,
+  });
   persistLabTool(state.project, "generate", {
-    kind: "hardware-bom",
+    kind: "furniture-piece-plan",
     bom: packet.bom,
     runId: assembly.run?.id || null,
     pdf: packet.pdf,
+    buildId: build.id,
   });
   ikealiveLog("build", "furniture finished", {
     pieces: state.project.pieces.length,
-    hardwareLines: packet.bom.lines.length,
+    pieceLines: packet.bom.lines.length,
     ikeaArticle: packet.bom.ikeaMatch?.article || null,
     live: packet.bom.live,
     runId: assembly.run?.id || null,
   });
-  res.json({ ...packet, assembly });
+  res.json({ ...packet, assembly, build });
 });
 
 app.post("/api/project/seed", (_req, res) => {
@@ -1144,10 +1166,16 @@ app.post("/api/firmware/run", (req, res) => {
 
 async function proxyScanVideo(target, res) {
   let host = "";
+  let hostname = "";
   try {
-    host = new URL(target).host;
+    const parsed = new URL(target);
+    host = parsed.host;
+    hostname = parsed.hostname;
   } catch {
     host = "";
+  }
+  if (!isPrivateLanHost(hostname)) {
+    return { error: { status: 400, reason: "Use a phone on the same Wi-Fi, or a local video file." } };
   }
   ikealiveLog("scan", "video proxy", { host });
   const controller = new AbortController();
@@ -1213,7 +1241,10 @@ app.get("/api/scan/video", async (req, res) => {
   return res.send(proxied.buffer);
 });
 
-app.post("/api/scan/video", async (req, res) => {
+app.post("/api/scan/video", handleScanVideoPost);
+app.put("/api/scan/video", handleScanVideoPost);
+
+async function handleScanVideoPost(req, res) {
   const type = String(req.headers["content-type"] || "");
   try {
     if (type.includes("application/json")) {
@@ -1282,7 +1313,70 @@ app.post("/api/scan/video", async (req, res) => {
     const status = Number(error.status) || (String(error.message || "").includes("too large") ? 413 : 400);
     return res.status(status).json({ ok: false, reason: error.message || "Could not store that scan." });
   }
+}
+
+app.get("/api/scan/inbox", (_req, res) => {
+  res.json(getScanInboxMeta());
 });
+
+app.get("/api/scan/phone-link", (req, res) => {
+  res.json(advertisedPhoneLink(req));
+});
+
+app.get("/api/lan", (req, res) => {
+  res.json(advertisedPhoneLink(req));
+});
+
+app.get("/api/phone/room-video", (_req, res) => {
+  res.json(roomVideoMeta());
+});
+
+app.get("/api/phone/room-video/file", (_req, res) => {
+  const file = roomVideoFile();
+  if (!file) return res.status(404).json({ ok: false, ready: false, reason: "No room video yet. POST to /api/scan/video." });
+  res.setHeader("Content-Type", file.contentType || "video/mp4");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", `inline; filename="${file.name || "room.mp4"}"`);
+  return res.send(file.buffer);
+});
+
+app.post("/api/phone/room-video", async (req, res) => {
+  const type = String(req.headers["content-type"] || "");
+  try {
+    const buf = await readLimitedBody(req);
+    if (type.includes("multipart/form-data")) {
+      const classified = classifyScanParts(parseMultipartParts(buf, type));
+      if (!classified.video?.buffer?.length) {
+        return res.status(400).json({ ok: false, reason: "POST a ~30s room video to /api/scan/video." });
+      }
+      return res.json(
+        storeRoomVideo({
+          buffer: classified.video.buffer,
+          contentType: classified.video.mime,
+          name: classified.video.name,
+        }),
+      );
+    }
+    if (!buf.length) {
+      return res.status(400).json({ ok: false, reason: "POST a ~30s room video to /api/scan/video." });
+    }
+    return res.json(
+      storeRoomVideo({
+        buffer: buf,
+        contentType: type.split(";")[0].trim() || "video/mp4",
+        name: "room.mp4",
+      }),
+    );
+  } catch (error) {
+    const status = Number(error.status) || (String(error.message || "").includes("too large") ? 413 : 400);
+    return res.status(status).json({ ok: false, reason: error.message || "Could not store that room video." });
+  }
+});
+
+const phonePage = path.join(__dirname, "phone-upload.html");
+app.get("/phone-upload", (_req, res) => res.sendFile(phonePage));
+app.get("/phone", (_req, res) => res.redirect(302, "/phone-upload"));
+app.get("/phone.html", (_req, res) => res.redirect(302, "/phone-upload"));
 
 app.post("/api/adaptation/plan", (req, res) => {
   state.adaptation = planRoom(req.body || {});
@@ -1322,8 +1416,10 @@ if (existsSync(dist)) {
 
 const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
-  ikealiveLog("video", "ready", { port, keyed: hasFal() });
+  const link = phoneUploadUrls({ apiPort: port });
+  ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
+  console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });
 
 function loadDotEnv(file) {

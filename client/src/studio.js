@@ -453,7 +453,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
             link.href = offer.url || "#";
             link.target = "_blank";
             link.rel = "noreferrer";
-            link.textContent = offer.store || "Shop";
+            // Retailer links read as the store's own name — never a bare "Shop" label.
+            link.textContent = offer.store || offer.title || "View";
             list.append(link);
           }
           wrap.append(list);

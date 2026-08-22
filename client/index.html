@@ -327,14 +327,23 @@
                 </div>
                 <span id="scan-camera-status" class="hint" aria-live="polite">Camera off</span>
               </div>
+              <div class="scan-phone" id="scan-phone">
+                <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
+                <div id="scan-phone-card" class="scan-phone-card hidden">
+                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Open the link and record ~30s walking the room. The clip POSTs to <code>/api/scan/video</code>; this browser pulls frames and rebuilds the house.</p>
+                  <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
+                  <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
+                  <p class="hint lab-hint" id="scan-phone-status">Waiting for a phone clip…</p>
+                </div>
+              </div>
               <div class="scan-url-row">
                 <label class="field" for="scan-video-url">
                   <span>Video URL</span>
-                  <input id="scan-video-url" type="url" inputmode="url" placeholder="https://phone.ts.net/clip.mp4" />
+                  <input id="scan-video-url" type="url" inputmode="url" placeholder="http://192.168.1.20/clip.mp4" />
                 </label>
                 <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
               </div>
-              <p class="hint lab-hint">Leave the URL empty to pull the last POST to <code>/api/scan/video</code> (Tailscale phone → this Lab).</p>
+              <p class="hint lab-hint">Walk-arounds can be a local file, a same-Wi-Fi URL, or <strong>Send from phone</strong>. Leave the URL empty to pull the last POST to <code>/api/scan/video</code>.</p>
               <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
                 <label class="field" for="scan-scale-kind">
                   <span>Scale from</span>
@@ -399,7 +408,7 @@
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                Upload room photos to rebuild the room in 3D. Object camera and video capture live under Scan.
+                Upload room photos, or Lab → Scan → <strong>Send from phone</strong> for a ~30s walk. Frames stay on this machine.
               </p>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
@@ -447,7 +456,13 @@
                 <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
                 <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
               </div>
-              <p class="hint" id="room-orbit-hint">Drag to orbit · scroll to zoom · WASD to walk · Space to frame</p>
+              <p class="hint" id="room-orbit-hint">Drag the table gizmo to move · drag empty space to orbit · WASD to walk · Space to frame</p>
+              <p class="hint scene-refit-status" id="scene-refit-status" aria-live="polite">Place a table to create a binary room footprint.</p>
+              <div id="design-issues" class="design-issues" aria-live="polite">
+                <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
+              </div>
+              <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
+              <p class="hint">Bakes the current fit and sends it to the IKEAlive to-do / step plan.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -567,6 +582,14 @@
                 <button type="button" data-mat-finish="metal" title="Brushed metal" disabled>Metal</button>
               </div>
               <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
+            </div>
+          </details>
+          <details class="lab-sheet" id="diy-build-sheet">
+            <summary class="lab-sheet-sum">DIY build history</summary>
+            <div class="lab-sheet-body">
+              <p class="hint lab-hint">Finish &amp; build searches dimension-matched hardware, makes a BOM PDF, and opens an IKEAlive plan. Older model revisions stay here.</p>
+              <div id="finish-build-out" class="build-result" aria-live="polite"></div>
+              <ol id="diy-history" class="diy-history"></ol>
             </div>
           </details>
         </div>

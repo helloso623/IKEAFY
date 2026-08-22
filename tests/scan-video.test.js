@@ -5,17 +5,30 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import {
+  ROOM_VIDEO_MAX_SECONDS,
   SCAN_VIDEO_MAX_BYTES,
+  classifyScanParts,
+  decodeBase64Payload,
+  inboxGetPayload,
   isAllowedOrigin,
+  isPrivateLanHost,
+  parseMultipartParts,
   parseVideoUrl,
+  phoneUploadUrls,
+  resetRoomVideo,
+  resetScanInbox,
+  roomVideoMeta,
+  storeRoomVideo,
+  storeScanFrames,
+  storeScanVideo,
 } from "../server/lib/scan-video.js";
-import { scanVideoProxyUrl } from "../client/src/video-frames.js";
+import { scanVideoInboxUrl, scanVideoProxyUrl } from "../client/src/video-frames.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(path.join(root, file), "utf8");
 
 test("scan video URLs must be http(s)", () => {
-  assert.equal(parseVideoUrl("https://100.64.1.2:5173/clip.mp4"), "https://100.64.1.2:5173/clip.mp4");
+  assert.equal(parseVideoUrl("http://192.168.1.20:8787/clip.mp4"), "http://192.168.1.20:8787/clip.mp4");
   assert.throws(() => parseVideoUrl("file:///tmp/clip.mp4"), /http/);
   assert.throws(() => parseVideoUrl("ftp://example/clip.mp4"), /http/);
   assert.throws(() => parseVideoUrl(""), /Paste/);
@@ -25,37 +38,73 @@ test("scan video URLs must be http(s)", () => {
 test("localhost, LAN and Tailscale origins may call the API", () => {
   assert.equal(isAllowedOrigin("http://127.0.0.1:5173"), true);
   assert.equal(isAllowedOrigin("http://localhost:5173"), true);
+  assert.equal(isAllowedOrigin("http://192.168.1.20:5173"), true);
+  assert.equal(isAllowedOrigin("http://10.0.0.4:8787"), true);
+  assert.equal(isAllowedOrigin("null"), true);
   assert.equal(isAllowedOrigin("http://100.64.12.8:5173"), true);
   assert.equal(isAllowedOrigin("https://machine.ts.net"), true);
-  assert.equal(isAllowedOrigin("http://192.168.1.20:5173"), true);
-  assert.equal(isAllowedOrigin("null"), true);
   assert.equal(isAllowedOrigin("https://evil.example"), false);
+  assert.equal(isPrivateLanHost("192.168.1.20"), true);
+  assert.equal(isPrivateLanHost("100.64.1.2"), false);
+  assert.equal(isPrivateLanHost("phone.ts.net"), false);
 });
 
 test("the browser points the video element at the local proxy", () => {
   assert.equal(
-    scanVideoProxyUrl("https://phone.ts.net/clip.mp4", ""),
-    "/api/scan/video?url=https%3A%2F%2Fphone.ts.net%2Fclip.mp4",
+    scanVideoProxyUrl("http://192.168.1.20/clip.mp4", ""),
+    "/api/scan/video?url=http%3A%2F%2F192.168.1.20%2Fclip.mp4",
   );
+  assert.equal(scanVideoInboxUrl(""), "/api/scan/video");
   assert.ok(SCAN_VIDEO_MAX_BYTES >= 8 * 1024 * 1024);
+});
+
+test("phone room video is a 30s LAN inbox", () => {
+  resetRoomVideo();
+  assert.equal(roomVideoMeta().ready, false);
+  assert.equal(ROOM_VIDEO_MAX_SECONDS, 30);
+  const stored = storeRoomVideo({ buffer: Buffer.from("fake-mp4"), contentType: "video/mp4", name: "room.mp4" });
+  assert.equal(stored.ready, true);
+  assert.equal(stored.maxSeconds, 30);
+  assert.ok(stored.id);
+  resetRoomVideo();
+  const pack = phoneUploadUrls({ apiPort: 8787 });
+  const urls = pack.urls || [];
+  assert.ok(urls.length >= 1 || pack.url);
+  for (const url of urls) {
+    assert.match(url, /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+\/phone-upload$/);
+    assert.doesNotMatch(url, /ts\.net|100\.64\./);
+  }
 });
 
 test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", () => {
   const server = read("server/index.js");
   const html = read("client/index.html");
+  const phone = read("server/phone-upload.html");
   const main = read("client/src/main.js");
   const house = read("client/src/house.js");
+  const readme = read("README.md");
+  const vite = read("client/vite.config.js");
   assert.match(server, /\/api\/scan\/video/);
+  assert.match(server, /\/phone-upload/);
+  assert.match(vite, /\/phone-upload/);
   assert.match(server, /parseVideoUrl/);
   assert.match(server, /isAllowedOrigin/);
   assert.match(html, /id="scan-video"/);
   assert.match(html, /id="scan-video-url"/);
   assert.match(html, /id="scan-camera-preview"/);
   assert.match(html, /id="scan-camera-capture"/);
+  assert.match(html, /Send from phone/);
+  assert.match(html, /id="scan-phone-link"/);
+  assert.match(html, /id="scan-phone-url"/);
+  assert.match(html, /id="scan-phone-qr"/);
   assert.doesNotMatch(html, /data-lab="ar"/);
   assert.match(html, /id="scan-scale-frame"/);
   assert.match(html, /Tap two points/);
   assert.match(html, /id="room-scale-kind"/);
+  assert.match(html, /\/api\/scan\/video/);
+  assert.match(phone, /30s/);
+  assert.match(phone, /\/api\/scan\/video/);
+  assert.match(phone, /MAX_MS = 30_000/);
   assert.match(main, /grabVideoFrames/);
   assert.match(main, /grabLiveFrames/);
   assert.match(main, /getUserMedia/);
@@ -63,4 +112,79 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(main, /resolveScanScale|scaleKind/);
   assert.match(house, /resolveRoomScale/);
   assert.match(house, /room-scale-kind/);
+  assert.match(house, /applyRoomFrames/);
+  assert.match(house, /scan-phone-url/);
+  assert.match(readme, /Send from phone/);
+  assert.match(readme, /phone-upload/);
+  assert.match(readme, /\/api\/scan\/video/);
+  assert.match(readme, /tailscale serve --bg 5173/);
+  assert.match(readme, /curl -T clip\.mp4/);
+  assert.match(server, /app\.post\("\/api\/scan\/video"/);
+  assert.match(main, /pullScanInbox/);
+  assert.match(main, /scanVideoPost/);
+});
+
+test("POST stores video bytes and frames for a later GET inbox pull", () => {
+  resetScanInbox();
+  const png = decodeBase64Payload("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+  const stored = storeScanFrames([
+    { name: "front.png", mime: "image/png", data: png.toString("base64") },
+    { name: "side.png", mime: "image/png", buffer: png },
+    { name: "top.png", mime: "image/png", data: png.toString("base64") },
+  ]);
+  assert.equal(stored.ok, true);
+  assert.equal(stored.kind, "frames");
+  assert.equal(stored.count, 3);
+  const inbox = inboxGetPayload();
+  assert.equal(inbox.kind, "frames");
+  assert.equal(inbox.json.frames.length, 3);
+  assert.ok(inbox.json.frames[0].data.length > 0);
+
+  resetScanInbox();
+  const video = storeScanVideo({ buffer: Buffer.from("ftypisom"), contentType: "video/mp4", name: "clip.mp4" });
+  assert.equal(video.kind, "video");
+  assert.equal(inboxGetPayload().kind, "video");
+  assert.equal(inboxGetPayload().buffer.toString(), "ftypisom");
+});
+
+test("the phone QR encodes a LAN phone-upload URL", async () => {
+  const { qrMatrix, qrSvg } = await import("../client/src/qr.js");
+  const url = "http://192.168.1.20:5173/phone-upload";
+  const matrix = qrMatrix(url);
+  assert.ok(matrix.length >= 25 && matrix.length === matrix[0].length);
+  const finder = (row, col) => {
+    for (let y = 0; y < 7; y += 1) {
+      for (let x = 0; x < 7; x += 1) {
+        const on = x === 0 || x === 6 || y === 0 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
+        if (matrix[row + y][col + x] !== (on ? 1 : 0)) return false;
+      }
+    }
+    return true;
+  };
+  assert.equal(finder(0, 0), true);
+  assert.equal(finder(0, matrix.length - 7), true);
+  assert.equal(finder(matrix.length - 7, 0), true);
+  const svg = qrSvg(url);
+  assert.match(svg, /<svg/);
+  assert.match(svg, /fill="#111"/);
+});
+
+test("multipart scan posts split into a video part and image frames", () => {
+  const boundary = "----IkealiveScan";
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="clip.mp4"\r\nContent-Type: video/mp4\r\n\r\n`,
+    ),
+    Buffer.from("VIDEO"),
+    Buffer.from(
+      `\r\n--${boundary}\r\nContent-Disposition: form-data; name="front"; filename="front.png"\r\nContent-Type: image/png\r\n\r\n`,
+    ),
+    Buffer.from("PNG"),
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const parts = parseMultipartParts(body, `multipart/form-data; boundary=${boundary}`);
+  const classified = classifyScanParts(parts);
+  assert.equal(classified.video.buffer.toString(), "VIDEO");
+  assert.equal(classified.frames.length, 1);
+  assert.equal(classified.frames[0].name, "front.png");
 });

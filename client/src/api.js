@@ -130,4 +130,22 @@ export const api = {
   scanPlan: (body) => post("/api/ikeafy/scan-plan", body),
   scanVideoUrl: (url) => `/api/scan/video?url=${encodeURIComponent(url)}`,
   scanVideoPost: (body) => post("/api/scan/video", body),
+  phoneLink: () => req("/api/scan/phone-link"),
+  scanInbox: () => req("/api/scan/inbox"),
+  lan: () => req("/api/scan/phone-link"),
+  roomVideoMeta: () => req("/api/scan/inbox"),
+  roomVideoFile: async () => {
+    const res = await fetch(`${apiRoot()}/api/phone/room-video/file`);
+    if (!res.ok) {
+      let reason = "No room video yet.";
+      try {
+        const body = await res.json();
+        reason = body?.reason || reason;
+      } catch {
+        // ignore
+      }
+      throw new Error(reason);
+    }
+    return res.blob();
+  },
 };

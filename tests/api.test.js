@@ -33,8 +33,14 @@ test("scan video proxy is a local same-origin fetch, not a paid model", () => {
   const server = readFileSync(path.join(root, "server/index.js"), "utf8");
   const api = readFileSync(path.join(root, "client/src/api.js"), "utf8");
   assert.match(server, /\/api\/scan\/video/);
+  assert.match(server, /\/api\/phone\/room-video/);
   assert.match(server, /SCAN_VIDEO_MAX_BYTES/);
+  assert.match(server, /app\.post\("\/api\/scan\/video"/);
+  assert.match(server, /app\.post\("\/api\/phone\/room-video"/);
   assert.match(api, /scanVideoUrl/);
+  assert.match(api, /scanVideoPost/);
+  assert.match(api, /roomVideoMeta/);
+  assert.match(api, /roomVideoFile/);
 });
 
 async function waitForHealth(url, timeoutMs = 20_000) {
@@ -195,4 +201,52 @@ test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => 
 
   const workshop = readFileSync(path.join(root, "client/src/workshop.js"), "utf8");
   assert.match(workshop, /shape === "bracket"/);
+});
+
+test("POST /api/scan/video stores frames and GET returns the inbox", async (t) => {
+  const port = 23000 + (process.pid % 1000);
+  const child = spawn(process.execPath, ["server/index.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), OPENAI_API_KEY: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => child.kill("SIGTERM"));
+  const base = `http://127.0.0.1:${port}`;
+  await waitForHealth(`${base}/api/health`);
+
+  const empty = await fetch(`${base}/api/scan/video`);
+  assert.equal(empty.status, 404);
+
+  const pixel =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const posted = await fetch(`${base}/api/scan/video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      frames: [
+        { name: "front.png", mime: "image/png", data: pixel },
+        { name: "side.png", mime: "image/png", data: pixel },
+        { name: "top.png", mime: "image/png", data: pixel },
+      ],
+    }),
+  });
+  assert.equal(posted.status, 200);
+  const stored = await posted.json();
+  assert.equal(stored.ok, true);
+  assert.equal(stored.kind, "frames");
+  assert.equal(stored.count, 3);
+
+  const inbox = await fetch(`${base}/api/scan/video`);
+  assert.equal(inbox.status, 200);
+  const body = await inbox.json();
+  assert.equal(body.kind, "frames");
+  assert.equal(body.frames.length, 3);
+
+  const raw = await fetch(`${base}/api/scan/video`, {
+    method: "POST",
+    headers: { "Content-Type": "video/mp4" },
+    body: Buffer.from("ftypisom"),
+  });
+  assert.equal(raw.status, 200);
+  assert.equal((await raw.json()).kind, "video");
 });

@@ -86,17 +86,21 @@ When a furniture model is ready, **Finish & build** matches real hardware, prepa
 
 Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
-House uses single-photo and multi-file room inputs. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
+House uses single-photo and multi-file uploads, or a ~30s walk sent from a phone. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
 
 ---
 
-Lab → **Scan** accepts aligned front, side, and top photos, the live browser/Electron camera, extra stills, a walk-around video, or a video URL. Video and camera stills populate the same three-view inputs and reconstruct into a mesh on the Bench. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`).
+Lab → **Scan** accepts aligned front, side, and top photos, the live browser/Electron camera, extra stills, or a walk-around video. Video and camera stills populate the same three-view inputs and reconstruct into a mesh on the Bench. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`).
 
 Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
 
-### Tailscale (optional)
+### Send from phone
 
-`npm run dev` already binds the app on `0.0.0.0:5173`. On a tailnet, open that site from another device, then send a video URL or frames into Lab → **Scan** (paste the URL and **Pull frames**, or upload the clip). Stills are grabbed in the browser; the API only proxies the file so CORS does not block a phone on MagicDNS. Nothing is uploaded to a paid reconstruction model.
+Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
+
+`http://<lan-ip>:5173/phone-upload`
+
+(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). On the phone, record or upload a ~30s walk around the room. The page POSTs the clip to `/api/scan/video`. The Lab computer pulls stills in the browser and rebuilds the 3D house. Nothing is uploaded to a paid reconstruction model. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
 
 ---
 

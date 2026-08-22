@@ -330,7 +330,7 @@ test("dead simulation controls stay out of the Lab", () => {
 });
 
 test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out"]) {
+  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -418,6 +418,11 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.equal(existsSync(path.join(root, ".next")), false, ".next is leftover Next build output");
   assert.equal(existsSync(path.join(root, "next-env.d.ts")), false);
   assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
+});
+
+test("retail links never fall back to a bare Shop label", () => {
+  assert.doesNotMatch(studio, /\|\|\s*"Shop"/, "unnamed retailers read as View, not Shop");
+  assert.doesNotMatch(html, />\s*Shop\s*</);
 });
 
 test("askShop applies creative-desk add, camera, label, and isolate", () => {
@@ -564,6 +569,8 @@ test("the shop is a bottom-right AI circle with chat, voice, history, and scene"
   assert.match(html, /id="ai-history"/);
   assert.match(html, /id="chat-form"/);
   assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="many-agents-note"/);
+  assert.match(html, /build this furniture/);
   const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
   assert.doesNotMatch(inspector, /id="chat-form"/);
   const css = read("client/src/styles.css");

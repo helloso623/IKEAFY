@@ -200,6 +200,7 @@ test("the room panel takes many photos and the stage has a 3D scene canvas", () 
   assert.match(html, /id="scan-camera-capture"/);
   assert.match(html, /id="room-scene"/);
   assert.match(html, /id="house-view-btn"/);
+  assert.match(html, /id="scan-phone-url"/);
   assert.match(html, /id="room-photo"/, "the single room photo input stays");
   const css = read("client/src/styles.css");
   assert.match(css, /#app\.mode-lab\[data-lab="house"\] #room-scene/, "the same scene shows in House");
@@ -216,7 +217,8 @@ test("house.js regenerates the house as a textured 3D scene", () => {
   assert.match(house, /wallBoxes/, "walls come from the vanishing-line heuristic");
   assert.match(house, /CanvasTexture/, "surfaces are textured from the photos");
   assert.match(house, /room-photos/);
-  assert.doesNotMatch(house, /getUserMedia/, "camera capture belongs to Scan, not House");
+  assert.match(house, /applyRoomFrames/, "the 30s phone clip becomes room frames");
+  assert.match(house, /scan-phone-url/);
   assert.match(house, /api\.adapt/, "adapt still works");
   assert.match(house, /api\.scan/, "the catalog scan still works");
   assert.match(house, /scanFits\(\)/, "the room scan keeps its trigger");

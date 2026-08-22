@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Send a 30s room video — IKEAlive</title>
+    <style>
+      :root {
+        --ink: #111;
+        --paper: #fff;
+        --soft: #5c5c5c;
+        --line: #ecece8;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); }
+      body {
+        font: 400 17px/1.5 "DM Sans", system-ui, sans-serif;
+        padding: 1.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+        max-width: 28rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-family: Newsreader, Georgia, serif;
+        font-size: 1.85rem;
+        font-weight: 500;
+        margin: 0.4rem 0 0.5rem;
+      }
+      p { color: var(--soft); margin: 0 0 1rem; }
+      video {
+        width: 100%;
+        max-height: 42vh;
+        background: #111;
+        border-radius: 14px;
+        object-fit: cover;
+        margin-bottom: 1rem;
+      }
+      video.hidden { display: none; }
+      button, label.file {
+        display: block;
+        width: 100%;
+        text-align: center;
+        border-radius: 999px;
+        padding: 0.85rem 1rem;
+        font: inherit;
+        font-weight: 600;
+        margin: 0 0 0.65rem;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #111;
+        color: #fff;
+        border: 1px solid #111;
+      }
+      button.quiet, label.file {
+        background: #fff;
+        color: #111;
+        border: 1px solid var(--line);
+      }
+      input[type="file"] { display: none; }
+      #status { min-height: 1.4em; }
+      #status.ok { color: #2f6f3e; }
+      #status.bad { color: #b42318; }
+    </style>
+  </head>
+  <body>
+    <p style="letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; color: #8a8a8a; margin: 0;">IKEAlive Lab</p>
+    <h1>Walk the room for ~30s</h1>
+    <p>Same Wi‑Fi as the Lab computer. Record a slow pan, or upload a clip. It posts to this machine only — frames are pulled in the browser and the house is rebuilt there.</p>
+    <video id="preview" autoplay muted playsinline></video>
+    <button type="button" class="primary" id="record">Record 30s</button>
+    <label class="file">
+      Upload a clip
+      <input id="file" type="file" accept="video/*" />
+    </label>
+    <p id="status">Waiting to record.</p>
+    <script>
+      const MAX_MS = 30_000;
+      const preview = document.getElementById("preview");
+      const recordBtn = document.getElementById("record");
+      const statusEl = document.getElementById("status");
+      const fileInput = document.getElementById("file");
+      let stream = null;
+      let recorder = null;
+      let chunks = [];
+      let timer = null;
+      let tick = null;
+      let startedAt = 0;
+
+      function say(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = kind || "";
+      }
+
+      function mimeType() {
+        const types = [
+          "video/webm;codecs=vp8,opus",
+          "video/webm;codecs=vp8",
+          "video/webm",
+          "video/mp4",
+        ];
+        for (const type of types) {
+          if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(type)) return type;
+        }
+        return "";
+      }
+
+      async function openCamera() {
+        if (stream) return stream;
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("This browser cannot record. Upload a clip instead.");
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        preview.srcObject = stream;
+        preview.classList.remove("hidden");
+        await preview.play().catch(() => {});
+        return stream;
+      }
+
+      function stopRecorder() {
+        if (timer) clearTimeout(timer);
+        if (tick) clearInterval(tick);
+        timer = null;
+        tick = null;
+        if (recorder && recorder.state === "recording") recorder.stop();
+      }
+
+      async function postClip(blob) {
+        if (!blob || !blob.size) throw new Error("That clip was empty.");
+        say("Sending to Lab…");
+        const file = new File([blob], blob.type.includes("mp4") ? "room.mp4" : "room.webm", {
+          type: blob.type || "video/webm",
+        });
+        const body = new FormData();
+        body.append("video", file, file.name);
+        const res = await fetch("/api/scan/video", { method: "POST", body });
+        const text = await res.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+        if (!res.ok) throw new Error(json?.reason || text || "Could not send that clip.");
+        say("Sent. The Lab computer will pull frames and rebuild the room.", "ok");
+      }
+
+      async function startRecording() {
+        chunks = [];
+        await openCamera();
+        const type = mimeType();
+        recorder = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size) chunks.push(ev.data);
+        };
+        recorder.onstop = async () => {
+          recordBtn.textContent = "Record 30s";
+          recordBtn.disabled = false;
+          const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+          try {
+            await postClip(blob);
+          } catch (err) {
+            say(err?.message || "Could not send that clip.", "bad");
+          }
+        };
+        recorder.start(250);
+        startedAt = Date.now();
+        recordBtn.textContent = "Stop";
+        say("Recording… 30s left");
+        tick = setInterval(() => {
+          const left = Math.max(0, Math.ceil((MAX_MS - (Date.now() - startedAt)) / 1000));
+          say(`Recording… ${left}s left`);
+        }, 250);
+        timer = setTimeout(stopRecorder, MAX_MS);
+      }
+
+      recordBtn.addEventListener("click", async () => {
+        try {
+          if (recorder && recorder.state === "recording") {
+            stopRecorder();
+            return;
+          }
+          recordBtn.disabled = true;
+          await startRecording();
+          recordBtn.disabled = false;
+        } catch (err) {
+          recordBtn.disabled = false;
+          say(err?.message || "Could not start the camera.", "bad");
+        }
+      });
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        fileInput.value = "";
+        if (!file) return;
+        try {
+          await postClip(file);
+        } catch (err) {
+          say(err?.message || "Could not send that clip.", "bad");
+        }
+      });
+    </script>
+  </body>
+</html>
