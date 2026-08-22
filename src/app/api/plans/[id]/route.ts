@@ -6,17 +6,17 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await ctx.params;
-  const n = Number(id);
-  if (Number.isNaN(n)) {
-    return NextResponse.json({ error: "Invalid plan id" }, { status: 400 });
+  const { id } = await params;
+  const numId = Number(id);
+  if (!Number.isFinite(numId)) {
+    return NextResponse.json({ error: "Invalid id." }, { status: 400 });
   }
 
-  const plan = getPlan(n);
+  const plan = getPlan(numId);
   if (!plan) {
-    return NextResponse.json({ error: "Plan not found" }, { status: 404 });
+    return NextResponse.json({ error: "Plan not found." }, { status: 404 });
   }
 
   return NextResponse.json({ plan });

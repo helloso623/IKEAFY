@@ -5,6 +5,8 @@ import { parseGuide } from "@/lib/parse";
 import { findProductPlan, generateGenericPlan } from "@/lib/samplePlans";
 import type { BuildPlan } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 type ParseRequestBody = {
   sourceType?: "guide" | "product";
   text?: string;
@@ -18,7 +20,7 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as ParseRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
   const { sourceType, text, productName, instructions, title } = body;
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
   if (sourceType === "guide") {
     if (typeof text !== "string" || text.trim() === "") {
       return NextResponse.json(
-        { error: "text is required for guide sources" },
+        { error: "text is required for guide sources." },
         { status: 400 },
       );
     }
@@ -36,10 +38,11 @@ export async function POST(request: Request) {
   } else if (sourceType === "product") {
     if (typeof productName !== "string" || productName.trim() === "") {
       return NextResponse.json(
-        { error: "productName is required for product sources" },
+        { error: "productName is required for product sources." },
         { status: 400 },
       );
     }
+
     const sample = findProductPlan(productName);
     if (sample) {
       plan = sample;
@@ -51,7 +54,7 @@ export async function POST(request: Request) {
     }
   } else {
     return NextResponse.json(
-      { error: "sourceType must be 'guide' or 'product'" },
+      { error: "sourceType must be 'guide' or 'product'." },
       { status: 400 },
     );
   }
