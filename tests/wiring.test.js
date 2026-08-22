@@ -139,11 +139,17 @@ test("Lab loadCatalog hides electronics, cables, and bench irons", () => {
   assert.doesNotMatch(html, /Arduino Nano|ESP32|Half breadboard|Soldering iron|Digital multimeter|Printable lamp enclosure/);
 });
 
-test("the bench catalog scrolls in one well of sample cards", () => {
+test("the bench catalog ids stay hidden and empty — no parts shelf", () => {
   assert.match(html, /id="catalog-well"/);
   assert.match(html, /id="catalog"/);
+  assert.doesNotMatch(html, /catalog-panel/);
+  assert.doesNotMatch(html, /Filter library/);
+  assert.doesNotMatch(html, /parts in the catalogue/);
+  assert.match(html, /class="hidden"[^>]*>[\s\S]*id="catalog-well"/);
   const css = read("client/src/styles.css");
   assert.match(css.replace(/\s+/g, " "), /#catalog-well[^}]*overflow-y: auto/);
+  assert.doesNotMatch(main, /data-add="\$\{p\.id\}"/);
+  assert.match(main, /shelf\.replaceChildren\(\)/);
 });
 
 test("lab tests stay behind a details fold", () => {
@@ -265,6 +271,20 @@ test("bench editing controls are wired for furniture first", () => {
   assert.match(apiSource, /^\s{2}redo:/m);
 });
 
+test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
+  const workshop = read("client/src/workshop.js");
+  const start = workshop.indexOf("export function createWorkshop");
+  const created = workshop.slice(start, workshop.indexOf("const group = new THREE.Group()", start));
+  assert.doesNotMatch(created, /new THREE\.GridHelper/);
+  assert.match(created, /polygonOffset:\s*true/);
+  assert.match(created, /floor\.receiveShadow\s*=\s*false/);
+  assert.match(created, /floor\.position\.y\s*=\s*-0\.12/);
+  assert.doesNotMatch(workshop, /new THREE\.GridHelper/);
+  assert.match(workshop, /floor\.receiveShadow\s*=\s*false/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*true/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*!lookOn/);
+});
+
 test("empty inspect is quiet — no ports, no Arduino", () => {
   const start = html.indexOf('id="inspect"');
   const block = html.slice(start, html.indexOf("</div>", start) + 6);
@@ -282,8 +302,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /class="[^"]*lab-browser/, "left pane is the Fusion-style browser");
   assert.match(html, /class="[^"]*lab-viewport/, "center pane is the CAD viewport");
   assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
-  assert.match(html, /Catalog/);
   assert.match(html, /Bodies/);
+  assert.doesNotMatch(html, /Add · Catalog/);
   assert.match(html, /Parameters/);
   assert.match(html, /Functions/);
   assert.doesNotMatch(html, /Parameters · Functions · Nets/);

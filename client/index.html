@@ -215,10 +215,11 @@
       </aside>
 
       <!-- ============ LAB — outliner (scene collection / bodies) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Outliner">
+      <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Outliner</span>
           <strong class="lab-pane-title">Scene Collection</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <div class="pane bench-nav lab-tree">
           <details class="lab-folder lab-outliner" open>
@@ -273,22 +274,16 @@
               </div>
             </div>
           </details>
-          <details class="lab-folder catalog-panel" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
-              Add · Catalog
-            </summary>
-            <div class="lab-folder-body">
-              <div class="lab-filter">
-                <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
-                <input id="search" type="search" placeholder="Filter library" />
-              </div>
-              <p class="hint lab-hint" id="catalog-hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalogue.</p>
-              <div id="catalog-well" class="well scroll samples lab-well">
-                <div id="catalog" class="list samples"></div>
-              </div>
+          <!-- Shelf IDs stay for wiring tests. Lab adds via scan / AI / sketch — no parts list. -->
+          <div class="hidden" aria-hidden="true">
+            <span>Catalog</span>
+            <input id="cost" type="number" min="0" step="1" />
+            <input id="search" type="search" />
+            <p id="catalog-hint"><span id="catalog-count">0</span></p>
+            <div id="catalog-well">
+              <div id="catalog"></div>
             </div>
-          </details>
+          </div>
           <details class="lab-folder" id="lab-room">
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
@@ -320,11 +315,26 @@
             </div>
           </details>
         </div>
+        <div
+          class="lab-split"
+          id="lab-split-left"
+          data-lab-split="left"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-browser"
+          aria-label="Resize outliner"
+          tabindex="0"
+        ></div>
       </aside>
 
       <div class="lab-viewport" aria-hidden="true">
+        <button type="button" class="lab-edge-tab lab-edge-left" id="lab-show-left" data-lab-toggle="left" title="Show outliner ([)" hidden>[</button>
+        <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
         <div class="lab-view-bar">
           <div class="lab-view-tools" id="edit-tools">
+            <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
+            <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
+            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" data-edit="translate">Move</button>
             <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
             <button type="button" class="lab-tool" data-edit="scale">Scale</button>
@@ -369,10 +379,11 @@
       </div>
 
       <!-- ============ LAB — right inspector (parameters / functions) ============ -->
-      <aside class="rail right lab-inspector hidden" data-pane="lab" aria-label="Inspector">
+      <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
           <strong class="lab-pane-title">Parameters · Functions</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
@@ -458,6 +469,16 @@
             <button type="submit" class="primary">Send</button>
           </form>
         </div>
+        <div
+          class="lab-split"
+          id="lab-split-right"
+          data-lab-split="right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-inspector"
+          aria-label="Resize inspector"
+          tabindex="0"
+        ></div>
       </aside>
     </div>
     <script>

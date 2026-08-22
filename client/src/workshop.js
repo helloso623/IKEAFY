@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -597,9 +598,10 @@ export function createWorkshop(canvas) {
 
   const floorMap = grayWoodMap({ planks: 12, seed: 2 });
   floorMap.repeat.set(3, 3);
-  // One ground only. Bench occupies y in [-0.06, 0]; the floor sits 2 mm under
-  // that box so nothing shares y = 0 with the worktop. No GridHelper — it
-  // was a second surface on the same plane and flickered through the wood.
+  // One ground only. A GridHelper on y = 0 sat on the same plane as this
+  // disk and the bench top — do not add one back. Sink the mesh, offset
+  // its depth, and never receiveShadow: shadow maps on a huge coplanar
+  // ground flicker even after the helper is gone.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
@@ -613,9 +615,10 @@ export function createWorkshop(canvas) {
     }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.062;
+  floor.position.y = -0.12;
   floor.renderOrder = -1;
-  floor.receiveShadow = true;
+  floor.receiveShadow = false;
+  floor.castShadow = false;
   floor.userData.baseMaterial = floor.material;
   scene.add(floor);
 
@@ -784,7 +787,7 @@ export function createWorkshop(canvas) {
     fill.intensity = lookOn ? 0 : 0.32;
     rim.intensity = lookOn ? 0 : 0.18;
     hemi.intensity = lookOn ? 1 : 0.9;
-    floor.receiveShadow = !lookOn;
+    floor.receiveShadow = false;
     bench.receiveShadow = !lookOn;
   }
 

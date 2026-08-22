@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
+import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
@@ -188,7 +189,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask the shop.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -223,31 +224,9 @@ function activeQuery() {
   return String(focused?.value ?? $("omnibox")?.value ?? $("search")?.value ?? "");
 }
 
-function catalogEmptyHtml(typed, budget) {
-  const query = escapeHtml(String(typed || "").trim());
-  const cap = budget ? ` under $${escapeHtml(budget)}` : "";
-  if (query) {
-    return `<div class="hint empty-catalog">Nothing on the shelf matches “${query}”${cap}. Try a shorter name, or <button type="button" class="quiet" data-ask="${query}">Ask the shop</button>.</div>`;
-  }
-  return `<p class="hint empty-catalog">Nothing on the shelf${cap}. Raise the budget or clear the filter.</p>`;
-}
-
-function updateCatalogHint(parts, typed) {
-  const hint = $("catalog-hint");
-  const query = String(typed || "").trim();
-  const count = parts.length;
-  if (!hint) {
-    const node = $("catalog-count");
-    if (node) node.textContent = String(count);
-    return;
-  }
-  if (query && !count) {
-    hint.innerHTML = `No matches for “${escapeHtml(query)}”. Ask, or try “table” or “lack”.`;
-  } else if (query) {
-    hint.innerHTML = `<span id="catalog-count">${count}</span> match${count === 1 ? "" : "es"} for “${escapeHtml(query)}”.`;
-  } else {
-    hint.innerHTML = `The shelf scrolls — <span id="catalog-count">${count}</span> parts in the catalogue.`;
-  }
+function updateCatalogHint(parts) {
+  const node = $("catalog-count");
+  if (node) node.textContent = String(parts.length);
 }
 
 function isLabShelfPart(part) {
@@ -267,17 +246,9 @@ async function loadCatalog(raw) {
   if (budget) q.maxCost = budget;
   const parts = (await api.catalog(q)).filter(isLabShelfPart);
   for (const p of parts) partsById[p.id] = p;
-  updateCatalogHint(parts, typed);
+  updateCatalogHint(parts);
   const shelf = $("catalog");
-  if (!shelf) return;
-  shelf.innerHTML = parts.length
-    ? parts
-        .map(
-          (p) =>
-            `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>${money(p.cost)}${p.store ? ` · ${p.store}` : ""}</small></div>`,
-        )
-        .join("")
-    : catalogEmptyHtml(typed, budget);
+  if (shelf) shelf.replaceChildren();
 }
 
 function appendChat(who, text, backend) {
@@ -714,7 +685,7 @@ function labHud(space) {
   if (space === "house") return "House sits with the bench. Measure the room, then open AR for the overlay.";
   return project.pieces.length
     ? "Desk — pick a piece on the bench, or fit it in the room."
-    : "Desk — add a piece from the shelf, or measure the room below.";
+    : "Desk — scan, sketch, or ask the shop, or measure the room below.";
 }
 
 function setLabSpace(space) {
@@ -913,6 +884,13 @@ async function boot() {
   await loadCatalog();
   await refreshProject();
   initLabStrip({ api, shop, hud, getProject: () => project, partsById, refreshProject });
+  initLabLayout({
+    root: $("app"),
+    isLab,
+    onChange() {
+      shop.resize();
+    },
+  });
   setMode("ikeafy");
   hud(
     health.video?.live
