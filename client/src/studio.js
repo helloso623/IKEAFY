@@ -141,24 +141,35 @@ export function initStudio({ api, hud = () => {} } = {}) {
       : `Your guide · step ${cursor} of ${total} · edit or skip as you like`;
   }
 
+  function currentStepNumber() {
+    return state.reel[state.clipIndex]?.number || state.run?.cursor || 1;
+  }
+
+  function clipCaption(clip) {
+    return clip?.frames?.[1]?.caption || clip?.frames?.[0]?.caption || "";
+  }
+
   function renderSteps() {
     if (!el.steps) return;
     el.steps.replaceChildren();
     const editable = state.run ? state.run.canEdit : false;
     el.steps.dataset.editable = String(editable);
+    el.steps.dataset.jump = String(Boolean(state.reel.length));
+    const active = currentStepNumber();
 
     for (const item of state.outline) {
       const row = document.createElement("div");
       row.className = "item";
       row.dataset.step = String(item.number);
-      row.classList.toggle("active", item.number === state.run?.cursor);
-      row.classList.toggle("locked", Boolean(item.locked));
+      row.classList.toggle("active", item.number === active);
+      row.classList.toggle("locked", Boolean(item.locked) && !state.reel.length);
       row.classList.toggle("done", item.state === "done");
 
+      const clip = state.reel.find((entry) => entry.number === item.number);
       const body = document.createElement("span");
       body.textContent = item.readable
         ? `${item.number}. ${item.action ? `${item.action} — ` : ""}${item.body || ""}`
-        : `${item.number}. ${item.preview || "Locked until you get there."}`;
+        : `${item.number}. ${clipCaption(clip) || item.preview || "In the reel."}`;
       if (editable && item.readable) {
         body.contentEditable = "true";
         body.setAttribute("role", "textbox");
@@ -167,7 +178,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       row.append(body);
 
       const meta = document.createElement("small");
-      meta.textContent = item.confirmed ? "done" : item.locked ? "locked" : item.toolRequired || "hands";
+      meta.textContent = item.confirmed ? "done" : item.toolRequired || "jump";
       row.append(meta);
       el.steps.append(row);
     }
@@ -222,19 +233,31 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  function renderConfirm() {
-    const locked = Boolean(state.run?.locked);
-    if (el.confirm) {
-      el.confirm.checked = false;
-      el.confirm.disabled = !state.watched;
+  function renderTransport() {
+    const last = Math.max(0, state.reel.length - 1);
+    if (el.back) el.back.disabled = !state.reel.length || state.clipIndex <= 0;
+    if (el.next) el.next.disabled = !state.reel.length || state.clipIndex >= last;
+    if (el.play) {
+      el.play.disabled = !state.reel.length;
+      el.play.textContent = state.playingOn ? "Stop" : "Play";
+      el.play.setAttribute("aria-pressed", String(Boolean(state.playingOn)));
     }
-    setOut(
-      el.confirmLabel,
-      state.step?.confirmPrompt ||
-        (locked ? "Confirm this step before the next plate." : "Mark this step done."),
-    );
-    if (el.next) el.next.disabled = locked ? true : !state.watched;
-    if (el.skip) el.skip.classList.toggle("refuses", locked);
+    renderScrub();
+  }
+
+  function renderScrub() {
+    if (!el.scrub) return;
+    el.scrub.replaceChildren();
+    for (const [index, clip] of state.reel.entries()) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = String(clip.number);
+      btn.dataset.step = String(clip.number);
+      btn.dataset.clip = String(index);
+      btn.title = clipCaption(clip) || `Step ${clip.number}`;
+      if (index === state.clipIndex) btn.setAttribute("aria-current", "true");
+      el.scrub.append(btn);
+    }
   }
 
   function renderFittings() {
@@ -253,11 +276,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = view.step || null;
     state.outline = view.outline || [];
     state.guide = view.guide || state.guide;
-    state.watched = false;
     renderLockBanner();
     renderSteps();
     renderBom();
-    renderConfirm();
+    renderTransport();
     renderFittings();
     return view;
   }
@@ -270,8 +292,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      await playCurrent();
-      announce(`${state.guide?.title || "Official guide"} — one plate at a time, in order.`);
+      await bootReel();
+      announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
       return view;
     } catch (error) {
       return fail(error);
@@ -286,7 +308,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
         announce("Paste a guide first.");
         return null;
       }
-      announce("Turning your guide into a film…");
+      announce("Turning your guide into a Veed reel…");
       const view = await api.runStart({
         mode: "custom",
         guide: raw,
@@ -296,8 +318,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
       applyView(view);
       saveCustom(raw);
       await renderReviews();
-      await playCurrent();
-      announce("Your guide is a film now. This one you can edit and skip.");
+      await bootReel();
+      announce("Your guide is a reel now. Play, next, back, or jump to a step.");
       return view;
     } catch (error) {
       return fail(error);
@@ -335,12 +357,17 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = null;
     state.outline = [];
     state.guide = null;
+    state.reel = [];
+    state.clipIndex = 0;
+    state.frameIndex = 0;
     if (el.guide) el.guide.value = "";
     if (el.notes) el.notes.value = "";
-    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut]) {
+    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
     }
+    hideVideo();
     el.film?.classList.add("hidden");
+    renderTransport();
     try {
       localStorage.removeItem(CUSTOM_SESSION_KEY);
     } catch {
