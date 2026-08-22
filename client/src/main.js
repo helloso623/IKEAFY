@@ -10,6 +10,7 @@ import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
+import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -153,6 +154,7 @@ async function addPartToBench(partId, pose = { x: 0.25, y: 0.28, z: 0.1 }) {
     showPart(part, piece);
   }
   hud(`Added ${part?.name || partId}.`);
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   return piece;
 }
 
@@ -160,10 +162,11 @@ house = initHouse({
   api,
   hud,
   onPhoto() {
-    if (isLab()) setLabSpace("ar");
+    // Fresh photos mean a fresh 3D room — jump straight into it.
+    if (isLab()) setLabSpace("house");
   },
   onPlan() {
-    if (isLab()) setLabSpace("ar");
+    if (isLab()) setLabSpace("house");
   },
   onScene() {
     setMode("lab");
@@ -228,7 +231,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask the shop.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask AI.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -315,7 +318,7 @@ function isElectronicsQuery(query) {
 }
 
 function showElectronicsOn() {
-  return Boolean($("show-electronics")?.checked);
+  return false;
 }
 
 function filterLabCatalog(parts, typed) {
@@ -348,6 +351,42 @@ function appendChat(who, text, backend) {
     if (!log) continue;
     log.insertAdjacentHTML("beforeend", line);
     log.scrollTop = log.scrollHeight;
+  }
+}
+
+const CHAT_HISTORY_KEY = "ikealive.chat.history.v1";
+const COMMAND_HISTORY_KEY = "ikealive.command.history.v1";
+
+function storedList(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistList(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // History is a convenience; private browsing must not break chat.
+  }
+}
+
+const conversationHistory = storedList(CHAT_HISTORY_KEY)
+  .filter((entry) => entry && (entry.role === "user" || entry.role === "assistant") && entry.content)
+  .slice(-24);
+
+function rememberConversation(role, content, extra = {}) {
+  conversationHistory.push({ role, content: String(content || "").trim(), ...extra });
+  if (conversationHistory.length > 24) conversationHistory.splice(0, conversationHistory.length - 24);
+  persistList(CHAT_HISTORY_KEY, conversationHistory);
+}
+
+function restoreConversation() {
+  for (const entry of conversationHistory) {
+    appendChat(entry.role === "user" ? "you" : entry.agent || "AI", entry.content, entry.backend);
   }
 }
 
@@ -415,11 +454,14 @@ function openScanPanel() {
   }
 }
 
-const commandHistory = [];
+const commandHistory = storedList(COMMAND_HISTORY_KEY)
+  .filter((entry) => entry && entry.command)
+  .slice(0, 24);
 
 function recordCommand(command, result) {
   commandHistory.unshift({ command, result: String(result || "").trim() });
   if (commandHistory.length > 24) commandHistory.length = 24;
+  persistList(COMMAND_HISTORY_KEY, commandHistory);
   renderCommandHistory($("ai-history"), commandHistory);
 }
 
@@ -468,9 +510,13 @@ async function applyShopActions(actions) {
       if (action.applied) continue;
       const ids = action.pieceIds?.length ? action.pieceIds : added.map((p) => p.id).filter(Boolean);
       if (ids.length) await api.isolate(ids, action.label || "board");
+    } else if (action.type === "room" && action.room) {
+      setMode("lab");
+      setLabSpace("house");
+      house?.createRoom?.(action.room);
     } else if (action.type === "adaptation" && action.plan) {
       setMode("lab");
-      setLabSpace("ar");
+      setLabSpace("house");
       house?.applyPlan(action.plan);
     } else if (action.type === "firmware") {
       continue;
@@ -481,17 +527,29 @@ async function applyShopActions(actions) {
   return added;
 }
 
-async function askShop(message) {
+let chatQueue = Promise.resolve();
+
+function askShop(message) {
+  const run = () => askShopOnce(message);
+  chatQueue = chatQueue.then(run, run);
+  return chatQueue;
+}
+
+async function askShopOnce(message) {
   const text = String(message || "").trim();
   if (!text) return;
 
   void loadCatalog(text);
   aiDock?.open?.();
 
+  const priorHistory = conversationHistory
+    .slice(-12)
+    .map(({ role, content }) => ({ role, content }));
   appendChat("you", text);
+  rememberConversation("user", text);
   aiDock?.remember(text);
   aiDock?.setOpen(true);
-  hud("Asking the shop…");
+  hud("AI is thinking…");
   try {
 
     const extra = labScenePayload();
@@ -506,21 +564,31 @@ async function askShop(message) {
       },
       scene: extra.scene,
       photoName: extra.photoName,
+      history: priorHistory,
 
     });
-    appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
+    const agentName = reply.agent?.name || "AI";
+    appendChat(agentName, reply.text || "", reply.backend);
+    rememberConversation("assistant", reply.text || "", {
+      agent: agentName,
+      backend: reply.backend || "",
+    });
     await applyShopActions(reply.actions);
     await refreshProject();
+    if (house?.hasScene?.() && (reply.actions || []).some((action) => action?.type === "add" || action?.type === "room")) {
+      house.rebuildHouse3d?.();
+    }
 
     aiDock?.refreshScene();
     recordCommand(text, reply.text || "Done.");
 
-    hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
+    hud(reply.agent?.name ? `${reply.agent.name} answered.` : "AI answered.");
   } catch (err) {
-    const failed = err.message || "The shop could not answer.";
-    appendChat("shop", failed);
+    const failed = err.message || "AI could not answer.";
+    appendChat("AI", failed);
+    rememberConversation("assistant", failed, { agent: "AI" });
     recordCommand(text, failed);
-    hud("The shop could not answer.");
+    hud("AI could not answer.");
   }
 }
 
@@ -537,6 +605,8 @@ aiDock = bindAiDock({
     askShop(query);
   },
 });
+restoreConversation();
+renderCommandHistory($("ai-history"), commandHistory);
 
 
 bindVoice({
@@ -590,10 +660,6 @@ $("cost")?.addEventListener("change", () => {
   loadCatalog(activeQuery());
 });
 
-$("show-electronics")?.addEventListener("change", () => {
-  loadCatalog(activeQuery());
-});
-
 for (const box of searchBoxes()) {
   box.addEventListener("input", () => loadCatalog(box.value));
 }
@@ -608,26 +674,89 @@ function selectedPiece() {
   return { piece, part: partsById[piece.partId] };
 }
 
-function syncFunctionStrip() {
+/* ---- Materials: color, roughness, finish presets on the selected piece ---- */
+
+const MAT_FINISH_TEXTURES = { foil: "birch-foil", wood: "oak-open", metal: "metal" };
+
+function syncMaterialPanel() {
   const picked = selectedPiece();
-  const hint = $("fn-hint");
-  if (hint) {
-    hint.textContent = picked?.piece.reconstructed
-      ? "Scanned meshes can be moved, scaled, duplicated, or deleted locally."
-      : picked
-        ? picked.piece.functionLabel
-        ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
-        : `Assign a job to ${picked.part?.name || "this piece"}.`
-        : "Pick a piece, then assign a job.";
+  const current = picked ? shop.getPieceMaterial?.(picked.piece.id) : null;
+  const disabled = !picked;
+  const colorInput = $("mat-color");
+  if (colorInput) {
+    colorInput.disabled = disabled;
+    if (current?.color) colorInput.value = current.color;
   }
-  const row = $("fn-btns");
-  if (!row) return;
-  for (const btn of row.querySelectorAll("[data-fn]")) {
-    const fn = btn.dataset.fn;
-    btn.disabled = !picked || Boolean(picked.piece.reconstructed);
-    btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
+  const rough = $("mat-rough");
+  if (rough) {
+    rough.disabled = disabled;
+    if (current) rough.value = String(Math.round((current.roughness ?? 0.6) * 100));
+  }
+  const roughOut = $("mat-rough-out");
+  if (roughOut) roughOut.textContent = ((Number(rough?.value) || 0) / 100).toFixed(2);
+  for (const btn of document.querySelectorAll("[data-mat-color]")) btn.disabled = disabled;
+  for (const btn of document.querySelectorAll("[data-mat-finish]")) {
+    btn.disabled = disabled || Boolean(picked?.piece.reconstructed);
+    btn.classList.toggle(
+      "on",
+      Boolean(picked) && MAT_FINISH_TEXTURES[btn.dataset.matFinish] === current?.texture,
+    );
+  }
+  const hint = $("mat-hint");
+  if (hint) {
+    hint.textContent = picked
+      ? picked.piece.reconstructed
+        ? `Scanned mesh — color and roughness apply, finishes need a flat surface.`
+        : `Material on ${picked.part?.name || "this piece"}.`
+      : "Pick a piece, then set its material.";
   }
 }
+
+async function applyMaterial(patch) {
+  const picked = selectedPiece();
+  if (!picked?.piece) return hud("Pick a piece, then set its material.");
+  const id = picked.piece.id;
+  if (patch.roughness != null || patch.color) {
+    shop.setPieceMaterial?.(id, { roughness: patch.roughness, color: patch.color });
+  }
+  if (!picked.piece.reconstructed && (patch.color || patch.texture) && patch.persist !== false) {
+    const result = await api.move({ id, color: patch.color, texture: patch.texture, snap: false });
+    if (result?.ok === false) return hud(result.error || "Could not change that material.");
+    await refreshProject();
+  }
+  syncMaterialPanel();
+  if (patch.texture) {
+    const finish = Object.entries(MAT_FINISH_TEXTURES).find(([, tex]) => tex === patch.texture)?.[0];
+    hud(`${picked.part?.name || "Piece"} refinished as ${finish || patch.texture}.`);
+  } else if (patch.color) {
+    hud(`Painted ${picked.part?.name || "the piece"} ${patch.color}.`);
+  }
+}
+
+$("mat-color")?.addEventListener("input", (ev) => {
+  applyMaterial({ color: ev.target.value, persist: false });
+});
+$("mat-color")?.addEventListener("change", (ev) => {
+  applyMaterial({ color: ev.target.value });
+});
+$("mat-rough")?.addEventListener("input", (ev) => {
+  const roughness = Math.min(1, Math.max(0, Number(ev.target.value) / 100));
+  const out = $("mat-rough-out");
+  if (out) out.textContent = roughness.toFixed(2);
+  applyMaterial({ roughness });
+});
+$("mat-swatches")?.addEventListener("click", (ev) => {
+  const hex = ev.target.closest("[data-mat-color]")?.dataset.matColor;
+  if (!hex) return;
+  const colorInput = $("mat-color");
+  if (colorInput) colorInput.value = hex;
+  applyMaterial({ color: hex });
+});
+$("mat-finish")?.addEventListener("click", (ev) => {
+  const finish = ev.target.closest("[data-mat-finish]")?.dataset.matFinish;
+  const texture = MAT_FINISH_TEXTURES[finish];
+  if (texture) applyMaterial({ texture });
+});
 
 function showPart(part, piece) {
   const lines = [part.name];
@@ -639,10 +768,9 @@ function showPart(part, piece) {
 
   if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
 
-  lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
   syncEditButtons();
-  syncFunctionStrip();
+  syncMaterialPanel();
   aiDock?.refreshScene();
 }
 
@@ -692,108 +820,6 @@ shop.onJoint?.(async ({ moves, joint, label }) => {
   }
 });
 
-$("lab-btns").addEventListener("click", async (ev) => {
-  const test = ev.target.dataset.test;
-  if (!test) return;
-  const piece = shop.getSelected();
-  const partId = piece?.part?.id || "lack-top";
-  const report = await api.physics({
-    partId,
-    tapeId: "tape-gaffer",
-    forceN: test === "speed" ? 12 : 180,
-    rain: $("rain").checked,
-    tempC: Number($("temp").value),
-    aeroMs: 8,
-    flowMs: 2,
-  });
-  const row = report.tests[test] || report.tests.strength;
-  const testName = ev.target.textContent.trim() || test;
-  inspect(
-    `${testName}\n${row.note}\n${report.failed?.length ? "That one did not hold." : "Still in one piece."}`,
-  );
-  shop.setSim(true, {
-    rain: test === "weather" && $("rain").checked,
-    heat: Number($("temp").value) > 40,
-    force: ["strength", "pressure", "speed", "aero"].includes(test),
-  });
-  $("sim-toggle").checked = true;
-  hud(row.note);
-});
-
-$("sim-toggle").addEventListener("change", async (ev) => {
-  if (ev.target.checked) {
-    await api.simStart();
-    shop.setSim(true, { force: true });
-    hud("Play is on. Drag things around. Reset puts them back.");
-  } else {
-    shop.setSim(false);
-  }
-});
-
-$("reset-sim").addEventListener("click", async () => {
-  await api.simReset();
-  await refreshProject();
-  shop.setSim(false);
-  $("sim-toggle").checked = false;
-  hud("Back as it was.");
-});
-
-async function applyTape(id) {
-  const ids = selectedIds.length ? selectedIds : project.pieces.slice(0, 2).map((p) => p.id);
-  await api.tape(id, ids);
-  await refreshProject();
-  hud(id === "tape-electrical" ? "Wrapped electrical tape on the join." : "Wrapped gaffer tape on the join.");
-}
-$("tape-elec").addEventListener("click", () => applyTape("tape-electrical"));
-$("tape-gaff").addEventListener("click", () => applyTape("tape-gaffer"));
-
-$("fn-btns").addEventListener("click", async (ev) => {
-  const fn = ev.target.closest("[data-fn]")?.dataset.fn;
-  if (!fn || !PIECE_FUNCTIONS.includes(fn)) return;
-  const picked = selectedPiece() || shop.getSelected();
-  if (!picked?.piece) return hud("Pick a piece, then assign a job.");
-  await api.label(picked.piece.id, fn);
-  await refreshProject();
-  const piece = project.pieces.find((p) => p.id === picked.piece.id);
-  const part = partsById[piece?.partId] || picked.part;
-  if (part && piece) showPart(part, piece);
-  hud(`${part?.name || "Piece"} is now ${fn}.`);
-});
-
-$("sim-behavior").addEventListener("click", async () => {
-  const rain = Boolean($("rain")?.checked);
-  const tempC = Number($("temp")?.value || 22);
-  hud("Running the behavior suite…");
-  const result = await api.simBehavior({
-    rain,
-    tempC,
-    tapeId: "tape-gaffer",
-    forceN: 180,
-    aeroMs: 8,
-    flowMs: 2,
-  });
-  const notes = (result.notes || []).filter((n) => !/firmware|arduino|sketch/i.test(n));
-  inspect((notes.length ? notes : ["Behavior suite finished."]).join("\n"));
-  hud(notes[0] || "Behavior suite finished.");
-  shop.setSim(true, {
-    rain,
-    heat: tempC > 40,
-    force: true,
-  });
-  $("sim-toggle").checked = true;
-});
-
-$("print-btn").addEventListener("click", async () => {
-  const job = await api.print();
-  const jobs = job.jobs || [];
-  inspect(
-    jobs.length
-      ? ["Ready to print.", ...jobs.map((j) => `${j.name} · about ${j.minutes} min`)].join("\n")
-      : "Nothing here is ready to print.",
-  );
-  hud(jobs.length ? "Ready to print." : "Nothing here is ready to print.");
-});
-
 async function commitPose(pose) {
   if (!pose?.id) return;
 
@@ -819,7 +845,6 @@ async function commitPose(pose) {
 function setEditMode(mode) {
   shop.setMode(mode);
   syncEditButtons();
-  hud(mode === "rotate" ? "Rotate the piece." : mode === "scale" ? "Scale the piece." : "Move the piece.");
 }
 
 function setSnap(on) {
@@ -894,25 +919,18 @@ async function removePiece(id) {
   hud(`Deleted ${partsById[result.removed?.partId]?.name || "that piece"}.`);
 }
 
-$("delete-piece").addEventListener("click", () => {
+function deleteSelected() {
   const id = selectedPieceId();
   if (!id) return hud("Pick a piece, then Delete.");
   removePiece(id);
-});
+}
 
-$("duplicate-piece")?.addEventListener("click", () => duplicateSelected());
-$("undo-edit")?.addEventListener("click", () => undoLastEdit());
-$("redo-edit")?.addEventListener("click", () => redoLastEdit());
-$("edit-snap")?.addEventListener("click", () => setSnap(!shop.getSnap()));
-$("edit-bar")?.addEventListener("click", (ev) => {
-  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
-  if (mode) setEditMode(mode);
-});
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
+  if (ev.target.closest("[data-delete]")) deleteSelected();
   if (ev.target.closest("[data-undo]")) undoLastEdit();
   if (ev.target.closest("[data-redo]")) redoLastEdit();
 });
@@ -923,11 +941,11 @@ function isLab() {
 
 function labHud(space) {
   if (space === "ar") return "AR — the room camera. Drop a photo or place a table.";
-  if (space === "house") return "House sits with the bench. Measure the room, then open AR for the overlay.";
+  if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
 
     ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask the shop, or measure the room below.";
+    : "Bench — scan, sketch, ask AI, or measure the room below.";
 
 }
 
@@ -944,7 +962,7 @@ function setLabSpace(space) {
   }
   const room = $("lab-room");
   if (room && space === "house") room.open = true;
-  house?.setActive(space === "ar");
+  house?.setSpace(space);
   if (isLab()) hud(labHud(space));
   shop.resize();
 
@@ -980,11 +998,10 @@ function setMode(mode) {
   }
   $("film").classList.toggle("hidden", inLab);
   if (inLab) {
-    shop.sync(project, partsById);
     applyChrome(project.chrome);
     setLabSpace(app.dataset.lab || "desk");
   } else {
-    house?.setActive(false);
+    house?.setSpace("desk");
     aiDock?.close?.();
   }
   shop.resize();
@@ -1077,8 +1094,9 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
       `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
       `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
       `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm.`;
-    if (output) output.textContent = summary;
-    hud("Reconstructed a real triangle mesh and added it to Bodies.");
+    if (output) output.textContent = `${summary} Place it in the room to test position, or bake a custom IKEAlive plan.`;
+    hud("Scanned mesh is on the bench — place it in the room or bake an IKEAlive plan.");
+    if (house?.hasScene?.() || house?.hasPhoto?.()) house.rebuildHouse3d?.();
   } catch (err) {
     const message = err?.message || "Could not reconstruct those photos.";
     if (output) output.textContent = message;
@@ -1091,6 +1109,52 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
 $("back-ikealive")?.addEventListener("click", (ev) => {
   ev.preventDefault();
   setMode("ikeafy");
+});
+
+function latestScan() {
+  const all = shop.getReconstructed?.() || [];
+  return all.find((entry) => entry.piece.id === selectedIds[0]) || all.at(-1) || null;
+}
+
+$("scan-place-room")?.addEventListener("click", () => {
+  const scan = latestScan();
+  if (!scan) {
+    hud("Scan an object first, then place it in the room.");
+    return;
+  }
+  setMode("lab");
+  setLabSpace("house");
+  const room = house?.rebuildHouse3d?.() || house?.showScene?.();
+  house?.showScene?.();
+  hud(
+    room
+      ? `Placed ${scan.part?.name || "the scan"} in the 3D room — drag to orbit, WASD to walk.`
+      : "Open House after a room photo, then place the scan.",
+  );
+});
+
+$("scan-bake-plan")?.addEventListener("click", async () => {
+  const scan = latestScan();
+  if (!scan) {
+    hud("Scan an object first, then bake an IKEAlive plan.");
+    return;
+  }
+  hud("Baking a custom IKEAlive step plan…");
+  try {
+    const guide = await api.scanPlan({
+      name: scan.part?.name || "Scanned object",
+      dimsMm: scan.part?.dimsMm,
+    });
+    setMode("ikeafy");
+    const view = await studio?.startFromGuide?.(guide.raw, { label: guide.title });
+    hud(
+      view?.ok === false
+        ? view.reason || "Could not start the custom plan."
+        : `Custom IKEAlive plan for ${guide.title} — ${guide.steps?.length || 0} steps.`,
+    );
+  } catch (err) {
+    hud(err?.message || "Could not bake that IKEAlive plan.");
+  }
 });
 
 $("chat-form")?.addEventListener("submit", async (ev) => {
@@ -1151,16 +1215,7 @@ async function boot() {
   const studioBar = $("ikea-agent-bar");
   if (studioBar) studioBar.innerHTML = roster;
 
-  studio = initStudio({
-    api,
-    hud,
-    shop,
-    getParts: () => partsById,
-    restoreShop: () => {
-      shop.clearInstructionMesh?.();
-      shop.sync(project, partsById);
-    },
-  });
+  studio = initStudio({ api, hud });
   window.__ikeafyStudio = studio;
 
   await loadCatalog();

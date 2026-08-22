@@ -285,7 +285,7 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
-test("Lab loadCatalog hides electronics unless you search or toggle them", () => {
+test("Lab loadCatalog hides electronics unless the search asks for them", () => {
   assert.match(main, /function isLabShelfPart/);
   assert.match(main, /function isElectronicsQuery/);
   assert.match(main, /function filterLabCatalog/);
@@ -297,10 +297,9 @@ test("Lab loadCatalog hides electronics unless you search or toggle them", () =>
   assert.match(main, /arduino-nano/);
   assert.match(main, /\.filter\(isLabShelfPart\)/);
   assert.match(main, /arduino\|leds\?\|nano\|esp\(\?:32\)\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
-  assert.match(html, /id="show-electronics"/);
-  assert.match(html, /Show electronics/);
-  assert.doesNotMatch(html, /id="show-electronics"[^>]*checked/);
-  assert.match(main, /\$\("show-electronics"\)/);
+  assert.doesNotMatch(html, /id="show-electronics"/);
+  assert.doesNotMatch(html, /Show electronics/);
+  assert.doesNotMatch(main, /\$\("show-electronics"\)/);
   const server = read("server/index.js");
   assert.match(server, /state\.project = emptyProject\(\)/);
   assert.match(server, /filterLabCatalog/);
@@ -327,8 +326,8 @@ test("lab tests stay behind a details fold", () => {
   assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
 });
 
-test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "scan-btn", "scan-out"]) {
+test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", () => {
+  for (const id of ["ar-camera", "ar-toggle", "ar-status", "room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -344,6 +343,16 @@ test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
   assert.match(house, /drawPiece|fillRect/);
   assert.match(apiSource, /^\s{2}adapt:/m);
   assert.match(apiSource, /^\s{2}scan:/m);
+  assert.match(apiSource, /^\s{2}scanPlan:/m);
+  assert.match(html, /id="scan-place-room"/);
+  assert.match(html, /id="scan-bake-plan"/);
+  assert.match(html, /id="room-orbit-hint"/);
+  assert.match(main, /scan-place-room/);
+  assert.match(main, /scan-bake-plan/);
+  assert.match(main, /startFromGuide/);
+  assert.match(studio, /startFromGuide/);
+  assert.match(house, /makeIkeaTestTable/);
+  assert.match(house, /KeyW/);
 });
 
 test("Lab spaces are Bench, House, AR, then Scan", () => {

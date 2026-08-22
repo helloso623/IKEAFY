@@ -25,6 +25,7 @@ import {
   parseGuide,
   parseGuideAsync,
   reviewsForGuide,
+  scannedObjectGuide,
   searchOfficialProducts,
   shoppingListAsync,
   verifyOfficialGuide,
@@ -149,8 +150,10 @@ app.use((req, res, next) => {
   } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -298,6 +301,12 @@ app.post("/api/cables/route", (req, res) => {
 
 app.post("/api/cables/bundle", (req, res) => {
   res.json(manageBundle(req.body?.cables || state.project.cables, req.body || {}));
+});
+
+app.post("/api/ikeafy/scan-plan", (req, res) => {
+  const guide = scannedObjectGuide(req.body || {});
+  state.guide = guide;
+  res.json(guide);
 });
 
 app.post("/api/ikeafy/parse", async (req, res) => {
@@ -870,18 +879,33 @@ app.get("/api/agents", (_req, res) => {
   res.json({ roster: ROSTER, hosted: hasHostedBrain(), fallback: "local-steward" });
 });
 
-app.post("/api/agents/chat", async (req, res) => {
-  const reply = await chat(req.body?.message || "", {
-    project: state.project,
-    guide: state.guide,
-    costBarrier: req.body?.costBarrier,
-    step: req.body?.step,
-    partId: req.body?.partId,
-    room: req.body?.room,
-    scene: req.body?.scene,
-    photoName: req.body?.photoName || "",
-  });
-  res.json(reply);
+app.post(["/api/chat", "/api/agents/chat"], async (req, res) => {
+  const message = String(req.body?.message || "").trim();
+  try {
+    const reply = await chat(message, {
+      project: state.project,
+      guide: state.guide,
+      costBarrier: req.body?.costBarrier,
+      step: req.body?.step,
+      partId: req.body?.partId,
+      room: req.body?.room,
+      scene: req.body?.scene,
+      history: req.body?.history,
+      photoName: req.body?.photoName || "",
+    });
+    res.json({ ok: true, ...reply });
+  } catch (error) {
+    ikealiveWarn("agents", "chat error", String(error?.message || error));
+    res.json({
+      ok: true,
+      agent: ROSTER.find((agent) => agent.id === "creative"),
+      backend: "local-steward",
+      text: message
+        ? "I couldn’t complete that edit. Try describing the room or object with dimensions."
+        : "Tell me what room or object you want to create.",
+      actions: [],
+    });
+  }
 });
 
 app.get("/api/project", (_req, res) => {
@@ -1129,8 +1153,13 @@ function loadDotEnv(file) {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq < 1) continue;
-    const key = trimmed.slice(0, eq);
-    const value = trimmed.slice(eq + 1);
+    const key = trimmed.slice(0, eq).replace(/^export\s+/, "").trim();
+    const rawValue = trimmed.slice(eq + 1).trim();
+    const value =
+      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+        ? rawValue.slice(1, -1)
+        : rawValue;
     if (!process.env[key] || (key === "OPENAI_API_KEY" && !usableOpenAiKey(process.env[key]))) {
       process.env[key] = value;
     }

@@ -13,6 +13,7 @@ import {
   parseGuide,
   parseGuideAsync,
   plateKind,
+  scannedObjectGuide,
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
@@ -96,6 +97,29 @@ test("custom guides stay editable and accept instructions", () => {
   assert.equal(edited.guide.steps[3].toolRequired, "screwdriver");
   assert.match(edited.guide.steps[3].body, /screwdriver you said you have/);
   assert.equal(guide.steps[3].toolRequired, "allen-key", "original guide is left alone");
+});
+
+test("a scanned object bakes a custom IKEAlive plan like the official film", () => {
+  const guide = scannedObjectGuide({
+    name: "Scanned object 1",
+    dimsMm: { x: 400, y: 300, z: 420 },
+  });
+  assert.equal(guide.official, false);
+  assert.equal(guide.locked, false);
+  assert.equal(guide.source, "scan");
+  assert.ok(guide.steps.length >= 5);
+  assert.match(guide.raw, /400 × 300 × 420 mm/);
+  assert.match(guide.raw, /specs needed for an exact IKEA article/i);
+  assert.equal(plateKind(guide, guide.steps[0]), "table");
+  assert.equal(guide.steps[0].number, 1);
+  assert.equal(guide.steps[4].number, 5);
+});
+
+test("a square 550 mm scan uses table assembly language", () => {
+  const guide = scannedObjectGuide({ name: "Test table", dimsMm: { x: 550, y: 550, z: 450 } });
+  assert.match(guide.steps[0].body, /top and four supports/i);
+  assert.match(guide.steps[2].body, /face down/i);
+  assert.equal(plateKind(guide, guide.steps[3]), "table");
 });
 
 test("official products list the LACK side table", () => {

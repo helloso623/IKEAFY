@@ -285,3 +285,37 @@ test(
     assert.ok(project.pieces[0].x < 0.2);
   }),
 );
+
+test(
+  "local steward creates a room mesh action and generic table placeholder",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("make a warm living room with a table", {
+      project,
+      room: { widthM: 4.8, depthM: 3.6 },
+    });
+    const room = reply.actions.find((action) => action.type === "room");
+    const table = reply.actions.find(
+      (action) => action.type === "add" && action.partId === "generic-side-table",
+    );
+    assert.equal(room.room.kind, "living room");
+    assert.equal(room.room.widthM, 4.8);
+    assert.equal(room.room.depthM, 3.6);
+    assert.ok(table);
+    assert.equal(table.applied, true);
+    assert.equal(project.pieces.length, 1);
+    assert.equal(project.pieces[0].partId, "generic-side-table");
+    assert.match(reply.text, /^Using 550×550×450 mm side-table proportions/);
+  }),
+);
+
+test(
+  "lack-like modeling copy gives specs before placing an unbranded placeholder",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("model a lack-like table", { project });
+    assert.match(reply.text, /^Using 550×550×450 mm side-table proportions/);
+    assert.doesNotMatch(reply.text, /\bIKEA\b|\bLACK\b/);
+    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
+  }),
+);

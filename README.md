@@ -20,6 +20,8 @@
 
 `FAL_KEY` unlocks all three. Leave keys empty and nothing leaves the machine.
 
+IKEAlive is the front door for assembling IKEA furniture. Upload an instructions PDF, or type a product name so Tavily can fetch the official IKEA PDF (catalog stand-in without `TAVILY_API_KEY`). The studio turns the plates into a Seedance reel you watch one step at a time. The bottom-right AI orb opens chat, voice, command history, and the scene context.
+
 ## Run
 
 ```bash
@@ -39,9 +41,27 @@ Node 20+. Copy `.env.example` → `.env` if you want keys. Do not commit `.env`.
 
 Names only.
 
-`FAL_KEY` — video, Nano Banana 2 stills, Tripo H3.1 meshes  
-`OPENAI_API_KEY` — hosted Lab bench  
+`FAL_KEY` — video, Nano Banana 2 stills, Tripo H3.1 meshes
+`OPENAI_API_KEY` — hosted Lab bench
 `TAVILY_API_KEY` — official IKEA PDF lookup
+
+## Structure
+
+| Path | What lives here |
+| --- | --- |
+| `client/` | Vite + Three UI (studio, bench, house) |
+| `electron/` | Desktop shell that loads the Vite client + Express API |
+| `server/` | Express API |
+| `guides/` | Official building guides |
+| `docs/` | Short product notes |
+
+Lab is one workspace with three spaces: **Bench** (3D edit), **House** (your room photos rebuilt as a real 3D scene), and **AR** (a live `#ar-photo` camera/furniture overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+
+AR requests the browser/Electron camera and captures a six-frame burst locally; those frames update the textured `#room-scene` house while furniture from the plan, bench, and scans is placed inside. The single-photo and multi-file photo inputs remain available when camera access is unavailable. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room. No room image leaves the machine.
+
+### Object scans
+
+Lab → **Scan** accepts aligned front, side, and top photos plus a circumference or known length. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
 
 ---
 

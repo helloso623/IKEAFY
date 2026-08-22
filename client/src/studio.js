@@ -544,6 +544,33 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     return view;
   }
 
+  async function startFromGuide(guideText, { instructions = "", label = "custom IKEAlive plan" } = {}) {
+    const raw = String(guideText || "").trim();
+    if (!raw) return fail(new Error("No guide to bake."));
+    setBusy(true);
+    try {
+      setMode("custom");
+      announce(`Baking ${label}…`);
+      ikealiveLog("assembly", "scan plan start", { label });
+      const view = await api.runStart({
+        mode: "custom",
+        guide: raw,
+        instructions,
+        renderMode: state.renderMode || undefined,
+      });
+      if (view.ok === false) return fail(new Error(view.reason));
+      applyView(view);
+      await renderReviews();
+      ikealiveLog("assembly", "scan plan ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      await afterGuideReady();
+      return view;
+    } catch (error) {
+      return fail(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function startOfficial() {
     try {
       setMode("official");
@@ -1704,12 +1731,12 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     addChatLine("you", message);
     try {
       const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
-      addChatLine(reply?.agent?.name || "shop", reply?.text || "");
+      addChatLine(reply?.agent?.name || "AI", reply?.text || "");
       if (typeof window.__ikeafyApplyShop === "function") await window.__ikeafyApplyShop(reply.actions);
       else await applyStudioActions(reply.actions);
       return reply;
     } catch (error) {
-      addChatLine("shop", error?.message || "Chat failed");
+      addChatLine("AI", error?.message || "Chat failed");
       return null;
     }
   }
@@ -1795,6 +1822,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     state,
     setInterface,
     startOfficial,
+    startFromGuide,
     parseCustom,
     chooseRenderMode,
     lookupProductManual,

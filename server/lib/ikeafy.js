@@ -669,8 +669,10 @@ export function plateKind(guide, step = {}) {
     guide?.raw || ""
   }`.toLowerCase();
   if (/billy|kallax|bookcase|bookshelf|shelf unit|wall shelf/.test(blob)) return "bookcase";
-  if ((step.partsUsed || []).some((id) => /^lack-/.test(id))) return "table";
-  if (/lack|side table|table top/.test(blob) && !/bookcase|shelf/.test(blob)) return "table";
+  if ((step.partsUsed || []).some((id) => id === "generic-side-table" || /^lack-/.test(id) || id === "test-table")) {
+    return "table";
+  }
+  if (/test table|generic|scanned object|side table|table top/.test(blob) && !/bookcase|shelf/.test(blob)) return "table";
   return "box";
 }
 
@@ -762,6 +764,43 @@ export function generateFix(reviewId) {
 
 export function defaultGuide() {
   return officialGuide({ availableTools: ["allen-key"] });
+}
+
+function mmPart(dimsMm, fallback = 550) {
+  const n = Math.round(Number(dimsMm) || fallback);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Custom IKEAlive step plan for a scanned (or placeholder) object.
+ * Same shape as the official film — numbered plates — generated for this object.
+ */
+export function scannedObjectGuide({ name = "", dimsMm = {}, notes = "" } = {}) {
+  const x = mmPart(dimsMm.x, 550);
+  const y = mmPart(dimsMm.y, 550);
+  const z = mmPart(dimsMm.z, 450);
+  const title = String(name || "").trim() || "Scanned object";
+  const tableLike = x >= 280 && y >= 280 && z >= 220 && z <= 1100;
+  const space = Math.max(1.2, (Math.max(x, y) + 250) / 1000).toFixed(1);
+  const raw = tableLike
+    ? `${title} — ${x} × ${y} × ${z} mm
+1. Unpack the top and four supports. Check them against the measured ${x} × ${y} × ${z} mm envelope. Specs needed for an exact IKEA article.
+2. Put a rug or the box lid on the floor. Keep about ${space} m of clear space so the finish and the floor both survive.
+3. Place the top face down in the middle of the pad, underside up, with a corner ready at each corner.
+4. Fasten each support into a corner until the shoulder meets the top. Do not overtighten.
+5. Flip the piece upright with a second person if it is awkward. Set it down and check that it sits flat and does not rock.`
+    : `${title} — ${x} × ${y} × ${z} mm
+1. Unpack the scanned object and count every part against the measured ${x} × ${y} × ${z} mm envelope. Specs needed for an exact IKEA article.
+2. Put a rug or the box lid on the floor. Keep about ${space} m of clear space around the footprint.
+3. Place the body on its stable face in the middle of the pad so the joints you will fasten are facing you.
+4. Fasten the supports or fittings until they sit flush. Do not overtighten.
+5. Stand the piece upright with a second person if it is large. Check it does not wobble.`;
+  const guide = parseGuide(raw, { instructions: notes, official: false });
+  return {
+    ...guide,
+    source: "scan",
+    scanned: { name: title, dimsMm: { x, y, z }, tableLike },
+  };
 }
 
 export function remixGuide() {

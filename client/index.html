@@ -56,7 +56,7 @@
         <div class="landing">
           <p class="kicker">IKEAlive</p>
           <h1>Your manual has a next move.</h1>
-            <p class="lede">
+          <p class="lede">
             Upload the IKEA instructions PDF. We read the plates, you choose video, image, or 3D instructions, and you watch one step at a time.
           </p>
 
@@ -123,7 +123,7 @@
                   <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
                 </svg>
               </span>
-              <span><strong>Choose</strong> video, image, or 3D instructions — Seedance 2.5 films the video path</span>
+              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
             </li>
             <li>
               <span class="process-icon" aria-hidden="true">
@@ -167,7 +167,8 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <canvas id="ar-photo" class="hidden"></canvas>
+        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
+        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
@@ -332,8 +333,13 @@
                 </label>
               </div>
               <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
+              <div class="row wrap scan-after">
+                <button type="button" id="scan-place-room" class="quiet">Place in the room</button>
+                <button type="button" id="scan-bake-plan" class="quiet">Bake IKEAlive plan</button>
+              </div>
               <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
                 Three silhouettes become a local binary visual hull, then a real triangle mesh.
+                Place it in the 3D room to test position, or bake a custom IKEAlive step plan.
               </div>
             </div>
           </details>
@@ -346,11 +352,10 @@
                 type="search"
                 placeholder="Add a table, generate a lamp, or ask…"
                 autocomplete="off"
-                aria-label="Search the catalog or ask the shop"
+                aria-label="Search the catalog or ask AI"
               />
               <button type="button" id="omnibox-ask">Ask</button>
             </form>
-            <label><input id="show-electronics" type="checkbox" /> Show electronics</label>
             <input id="cost" type="number" min="0" step="1" />
             <input id="search" type="search" />
             <p id="catalog-hint"><span id="catalog-count">0</span></p>
@@ -365,9 +370,13 @@
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                Photo and measurements sit with the bench. AR shows the overlay — add more angles and
-                the Lab rebuilds the whole room in 3D.
+                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
+                Uploads still work when a camera is unavailable.
               </p>
+              <div class="ar-capture">
+                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
+                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
@@ -395,6 +404,7 @@
                 <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
                 <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
               </div>
+              <p class="hint" id="room-orbit-hint">Drag to orbit · scroll to zoom · WASD to walk · Space to frame</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -560,13 +570,13 @@
         class="ai-orb"
         aria-expanded="false"
         aria-controls="ai-dock"
-        title="Ask the shop"
+        title="Ask AI"
       >
         AI
       </button>
-      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Shop chat">
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="AI chat">
         <header class="ai-dock-head">
-          <strong>Shop</strong>
+          <strong>AI</strong>
           <button type="button" id="ai-dock-close" class="quiet">Close</button>
         </header>
         <section class="ai-scene" aria-label="Scene context">
@@ -580,7 +590,7 @@
             id="chat-in"
             autocomplete="off"
             placeholder="Add a table, generate a lamp, or ask about this scene…"
-            aria-label="Command the shop"
+            aria-label="Message AI"
           />
           <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>
           <button type="button" id="lab-voice" class="quiet" hidden aria-pressed="false" title="Speak">Mic</button>

@@ -6,6 +6,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root,
+  // Electron loads dist/index.html over file:// when Vite is not running.
+  // Relative asset URLs keep the built renderer usable in that mode.
+  base: "./",
   publicDir: path.join(root, "public"),
   server: {
     host: "0.0.0.0",
