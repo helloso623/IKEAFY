@@ -546,11 +546,11 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
+test("finished furniture researches ways, prints the cut list, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Hunt table pieces/);
-  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
-  assert.match(html, /Piece-plan history/);
+  assert.match(html, /Finish &amp; find ways/);
+  assert.match(html, /construction methods, boards, tops, legs, and cut sizes/);
+  assert.match(html, /Ways-to-make history/);
   assert.match(apiSource, /^\s{2}finishProject:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
   assert.match(main, /api\.finishProject\(\)/);
