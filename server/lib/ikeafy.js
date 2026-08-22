@@ -1,7 +1,13 @@
 import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
-import { extractGuideWithGliner2, GLINER2_BACKEND } from "./gliner2.js";
+import {
+  ensureGliner2Ready,
+  extractGuideWithGliner2,
+  GLINER2_BACKEND,
+  GLINER2_SETUP_COMMAND,
+  isGliner2RuntimeError,
+} from "./gliner2.js";
 import { FAL_PLATE_VISION_REQUIRED, readPlatesWithFal } from "./plate-vision.js";
 
 const LACK_GUIDE = `LACK side table
@@ -388,6 +394,12 @@ function safeModelText(value) {
     .slice(0, 800);
 }
 
+function glinerUnavailableReason(error) {
+  const detail = safeModelText(error?.message || error);
+  if (isGliner2RuntimeError(error) || detail.includes(GLINER2_SETUP_COMMAND)) return detail;
+  return `GLiNER 2 local runtime failed: ${detail || "unknown error"}. Run \`${GLINER2_SETUP_COMMAND}\` and restart IKEAlive.`;
+}
+
 /**
  * Custom guide text goes through local GLiNER 2 first. Diagram-only plates keep
  * a fal vision path, then GLiNER 2 normalizes that output. Official sheets stay
@@ -405,8 +417,20 @@ export async function parseGuideAsync(
   const modelText = String(raw || "").trim();
   let glinerStatus = modelText ? "no grounded steps" : "no readable text";
   if (modelText) {
+    const requestId = deps.requestId || null;
+    ikealiveLog("parse", "GLiNER 2 extracted text", {
+      requestId,
+      textChars: modelText.length,
+      sentChars: Math.min(modelText.length, 24_000),
+      plates: plates.length,
+    });
     try {
-      const extracted = await extractGuideWithGliner2(raw, deps);
+      const extracted = await extractGuideWithGliner2(raw, {
+        ...deps,
+        // Non-PDF paste/plans fall back locally — fail fast if the sidecar is broken.
+        glinerStartupTimeoutMs:
+          deps.glinerStartupTimeoutMs ?? (deps.requireGliner || plates.length ? undefined : 15_000),
+      });
       const modeled = guideFromModel(extracted, {
         raw,
         instructions,
@@ -419,7 +443,25 @@ export async function parseGuideAsync(
       }
       glinerStatus = modeled?.steps?.length ? "steps not grounded in extracted PDF text" : "no grounded steps";
     } catch (error) {
-      glinerStatus = `unavailable: ${String(error?.message || error)}`;
+      const reason = glinerUnavailableReason(error);
+      ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
+      if (plates.length) {
+        // Plate PDFs can still use fal vision + GLiNER normalize.
+        glinerStatus = reason;
+      } else if (deps.requireGliner) {
+        const guide = emptyGuide({ instructions });
+        guide.parseError = reason;
+        return guide;
+      } else {
+        const local = parseGuide(raw, { instructions, availableTools });
+        if (local?.steps?.length) {
+          local.parseWarning = reason;
+          return local;
+        }
+        const guide = emptyGuide({ instructions });
+        guide.parseError = reason;
+        return guide;
+      }
     }
   }
   if (plates.length) {
@@ -429,12 +471,14 @@ export async function parseGuideAsync(
       reason: glinerStatus,
       plates: plates.length,
     });
+    // Fail fast on missing fal before starting the local GLiNER sidecar (avoids assembly hang).
     if (!process.env.FAL_KEY && !deps.falVisionFn) {
       const guide = emptyGuide({ instructions });
       guide.parseError = FAL_PLATE_VISION_REQUIRED;
       return guide;
     }
     try {
+      await ensureGliner2Ready(deps);
       const visionText = await readPlatesWithFal(
         { raw, images: plates, instructions, availableTools, requestId },
         deps,
@@ -456,7 +500,9 @@ export async function parseGuideAsync(
       }
       throw new Error("GLiNER 2 could not normalize the fal plate-vision result into assembly steps.");
     } catch (error) {
-      const reason = safeModelText(error?.message || error);
+      const reason = isGliner2RuntimeError(error)
+        ? glinerUnavailableReason(error)
+        : safeModelText(error?.message || error);
       ikealiveWarn("parse", "fal plate vision failed", { requestId, reason });
       const guide = emptyGuide({ instructions });
       guide.parseError = reason || "fal plate vision could not read those PDF plates.";
