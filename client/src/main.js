@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { bindAiDock, buildSceneContext, captureViewThumb, renderCommandHistory } from "./ai-dock.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
@@ -6,6 +7,7 @@ import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
+import { bindVoice } from "./voice.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -16,6 +18,7 @@ let selectedIds = [];
 let costBarrier = "";
 let studio = null;
 let house = null;
+let aiDock = null;
 
 function hud(text) {
   $("hud").textContent = text;
@@ -154,7 +157,34 @@ house = initHouse({
   onPlan() {
     if (isLab()) setLabSpace("ar");
   },
+  onScene() {
+    setMode("lab");
+    setLabSpace("ar");
+  },
   getSelectedPart: () => selectedPiece()?.part || null,
+  // The 3D house places everything on the bench: catalog pieces by their
+  // footprints, scanned reconstructions by their actual triangle meshes.
+  getPieces: () => {
+    const catalogPieces = project.pieces.map((piece) => {
+      const part = partsById[piece.partId];
+      return {
+        id: piece.id,
+        name: part?.name || piece.partId,
+        dimsMm: part?.dimsMm,
+        color: part?.color,
+        shape: part?.shape,
+      };
+    });
+    const scanned = (shop.getReconstructed?.() || []).map(({ piece, part, positions }) => ({
+      id: piece.id,
+      name: part?.name || "Scanned object",
+      dimsMm: part?.dimsMm,
+      color: piece.color,
+      shape: "scan",
+      positions,
+    }));
+    return [...catalogPieces, ...scanned];
+  },
   onAdd: (partId) => addPartToBench(partId),
 });
 applyChrome(project.chrome);
@@ -264,6 +294,78 @@ function appendChat(who, text, backend) {
   }
 }
 
+function currentLabSpace() {
+  const space = $("app")?.dataset.lab;
+  return space === "house" || space === "ar" ? space : "desk";
+}
+
+function scenePieces() {
+  const scan = shop.getReconstructed?.() || [];
+  const regular = (project.pieces || []).map((piece) => {
+    const part = partsById[piece.partId];
+    return {
+      id: piece.id,
+      name: part?.name || piece.partId,
+      partId: piece.partId,
+      dimsMm: part?.dimsMm || null,
+      reconstructed: Boolean(piece.reconstructed),
+    };
+  });
+  const scanned = scan.map(({ piece, part }) => ({
+    id: piece.id,
+    name: part?.name || piece.partId || "Scanned object",
+    partId: piece.partId,
+    dimsMm: part?.dimsMm || null,
+    reconstructed: true,
+  }));
+  return [...regular, ...scanned];
+}
+
+function labScenePayload() {
+  const picked = selectedPiece();
+  const part = picked?.part;
+  const piece = picked?.piece;
+  const thumb = isLab() ? captureViewThumb($("view")) : "";
+  const selected = piece
+    ? {
+        id: piece.id,
+        name: part?.name || piece.partId,
+        partId: piece.partId,
+        dimsMm: part?.dimsMm || null,
+        reconstructed: Boolean(piece.reconstructed),
+      }
+    : null;
+  return {
+    scene: buildSceneContext({
+      lab: currentLabSpace(),
+      mode: isLab() ? "lab" : "ikeafy",
+      pieces: scenePieces(),
+      selected,
+      hasViewportStill: Boolean(thumb),
+    }),
+    photoName: thumb ? "view.jpg" : "",
+    viewThumb: thumb || undefined,
+  };
+}
+
+function openScanPanel() {
+  setMode("lab");
+  setLabSpace("desk");
+  const panel = $("scan-object-panel");
+  if (panel) {
+    panel.open = true;
+    panel.scrollIntoView({ block: "nearest" });
+  }
+}
+
+const commandHistory = [];
+
+function recordCommand(command, result) {
+  commandHistory.unshift({ command, result: String(result || "").trim() });
+  if (commandHistory.length > 24) commandHistory.length = 24;
+  renderCommandHistory($("ai-history"), commandHistory);
+}
+
 async function applyShopActions(actions) {
   const added = [];
   for (const action of actions || []) {
@@ -278,6 +380,29 @@ async function applyShopActions(actions) {
       added.push(piece);
     } else if (action.type === "camera") {
       shop.setCamera(action);
+    } else if (action.type === "move") {
+      if (action.applied && action.piece) {
+        shop.applyPose?.(action.piece);
+        continue;
+      }
+      const id = action.id || selectedPieceId();
+      if (!id) continue;
+      const result = await api.move({
+        id,
+        x: action.x,
+        y: action.y,
+        z: action.z,
+        rx: action.rx,
+        ry: action.ry,
+        rz: action.rz,
+        sx: action.sx,
+        sy: action.sy,
+        sz: action.sz,
+        snap: shop.getSnap(),
+      });
+      if (result?.piece) shop.applyPose(result.piece);
+    } else if (action.type === "scan") {
+      openScanPanel();
     } else if (action.type === "label") {
       if (action.applied) continue;
       const id = action.id || added.find((p) => p.partId === action.partId)?.id;
@@ -300,20 +425,31 @@ async function applyShopActions(actions) {
 async function askShop(message) {
   const text = String(message || "").trim();
   if (!text) return;
+  aiDock?.open?.();
   appendChat("you", text);
   hud("Asking the shop…");
   try {
+    const extra = labScenePayload();
     const reply = await api.chat(text, {
       costBarrier: $("cost")?.value || parseBudget(text) || costBarrier,
       step: studio?.state?.run?.cursor,
-      partId: shop.getSelected()?.part?.id,
+      partId: shop.getSelected()?.part?.id || extra.scene.selected?.partId,
+      room: {
+        widthM: Number($("room-w")?.value) || undefined,
+        depthM: Number($("room-d")?.value) || undefined,
+      },
+      scene: extra.scene,
+      photoName: extra.photoName,
     });
     appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
     await applyShopActions(reply.actions);
     await refreshProject();
+    recordCommand(text, reply.text || "Done.");
     hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
   } catch (err) {
-    appendChat("shop", err.message || "The shop could not answer.");
+    const failed = err.message || "The shop could not answer.";
+    appendChat("shop", failed);
+    recordCommand(text, failed);
     hud("The shop could not answer.");
   }
 }
@@ -327,6 +463,22 @@ bindOmnibox({
   onAsk: (query) => {
     loadCatalog(query);
     askShop(query);
+  },
+});
+
+aiDock = bindAiDock({
+  orb: $("ai-orb"),
+  dock: $("ai-dock"),
+  close: $("ai-dock-close"),
+  input: $("chat-in"),
+});
+bindVoice({
+  button: $("ai-mic"),
+  status: $("ai-status"),
+  input: $("chat-in"),
+  onHear: (heard) => {
+    $("chat-in").value = "";
+    askShop(heard);
   },
 });
 
@@ -737,6 +889,7 @@ function setMode(mode) {
     setLabSpace(app.dataset.lab || "desk");
   } else {
     house?.setActive(false);
+    aiDock?.close?.();
   }
   shop.resize();
 }

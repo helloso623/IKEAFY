@@ -39,7 +39,8 @@
           <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
         </nav>
-        <form id="omnibox-form" class="omnibox-form" role="search">
+        <!-- Header Ask stays in the DOM for wiring tests; Lab uses #ai-orb. -->
+        <form id="omnibox-form" class="omnibox-form" role="search" hidden>
           <input
             id="omnibox"
             type="search"
@@ -117,6 +118,7 @@
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
+        <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
@@ -290,10 +292,17 @@
               Room
             </summary>
             <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
+              <p class="hint lab-hint house-caption">
+                Photo and measurements sit with the bench. AR shows the overlay — add more angles and
+                the Lab rebuilds the whole room in 3D.
+              </p>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
+              </label>
+              <label class="field file-field" for="room-photos">
+                <span>More room photos (3D rebuild)</span>
+                <input id="room-photos" type="file" accept="image/*" multiple />
               </label>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
@@ -310,6 +319,10 @@
                 <input id="room-budget" type="number" value="40" />
               </label>
               <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+              <div class="row wrap house-extra">
+                <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
+                <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
+              </div>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -457,18 +470,6 @@
             </div>
           </details>
         </div>
-        <div class="panel card chat shop-chat lab-console">
-          <h2>Shop chat</h2>
-          <details class="more-tools">
-            <summary>Who is answering</summary>
-            <div id="agent-bar" class="agent-bar"></div>
-          </details>
-          <div id="chat-log" class="chat-log"></div>
-          <form id="chat-form">
-            <input id="chat-in" autocomplete="off" placeholder="Add a LACK table, put four legs, generate a lamp…" />
-            <button type="submit" class="primary">Send</button>
-          </form>
-        </div>
         <div
           class="lab-split"
           id="lab-split-right"
@@ -479,6 +480,40 @@
           aria-label="Resize inspector"
           tabindex="0"
         ></div>
+      </aside>
+
+      <button
+        type="button"
+        id="ai-orb"
+        class="ai-orb"
+        aria-expanded="false"
+        aria-controls="ai-dock"
+        title="Ask the shop"
+      >
+        AI
+      </button>
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Shop chat">
+        <header class="ai-dock-head">
+          <strong>Shop</strong>
+          <button type="button" id="ai-dock-close" class="quiet">Close</button>
+        </header>
+        <div id="agent-bar" class="agent-bar"></div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="ai-form">
+          <input
+            id="chat-in"
+            autocomplete="off"
+            placeholder="Add a table, generate a lamp, or ask about this model…"
+            aria-label="Command the shop"
+          />
+          <button type="button" id="ai-mic" aria-pressed="false" title="Voice command">Mic</button>
+          <button type="submit" class="primary">Send</button>
+        </form>
+        <p id="ai-status" class="hint ai-status" aria-live="polite"></p>
+        <details class="ai-history-fold" open>
+          <summary>Command history</summary>
+          <ol id="ai-history" class="ai-history"></ol>
+        </details>
       </aside>
     </div>
     <script>

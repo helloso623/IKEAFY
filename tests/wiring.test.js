@@ -243,6 +243,24 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /api\.isolate\(/);
   assert.match(main, /shop\.setCamera/);
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
+  assert.match(main, /action\.type === "scan"/);
+  assert.match(main, /action\.type === "move"/);
+  assert.match(main, /buildSceneContext|labScenePayload/);
+  assert.match(main, /photoName/);
+});
+
+test("Lab AI is a bottom-right orb, not a header Ask", () => {
+  for (const id of ["ai-orb", "ai-dock", "ai-mic", "ai-history", "ai-status", "chat-log", "chat-in"]) {
+    assert.ok(markupIds.has(id), `Lab AI markup is missing #${id}`);
+  }
+  assert.match(html, /id="omnibox"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /\.omnibox-form \{ display: none !important/);
+  assert.match(css, /#ai-orb/);
+  assert.match(css, /#app\.mode-ikeafy #ai-orb/);
+  assert.match(main, /bindVoice/);
+  assert.match(main, /bindAiDock/);
+  assert.match(main, /webkitSpeechRecognition|speechCtor|bindVoice/);
 });
 
 test("bench editing controls are wired for furniture first", () => {

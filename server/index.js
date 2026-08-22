@@ -487,6 +487,8 @@ app.post("/api/agents/chat", async (req, res) => {
     step: req.body?.step,
     partId: req.body?.partId,
     room: req.body?.room,
+    scene: req.body?.scene,
+    photoName: req.body?.photoName || "",
   });
   res.json(reply);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROSTER, chat, planCreativeActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
+import { ROSTER, chat, describeScene, planCreativeActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
 
 function withoutHosted(fn) {
@@ -183,3 +183,59 @@ test("hosted creative desk uses the key and returns bench actions", async () => 
     else process.env.OPENAI_API_KEY = previous;
   }
 });
+
+test("describeScene reads selected piece, count, and Lab mode", () => {
+  const note = describeScene({
+    photoName: "view.jpg",
+    scene: {
+      lab: "desk",
+      pieceCount: 2,
+      selected: { name: "LACK table top", dimsMm: { x: 550, y: 50, z: 550 } },
+    },
+  });
+  assert.match(note, /desk mode/);
+  assert.match(note, /2 pieces/);
+  assert.match(note, /LACK table top/);
+  assert.match(note, /550×50×550 mm/);
+  assert.match(note, /view\.jpg/);
+});
+
+test(
+  "local steward answers from the bench scene JSON",
+  withoutHosted(async () => {
+    const reply = await chat("what is this on the screen?", {
+      scene: {
+        lab: "ar",
+        pieceCount: 1,
+        selected: { name: "LACK table top", dimsMm: { x: 550, y: 50, z: 550 } },
+      },
+      photoName: "view.jpg",
+    });
+    assert.equal(reply.backend, "local-steward");
+    assert.match(reply.text, /LACK table top/);
+    assert.match(reply.text, /ar mode/);
+  }),
+);
+
+test("scan and generate stay on existing shop actions", () => {
+  const scan = planCreativeActions("scan this object");
+  assert.equal(scan.handles, true);
+  assert.ok(scan.actions.some((a) => a.type === "scan"));
+  const lamp = planCreativeActions("generate a lamp");
+  assert.ok(lamp.actions.some((a) => a.type === "add"));
+});
+
+test(
+  "move this left nudges the selected piece",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const { addPiece } = await import("../server/lib/project.js");
+    const piece = addPiece(project, "lack-top", { x: 0.2, y: 0.22, z: 0 });
+    const reply = await chat("move this left", {
+      project,
+      scene: { lab: "desk", pieceCount: 1, selected: { id: piece.id, name: "LACK table top", partId: "lack-top" } },
+    });
+    assert.ok(reply.actions.some((a) => a.type === "move" && a.id === piece.id));
+    assert.ok(project.pieces[0].x < 0.2);
+  }),
+);
