@@ -73,19 +73,11 @@ export function emptyProject() {
   };
 }
 
+/** Test fixture: generic IKEA-vibe test table plus a Nano/LED board. Lab seed never calls this. */
 export function seedLampTable() {
   const project = emptyProject();
   project.name = "Lamp table";
-  const top = addPiece(project, "lack-top", { x: 0, y: 0.225, z: 0, functionLabel: "support" });
-  const offsets = [
-    [-0.23, 0, -0.23],
-    [0.23, 0, -0.23],
-    [-0.23, 0, 0.23],
-    [0.23, 0, 0.23],
-  ];
-  for (const [x, , z] of offsets) {
-    addPiece(project, "lack-leg", { x, y: 0, z, functionLabel: "support" });
-  }
+  const top = addPiece(project, "generic-side-table", { x: 0, y: 0, z: 0, functionLabel: "support" });
   const nano = addPiece(project, "arduino-nano", { x: 0.08, y: 0.26, z: 0.04 });
   const led = addPiece(project, "led-5mm", { x: 0.14, y: 0.26, z: 0.04 });
   const btn = addPiece(project, "tactile-btn", { x: 0.02, y: 0.26, z: 0.04 });
@@ -440,8 +432,8 @@ export function persistLabTool(project, tool, value) {
 }
 
 /**
- * Lab is furniture-only for now. Catalog may still list boards and cables,
- * but ports, nets, isolate-as-board and firmware stay off the inspect panel.
+ * Lab is furniture-first. The shelf hides boards and cables;
+ * search can still find them. Ports, nets, isolate-as-board and firmware stay off the inspect panel.
  */
 export function benchChrome(project) {
   const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);
@@ -473,13 +465,15 @@ export function benchChrome(project) {
 }
 
 export function catalogPreview() {
-  return listParts().map((p) => ({
-    id: p.id,
-    name: p.name,
-    cost: p.cost,
-    category: p.category,
-    color: p.color,
-    dimsMm: p.dimsMm,
-    store: p.store,
-  }));
+  return listParts()
+    .filter(isLabShelfPart)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      cost: p.cost,
+      category: p.category,
+      color: p.color,
+      dimsMm: p.dimsMm,
+      store: p.store,
+    }));
 }

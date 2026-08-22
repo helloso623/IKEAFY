@@ -1,27 +1,62 @@
-async function req(url, opts) {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
-  const text = await res.text();
-  let body = null;
+export function apiRoot(loc = globalThis.location) {
+  const explicit = String(globalThis.__IKEALIVE_API_ORIGIN__ || "").trim().replace(/\/+$/, "");
+  if (explicit) return explicit;
+  if (loc?.protocol === "file:") {
+    const queryPort = Number(new URLSearchParams(loc.search || "").get("apiPort"));
+    const port = queryPort || Number(globalThis.__IKEALIVE_API_PORT__) || 8787;
+    return `http://127.0.0.1:${port}`;
+  }
+  return "";
+}
+
+async function req(url, opts = {}) {
+  const controller = opts.signal ? null : new AbortController();
+  const timeout = controller ? setTimeout(() => controller.abort(), 30_000) : null;
+  const { headers, ...requestOptions } = opts;
   try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    body = { ok: false, reason: text };
-  }
-  if (!res.ok) {
-    // A refusal from the step gate is data, not a crash: 409/423 carry the reason.
-    if (body && (res.status === 409 || res.status === 423 || res.status === 400)) return body;
-    const error = new Error(body?.reason || body?.error || text || res.statusText);
-    error.status = res.status;
-    error.body = body;
+    const res = await fetch(`${apiRoot()}${url}`, {
+      ...requestOptions,
+      signal: opts.signal || controller?.signal,
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+    const text = await res.text();
+    let body = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = { ok: false, reason: text };
+    }
+    if (!res.ok) {
+      // A refusal from the step gate is data, not a crash: 409/423 carry the reason.
+      if (body && (res.status === 409 || res.status === 423 || res.status === 400)) return body;
+      const error = new Error(body?.reason || body?.error || text || res.statusText);
+      error.status = res.status;
+      error.body = body;
+      throw error;
+    }
+    return body;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("The AI request timed out. Please try again.");
+    }
     throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  return body;
 }
 
 const post = (url, body) => req(url, { method: "POST", body: JSON.stringify(body || {}) });
+
+async function postChat(body) {
+  try {
+    return await post("/api/chat", body);
+  } catch (error) {
+    // Older local servers exposed only this path. Keep Electron builds from
+    // becoming unusable while the UI and bundled server are upgraded.
+    if (error?.status === 404) return post("/api/agents/chat", body);
+    throw error;
+  }
+}
 
 export const api = {
   health: () => req("/api/health"),
@@ -30,7 +65,7 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
-  seed: (empty = false) => post("/api/project/seed", { empty }),
+  seed: () => post("/api/project/seed", { empty: true }),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
@@ -61,6 +96,9 @@ export const api = {
   video: (body = {}) => post("/api/ikeafy/video", body),
   renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
   renderReel: (body = {}) => post("/api/ikeafy/video/reel", body),
+  renderImage: (body = {}) => post("/api/ikeafy/image/render", body),
+  renderScene: (body = {}) => post("/api/ikeafy/scene/render", body),
+  render: (body = {}) => post("/api/ikeafy/render", body),
   colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),
   broken: (step, note, photoName = "broken.jpg") =>
@@ -82,10 +120,12 @@ export const api = {
   spare: (body = {}) => post("/api/spares/request", body),
 
   agents: () => req("/api/agents"),
-  chat: (message, extra = {}) => post("/api/agents/chat", { message, ...extra }),
+  chat: (message, extra = {}) => postChat({ message, ...extra }),
   print: () => post("/api/export/print"),
   flash: (functions) => post("/api/firmware/generate", { functions }),
   runFw: (buttonDown) => post("/api/firmware/run", { buttonDown }),
   adapt: (body) => post("/api/adaptation/plan", body),
   scan: (body) => post("/api/adaptation/scan", body),
+  scanPlan: (body) => post("/api/ikeafy/scan-plan", body),
+  scanVideoUrl: (url) => `/api/scan/video?url=${encodeURIComponent(url)}`,
 };

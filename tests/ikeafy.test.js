@@ -13,6 +13,7 @@ import {
   parseGuide,
   parseGuideAsync,
   plateKind,
+  scannedObjectGuide,
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
@@ -96,6 +97,29 @@ test("custom guides stay editable and accept instructions", () => {
   assert.equal(edited.guide.steps[3].toolRequired, "screwdriver");
   assert.match(edited.guide.steps[3].body, /screwdriver you said you have/);
   assert.equal(guide.steps[3].toolRequired, "allen-key", "original guide is left alone");
+});
+
+test("a scanned object bakes a custom IKEAlive plan like the official film", () => {
+  const guide = scannedObjectGuide({
+    name: "Scanned object 1",
+    dimsMm: { x: 400, y: 300, z: 420 },
+  });
+  assert.equal(guide.official, false);
+  assert.equal(guide.locked, false);
+  assert.equal(guide.source, "scan");
+  assert.ok(guide.steps.length >= 5);
+  assert.match(guide.raw, /400 × 300 × 420 mm/);
+  assert.match(guide.raw, /specs needed for an exact IKEA article/i);
+  assert.equal(plateKind(guide, guide.steps[0]), "table");
+  assert.equal(guide.steps[0].number, 1);
+  assert.equal(guide.steps[4].number, 5);
+});
+
+test("a square 550 mm scan uses table assembly language", () => {
+  const guide = scannedObjectGuide({ name: "Test table", dimsMm: { x: 550, y: 550, z: 450 } });
+  assert.match(guide.steps[0].body, /top and four supports/i);
+  assert.match(guide.steps[2].body, /face down/i);
+  assert.equal(plateKind(guide, guide.steps[3]), "table");
 });
 
 test("official products list the LACK side table", () => {
@@ -205,18 +229,55 @@ test("a BILLY-style custom guide does not become the LACK table", () => {
   assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
 });
 
-test("parseGuideAsync stays local without an OpenAI key", async () => {
+test("parseGuideAsync visibly uses the local parser when GLiNER 2 is unavailable", async () => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
-    const guide = await parseGuideAsync(`Crate\n1. Screw the side onto the base.`);
-    assert.equal(guide.parser, "local-gliner-standin");
+    const guide = await parseGuideAsync(
+      `Crate\n1. Screw the side onto the base.`,
+      {},
+      { glinerInfer: async () => ({}) },
+    );
+    assert.equal(guide.parser, "local-parser");
     assert.equal(guide.steps.length, 1);
     assert.match(guide.steps[0].body, /Screw the side/);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
+});
+
+test("parseGuideAsync maps mocked GLiNER 2 structured extraction into a custom guide", async () => {
+  let request;
+  const guide = await parseGuideAsync(
+    "shelf.pdf: 1 page.\nPage 1: Wall shelf. Step 1. Hang the rail with two wall plugs and check the wall type.",
+    { images: [{ name: "shelf p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      glinerInfer: async (value) => {
+        request = value;
+        return {
+          assembly_guide: [{ title: "Wall shelf" }],
+          assembly_step: [
+            {
+              sequence_number: "1",
+              instruction: "Hang the rail with two wall plugs.",
+              action: "place",
+              parts: ["rail", "wall plugs"],
+              tool: "screwdriver",
+              warnings: ["Check the wall type"],
+            },
+          ],
+        };
+      },
+    },
+  );
+  assert.equal(request.operation, "extract_json");
+  assert.ok(request.schema.assembly_step);
+  assert.equal(guide.parser, "gliner2:fastino/gliner2-base-v1");
+  assert.equal(guide.title, "Wall shelf");
+  assert.equal(guide.steps[0].toolRequired, "screwdriver");
+  assert.deepEqual(guide.steps[0].warnings, ["Check the wall type"]);
+  assert.equal(guide.locked, false);
 });
 
 test("parseGuideAsync uses the OpenAI result for this input, not LACK", async () => {
@@ -251,7 +312,11 @@ test("parseGuideAsync uses the OpenAI result for this input, not LACK", async ()
     };
   };
   try {
-    const guide = await parseGuideAsync("Hang the rail on the two wall plugs.", {}, { fetchFn });
+    const guide = await parseGuideAsync(
+      "Hang the rail on the two wall plugs.",
+      {},
+      { fetchFn, glinerInfer: async () => ({}) },
+    );
     assert.equal(guide.parser, "openai");
     assert.equal(guide.title, "Wall shelf");
     assert.equal(guide.steps.length, 1);
@@ -270,7 +335,11 @@ test("PDF plates are not parsed as plain text without vision", async () => {
   delete process.env.OPENAI_API_KEY;
   try {
     const images = [{ name: "billy-1.jpg", type: "image/jpeg", dataUrl: "data:image/jpeg;base64,abc" }];
-    const guide = await parseGuideAsync("%PDF-1.4 stream junk from a drawing booklet", { images });
+    const guide = await parseGuideAsync(
+      "%PDF-1.4 stream junk from a drawing booklet",
+      { images },
+      { glinerInfer: async () => ({}) },
+    );
     assert.equal(guide.steps.length, 0);
     assert.doesNotMatch(guide.title, /LACK/i);
     assert.doesNotMatch(String(guide.raw || ""), /stream junk/);

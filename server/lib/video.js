@@ -1,4 +1,5 @@
 import { storyboardForStep } from "./ikeafy.js";
+import { composeStepPrompt, logSceneBible, sceneBibleFromGuide } from "./bible.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 export const MODEL = "bytedance/seedance-2.5/text-to-video";
@@ -51,28 +52,8 @@ function falHeaders() {
   };
 }
 
-export function promptForStep(guide, stepNumber, extra = "") {
-  const step =
-    guide?.steps?.find((s) => Number(s.number) === Number(stepNumber)) || guide?.steps?.[0] || {};
-  const theme = guide?.theme || {};
-  const title = guide?.title || "this build";
-  const body = String(step.body || "").trim();
-  const parts = (step.partsUsed || []).join(", ") || "the parts named in the instruction";
-  const tool = step.toolRequired ? `Use a ${step.toolRequired}.` : "Hands only.";
-  return [
-    "Photoreal IKEA-style assembly tutorial, one continuous shot.",
-    `Setting: ${theme.setting || "birch workshop"}, ${theme.light || "soft north window light"}, ${
-      theme.material || "particleboard foil and steel fittings"
-    }, yellow #ffda1a accent.`,
-    "Same workshop, same materials, same lighting as the rest of this film.",
-    "No on-screen text, no logos, no subtitles, no brand marks.",
-    "Show adult hands performing one clear assembly move at IKEA-manual pace.",
-    `This is step ${step.number || stepNumber || 1} of "${title}": ${body || "Follow the plate."}`,
-    `Parts in this shot: ${parts}. ${tool}`,
-    extra ? `Additional direction from the builder: ${String(extra).slice(0, 400)}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+export function promptForStep(guide, stepNumber, extra = "", bible = null) {
+  return composeStepPrompt({ kind: "video", guide, stepNumber, extra, bible });
 }
 
 async function falQueue(
@@ -159,7 +140,7 @@ async function falQueue(
 }
 
 export async function renderStepVideo(
-  { guide, stepNumber, extra = "" } = {},
+  { guide, stepNumber, extra = "", bible = null, seed = null } = {},
   deps = {},
 ) {
   let frames = [];
@@ -177,7 +158,9 @@ export async function renderStepVideo(
     // An unusable guide still yields a safe local result.
   }
 
-  const prompt = promptForStep(guide, stepNumber, extra);
+  const locked = bible || sceneBibleFromGuide(guide);
+  const prompt = promptForStep(guide, stepNumber, extra, locked);
+  logSceneBible({ bible: locked, seed, stepNumber, mode: "video" });
   const local = {
     ok: false,
     live: false,
@@ -189,6 +172,8 @@ export async function renderStepVideo(
     frames,
     continuous: true,
     theme,
+    bible: locked,
+    seed: Number.isInteger(seed) ? seed : null,
     reason: FAL_REQUIRED,
   };
 
@@ -197,7 +182,7 @@ export async function renderStepVideo(
     return local;
   }
 
-  ikealiveLog("video", "render", { stepNumber, title: guide?.title || null, keyed: true });
+  ikealiveLog("video", "render", { stepNumber, title: guide?.title || null, keyed: true, sku: locked.sku });
   const result = await falQueue(
     {
       prompt,

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -39,6 +40,122 @@ function grayWoodMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) 
   tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 8;
   return tex;
+}
+
+/* --------------------------------------------------------- furniture grain
+   Original printed-grain generator in the spirit of foil-on-particleboard
+   flat-pack: long wavy streaks, faint cathedral arcs, and short birch
+   flecks over a white base so the material color supplies the tint. The
+   pattern is procedural and ours — inspired by the look, copied from
+   nothing. Canvases are cached by recipe; textures stay per-material so
+   each part can own its repeat. */
+
+const grainCanvasCache = new Map();
+
+function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true } = {}) {
+  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}`;
+  const cached = grainCanvasCache.get(key);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  let s = (seed * 7919 + 104729) % 233280;
+  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 46; i += 1) {
+    const x = rand() * size;
+    const drift = (rand() - 0.5) * size * 0.14;
+    ctx.strokeStyle = `rgba(112, 88, 56, ${(contrast * (0.3 + rand() * 0.7)).toFixed(4)})`;
+    ctx.lineWidth = 0.6 + rand() * 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, -8);
+    ctx.bezierCurveTo(x + drift * 0.4, size * 0.33, x - drift * 0.6, size * 0.66, x + drift, size + 8);
+    ctx.stroke();
+  }
+  if (arcs) {
+    for (let i = 0; i < 5; i += 1) {
+      ctx.strokeStyle = `rgba(104, 82, 52, ${(contrast * 0.5).toFixed(4)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(rand() * size, rand() * size, 8 + rand() * 22, 60 + rand() * 160, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  if (flecks) {
+    for (let i = 0; i < 130; i += 1) {
+      ctx.fillStyle = `rgba(96, 74, 46, ${(contrast * (0.35 + rand() * 0.65)).toFixed(4)})`;
+      ctx.fillRect(rand() * size, rand() * size, 1 + rand() * 1.4, 2 + rand() * 7);
+    }
+  }
+  grainCanvasCache.set(key, canvas);
+  return canvas;
+}
+
+function grainTexture(recipe, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(grainCanvas(recipe));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
+
+// Grain scale reads physical: one canvas tile spans roughly 280 mm.
+function grainRepeat(mm) {
+  return THREE.MathUtils.clamp((Number(mm) || 280) / 280, 1, 4);
+}
+
+function seedFrom(part) {
+  let n = 3;
+  for (const ch of String(part?.id || "x")) n = (n * 31 + ch.charCodeAt(0)) % 997;
+  return n + 1;
+}
+
+/* Shared hardware finishes. Every mesh that uses these is flagged keepColor,
+   so piece tints never touch the shared instances. */
+const zincMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.34, metalness: 0.82 });
+const glideMat = new THREE.MeshStandardMaterial({ color: 0x2e2a26, roughness: 0.88, metalness: 0.02 });
+const insertRingMat = new THREE.MeshStandardMaterial({ color: 0x8f9499, roughness: 0.38, metalness: 0.72 });
+const insertHoleMat = new THREE.MeshStandardMaterial({ color: 0x241d14, roughness: 0.92, metalness: 0 });
+const footPlasticMat = new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.8, metalness: 0.04 });
+
+// Baked radial falloff for contact shadows: one tiny canvas, sampled by a
+// transparent unlit plane. Cheaper and steadier than a shadow map on the
+// floor, which flickered (see the floor comment in createWorkshop).
+function contactShadowMap(size = 256) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.04, half, half, half);
+  grad.addColorStop(0, "rgba(0, 0, 0, 0.42)");
+  grad.addColorStop(0.55, "rgba(0, 0, 0, 0.17)");
+  grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Foil sheen: a hash-noise jitter on roughness, injected into the foil
+// laminate shader. A few ALU ops per fragment, no extra textures, and the
+// constant cache key means every foil part shares one compiled program.
+function addFoilGrain(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <roughnessmap_fragment>",
+      `#include <roughnessmap_fragment>
+      #ifdef USE_MAP
+      float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      #endif`,
+    );
+  };
+  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  return mat;
 }
 
 function pcbMap(hex = "#1b4d8c") {
@@ -173,25 +290,60 @@ function stdMat(opts) {
   });
 }
 
-function materialFor(part, piece) {
-  const hex = part.color || piece.color || PALE;
+/* Foil laminate: printed grain under a thin melamine sheen. White foil keeps
+   the grain to a whisper; birch foil shows streaks and flecks. */
+function foilMaterial(part, hex, kind) {
   const color = new THREE.Color(hex);
-  const texture = part.texture || piece.texture;
-  const foil = texture === "birch-foil" || texture === "white-foil";
-  if (foil) color.lerp(new THREE.Color(0xf4f4f4), 0.62);
+  if (kind === "white") color.lerp(new THREE.Color(0xffffff), 0.55);
+  else color.lerp(new THREE.Color(0xfaf4e6), 0.2);
+  const map = grainTexture(
+    { contrast: kind === "white" ? 0.035 : 0.085, seed: seedFrom(part), flecks: kind !== "white" },
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  const mat = new THREE.MeshPhysicalMaterial({
+    color,
+    map,
+    roughness: 0.55,
+    metalness: 0.02,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.55,
+  });
+  // Reuse the printed grain as a faint bump so streaks catch the key light —
+  // one extra sample of a texture already on the GPU — and jitter roughness.
+  mat.bumpMap = map;
+  mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  return addFoilGrain(mat);
+}
+
+function openWoodMaterial(part, hex) {
+  const map = grainTexture(
+    { contrast: 0.17, seed: seedFrom(part), flecks: true, arcs: true },
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  return stdMat({ color: new THREE.Color(hex), map, roughness: 0.74, metalness: 0 });
+}
+
+function materialFor(part, piece) {
+  // Piece values win: the Materials panel retints and refinishes per piece,
+  // and the server copies part defaults onto every new piece anyway.
+  const hex = piece.color || part.color || PALE;
+  const texture = piece.texture || part.texture;
+  if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
+  if (texture === "white-foil") return foilMaterial(part, hex, "white");
+  if (texture === "oak-open") return openWoodMaterial(part, hex);
+  if (texture === "powder-coat")
+    return stdMat({ color: new THREE.Color(hex), roughness: 0.42, metalness: 0.35 });
+  const color = new THREE.Color(hex);
   const metal = texture === "metal" || part.material === "steel";
   const pcb = /^pcb-/.test(texture || "");
   const mat = stdMat({
     color,
-    roughness: metal ? 0.28 : foil ? 0.58 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
-    metalness: metal ? 0.72 : foil ? 0.03 : pcb ? 0.12 : 0.05,
+    roughness: metal ? 0.28 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
+    metalness: metal ? 0.72 : pcb ? 0.12 : 0.05,
     emissive: part.firmwareRole === "led" ? new THREE.Color(0x2a2a2a) : 0x000000,
   });
-  if (foil) {
-    const map = grayWoodMap({ planks: 8, seed: part.id.length + 3 });
-    map.repeat.set(2, 1);
-    mat.map = map;
-  }
   if (pcb) mat.map = pcbMap(hex);
   return mat;
 }
@@ -214,55 +366,271 @@ function add(parent, geo, mat, x = 0, y = 0, z = 0, keepColor = false) {
   return mesh;
 }
 
-function makeSlab(w, h, d, mat) {
+/* ------------------------------------------------------ Tabletop profiles
+   Tops and legs are swept from a real board profile instead of a box: a
+   rounded-rectangle plan (LINNMON's soft ~18 mm corners, LACK's tight ~5 mm,
+   raw lumber nearly crisp) extruded through an eased edge bevel. The extrude
+   splits caps from side walls, so the printed foil face and the edge band
+   are two materials on one seamless board — no laminated-on skins, no
+   ledges, nothing overhanging the corner radius. */
+
+function roundedRectShape(w, d, r) {
+  const hw = w / 2;
+  const hd = d / 2;
+  const rr = Math.max(0.0004, Math.min(r, hw * 0.45, hd * 0.45));
+  const s = new THREE.Shape();
+  s.moveTo(-hw + rr, -hd);
+  s.lineTo(hw - rr, -hd);
+  s.absarc(hw - rr, -hd + rr, rr, -Math.PI / 2, 0, false);
+  s.lineTo(hw, hd - rr);
+  s.absarc(hw - rr, hd - rr, rr, 0, Math.PI / 2, false);
+  s.lineTo(-hw + rr, hd);
+  s.absarc(-hw + rr, hd - rr, rr, Math.PI / 2, Math.PI, false);
+  s.lineTo(-hw, -hd + rr);
+  s.absarc(-hw + rr, -hd + rr, rr, Math.PI, Math.PI * 1.5, false);
+  return s;
+}
+
+/** Board body: plan corners and edge ease are independent, like a real top. */
+function slabGeometry(w, h, d, cornerR) {
+  const ease = Math.max(0.001, Math.min(0.0026, h * 0.24, w * 0.02, d * 0.02));
+  const core = Math.max(h - ease * 2, h * 0.5);
+  const geo = new THREE.ExtrudeGeometry(
+    roundedRectShape(w - ease * 2, d - ease * 2, Math.max(cornerR - ease, 0.0006)),
+    {
+      depth: core,
+      bevelEnabled: true,
+      bevelThickness: ease,
+      bevelSize: ease,
+      bevelSegments: 3,
+      curveSegments: 12,
+    },
+  );
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, -core / 2, 0);
+  return geo;
+}
+
+/* Extrude UVs land in shape-space metres, so foil maps swap the 0..1 box
+   mapping for a physical scale — one grain tile ≈ 280 mm — and each part
+   can shift its grain so four legs never repeat the same streaks. The map
+   is cloned per part; the bump map rides the same clone. */
+const GRAIN_TILES_PER_M = 1 / 0.28;
+
+function perMeterFoil(mat, shift = 0) {
+  if (!mat.map) return mat;
+  const tex = mat.map.clone();
+  tex.repeat.set(GRAIN_TILES_PER_M, GRAIN_TILES_PER_M);
+  tex.offset.set((shift * 0.37) % 1, (shift * 0.19) % 1);
+  tex.needsUpdate = true;
+  if (mat.bumpMap === mat.map) mat.bumpMap = tex;
+  mat.map = tex;
+  return mat;
+}
+
+/* Edge band: the same foil a step darker and flatter, grain turned to run
+   along the edge instead of through the thickness — the strip IKEA irons
+   over every board edge. Carries its shading ratio for piece tints. */
+function bandMaterial(mat) {
+  const band = mat.clone();
+  band.color = mat.color.clone().multiplyScalar(0.93);
+  band.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.08);
+  if (band.clearcoat !== undefined) band.clearcoat = (band.clearcoat ?? 0) * 0.6;
+  if (mat.map) {
+    const bandMap = mat.map.clone();
+    bandMap.center.set(0.5, 0.5);
+    bandMap.rotation = Math.PI / 2;
+    bandMap.needsUpdate = true;
+    band.map = bandMap;
+    if (band.bumpMap) band.bumpMap = bandMap;
+  }
+  band.userData.tintMul = 0.93;
+  return band;
+}
+
+let stickerTexCache = null;
+function stickerTexture() {
+  if (stickerTexCache) return stickerTexCache;
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 120;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fbfaf6";
+  ctx.fillRect(0, 0, 192, 120);
+  ctx.fillStyle = "#20242a";
+  ctx.font = "700 30px 'DM Sans', system-ui, sans-serif";
+  ctx.fillText("IKEALIVE", 12, 36);
+  ctx.font = "400 13px 'IBM Plex Mono', monospace";
+  ctx.fillText("FLAT PACK · KEEP DRY", 12, 58);
+  let x = 12;
+  for (let i = 0; i < 30; i += 1) {
+    const bw = 1 + ((i * 7) % 4);
+    if (i % 2 === 0) ctx.fillRect(x, 72, bw, 34);
+    x += bw + 2;
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  stickerTexCache = tex;
+  return tex;
+}
+
+/* Flat-pack tabletop: one profile-swept board. The caps take the printed
+   foil face, the walls take the edge band, zinc screw-insert sockets sit on
+   the underside, and the article sticker every flat pack ships with rides
+   near one corner. Raw lumber (opts.lumber) skips the flat-pack dressing
+   and keeps near-crisp corners. */
+function makeSlab(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
-  const bevel = Math.min(0.005, h * 0.22, w * 0.012);
-  const edge = mat.clone();
-  edge.color = mat.color.clone().multiplyScalar(0.86);
-  add(g, new THREE.BoxGeometry(w - bevel * 2, h * 0.72, d - bevel * 2), edge, 0, -h * 0.04, 0);
-  add(g, new THREE.BoxGeometry(w, Math.max(h * 0.26, bevel), d), mat, 0, h * 0.32, 0);
-  add(g, new THREE.BoxGeometry(w - bevel, h * 0.12, d - bevel), edge, 0, -h * 0.4, 0);
+  const lumber = Boolean(opts.lumber);
+  const cornerR = opts.cornerR ?? (lumber ? 0.0018 : w >= 0.8 ? 0.018 : 0.005);
+  if (lumber) {
+    add(g, slabGeometry(w, h, d, cornerR), mat);
+    return g;
+  }
+  const lift = 0.0004;
+  perMeterFoil(mat, opts.grainShift || 0);
+  add(g, slabGeometry(w, h, d, cornerR), [mat, bandMaterial(mat)]);
+  for (const [ix, iz] of opts.inserts || []) {
+    add(g, new THREE.CylinderGeometry(0.0055, 0.0055, 0.0014, 18), insertRingMat, ix, -h / 2 - lift, iz, true);
+    add(g, new THREE.CylinderGeometry(0.0028, 0.0028, 0.002, 12), insertHoleMat, ix, -h / 2 - lift - 0.0003, iz, true);
+  }
+  if (w >= 0.35 && d >= 0.25) {
+    const sticker = add(
+      g,
+      new THREE.PlaneGeometry(0.046, 0.029),
+      new THREE.MeshStandardMaterial({ map: stickerTexture(), color: 0xffffff, roughness: 0.85, metalness: 0 }),
+      w * 0.22,
+      -h / 2 - lift - 0.0002,
+      d * 0.18,
+      true,
+    );
+    sticker.rotation.x = Math.PI / 2;
+  }
   return g;
 }
 
-function makePost(w, h, d, mat, steel = false) {
+/* Chunky flat-pack leg: the same board profile stood on end — vertical
+   edges eased a couple of millimetres and plan corners matched to the
+   tabletop, so a flush joint reads as one continuous wrapped surface. The
+   side walls carry foil grain running the length, the caps read as wrapped
+   end grain, a round plastic glide sits under the foot, and the
+   double-ended screw stud waits on top (skipped when the leg ships
+   pre-assembled under a table). */
+function makeWoodLeg(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
-  const edge = mat.clone();
-  edge.color = mat.color.clone().multiplyScalar(0.9);
-  add(g, new THREE.BoxGeometry(w, h * 0.96, d), mat, 0, -h * 0.005, 0);
-  add(g, new THREE.BoxGeometry(w * 1.04, h * 0.018, d * 1.04), edge, 0, -h * 0.485, 0);
-  const cap = steel
-    ? new THREE.CylinderGeometry(w * 0.42, w * 0.42, h * 0.03, 16)
-    : new THREE.BoxGeometry(w * 0.55, h * 0.03, d * 0.55);
-  const capMat = steel
-    ? stdMat({ color: 0x6a6a6a, roughness: 0.3, metalness: 0.7 })
-    : stdMat({ color: 0xb8b8b8, roughness: 0.35, metalness: 0.45 });
-  add(g, cap, capMat, 0, h * 0.485, 0, true);
+  const padH = Math.max(0.002, Math.min(0.004, h * 0.02));
+  const cornerR = opts.cornerR ?? Math.min(0.003, Math.min(w, d) * 0.09);
+  perMeterFoil(mat, opts.grainShift || 0);
+  const cap = mat.clone();
+  cap.color = mat.color.clone().multiplyScalar(0.9);
+  cap.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.1);
+  cap.userData.tintMul = 0.9;
+  add(g, slabGeometry(w, h - padH, d, cornerR), [cap, mat], 0, padH / 2, 0);
+  add(
+    g,
+    new THREE.CylinderGeometry(Math.min(w, d) * 0.3, Math.min(w, d) * 0.34, padH, 18),
+    glideMat,
+    0,
+    -h / 2 + padH / 2,
+    0,
+    true,
+  );
+  if (opts.stud !== false) add(g, new THREE.CylinderGeometry(0.0032, 0.0032, 0.016, 12), zincMat, 0, h / 2 + 0.005, 0, true);
   return g;
 }
 
-function makeTable(part, mat) {
-  const w = part.dimsMm.x * MM;
-  const d = part.dimsMm.y * MM;
-  const h = part.dimsMm.z * MM;
-  const topH = Math.min(0.036, h * 0.08);
-  const legW = Math.min(0.05, w * 0.09);
-  const legH = h - topH;
-  const inset = Math.min(0.05, w * 0.09);
+/* Round steel leg: powder-coated tube on a rounded-square zinc mounting
+   plate (~58 mm, four corner screws and a centre weld boss), with a plastic
+   foot cup and an adjustable glide at the floor. */
+function makeSteelLeg(w, h, d, mat) {
   const g = new THREE.Group();
-  const top = makeSlab(w, topH, d, mat);
-  top.position.y = h / 2 - topH / 2;
-  g.add(top);
+  const r = Math.max(w, d) / 2;
+  const footH = Math.max(0.008, Math.min(0.02, h * 0.03));
+  const plateT = 0.004;
+  const tubeH = h - footH - plateT;
+  add(g, new THREE.CylinderGeometry(r * 0.92, r * 0.92, tubeH, 24), mat, 0, (footH - plateT) / 2, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.96, r * 0.92, 0.008, 24), mat.clone(), 0, h / 2 - plateT - 0.004, 0);
+  const plateW = Math.min(0.058, r * 3);
+  add(g, slabGeometry(plateW, plateT, plateW, 0.006), zincMat, 0, h / 2 - plateT / 2, 0, true);
+  add(g, new THREE.CylinderGeometry(r * 0.5, r * 0.5, plateT * 0.5, 16), zincMat, 0, h / 2 + plateT * 0.2, 0, true);
   for (const [sx, sz] of [
     [-1, -1],
     [1, -1],
     [-1, 1],
     [1, 1],
   ]) {
-    const leg = makePost(legW, legH, legW, mat.clone());
-    leg.position.set(sx * (w / 2 - inset), -h / 2 + legH / 2, sz * (d / 2 - inset));
-    g.add(leg);
+    add(
+      g,
+      new THREE.CylinderGeometry(0.0028, 0.0032, 0.0018, 10),
+      zincMat,
+      sx * plateW * 0.34,
+      h / 2 + 0.0006,
+      sz * plateW * 0.34,
+      true,
+    );
   }
+  add(
+    g,
+    new THREE.CylinderGeometry(r * 1.02, r * 1.1, footH - 0.002, 24),
+    footPlasticMat,
+    0,
+    -h / 2 + footH / 2 + 0.001,
+    0,
+    true,
+  );
+  add(g, new THREE.CylinderGeometry(r * 1.06, r * 1.06, 0.002, 24), glideMat, 0, -h / 2 + 0.001, 0, true);
+  return g;
+}
+
+function makePost(w, h, d, mat, steel = false) {
+  return steel ? makeSteelLeg(w, h, d, mat) : makeWoodLeg(w, h, d, mat);
+}
+
+// The LACK signature: outer leg faces sit dead flush with the top's edge
+// band — zero reveal. Clamped so undersized tops still keep legs inboard.
+function legCenterInset(topW, legW) {
+  return Math.min(legW / 2, topW * 0.2);
+}
+
+function insertsFromPorts(part) {
+  return (part.ports || [])
+    .filter((port) => /insert/.test(port.kind || "") && Array.isArray(port.xyz))
+    .map((port) => [port.xyz[0] * MM, port.xyz[1] * MM]);
+}
+
+/* The assembled side table, LACK proportions: a chunky ~50 mm top over four
+   square legs screwed dead flush into the corners. Corner radii match
+   between top and legs so each corner reads as one continuous wrapped
+   surface, and every leg shifts its grain so the foil never repeats. */
+function makeTable(part, mat) {
+  const w = part.dimsMm.x * MM;
+  const d = part.dimsMm.y * MM;
+  const h = part.dimsMm.z * MM;
+  const topH = THREE.MathUtils.clamp(h * 0.11, 0.026, 0.05);
+  const legW = Math.min(0.05, w * 0.09, d * 0.09);
+  const legH = h - topH;
+  const cornerR = Math.min(0.005, legW * 0.11);
+  const inset = legCenterInset(Math.min(w, d), legW);
+  const g = new THREE.Group();
+  const slots = [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ].map(([sx, sz]) => [sx * (w / 2 - inset), sz * (d / 2 - inset)]);
+  // The top carries its insert sockets right where the legs screw in.
+  const top = makeSlab(w, topH, d, mat, { inserts: slots, cornerR });
+  top.position.y = h / 2 - topH / 2;
+  g.add(top);
+  slots.forEach(([x, z], i) => {
+    const leg = makeWoodLeg(legW, legH, legW, addFoilGrain(mat.clone()), {
+      cornerR,
+      stud: false,
+      grainShift: i + 1,
+    });
+    leg.position.set(x, -h / 2 + legH / 2, z);
+    g.add(leg);
+  });
   return g;
 }
 
@@ -496,8 +864,14 @@ function makeScrew(part, mat) {
   const r = Math.min(part.dimsMm.x, part.dimsMm.y) * MM * 0.28;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r * 0.82, h, 14), mat);
-  add(g, new THREE.CylinderGeometry(r * 1.7, r * 1.55, Math.max(0.002, h * 0.28), 6), mat, 0, h * 0.42, 0);
+  add(g, new THREE.CylinderGeometry(r, r, h * 0.92, 16), mat, 0, h * 0.04, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.98, r * 0.55, h * 0.08, 16), mat, 0, -h * 0.46, 0);
+  for (let i = 0; i < 5; i += 1) {
+    const ring = add(g, new THREE.TorusGeometry(r * 1.02, r * 0.09, 6, 18), mat, 0, -h * 0.34 + i * h * 0.16, 0);
+    ring.rotation.x = Math.PI / 2;
+  }
+  add(g, new THREE.CylinderGeometry(r * 1.8, r * 1.8, h * 0.2, 20), mat, 0, h * 0.6, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.85, r * 0.85, h * 0.06, 6), insertHoleMat, 0, h * 0.7, 0, true);
   return g;
 }
 
@@ -505,7 +879,10 @@ function makeDowel(part, mat) {
   const r = Math.min(part.dimsMm.x, part.dimsMm.y) * MM * 0.5;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r, h, 16), mat);
+  const cham = Math.min(r * 0.4, h * 0.05);
+  add(g, new THREE.CylinderGeometry(r, r, h - cham * 2, 20), mat);
+  add(g, new THREE.CylinderGeometry(r * 0.72, r, cham, 20), mat, 0, h / 2 - cham / 2, 0);
+  add(g, new THREE.CylinderGeometry(r, r * 0.72, cham, 20), mat, 0, -h / 2 + cham / 2, 0);
   return g;
 }
 
@@ -611,11 +988,28 @@ function makeBox(part, mat) {
   return g;
 }
 
+function makeBracket(part, mat) {
+  const w = part.dimsMm.x * MM;
+  const d = part.dimsMm.y * MM;
+  const h = part.dimsMm.z * MM;
+  const g = new THREE.Group();
+  add(g, new THREE.BoxGeometry(w, h, Math.max(w, d * 0.12)), mat, 0, 0, -d * 0.44);
+  add(g, new THREE.BoxGeometry(w, Math.max(w, h * 0.12), d), mat, 0, -h * 0.44, 0);
+  const brace = add(g, new THREE.BoxGeometry(w * 0.72, Math.hypot(d, h) * 0.72, w), mat.clone());
+  brace.rotation.x = -Math.atan2(d, h);
+  return g;
+}
+
 function bodyFor(shape, part, mat) {
   if (shape === "table") return makeTable(part, mat);
-  if (shape === "slab") return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat);
+  if (shape === "slab")
+    return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, {
+      inserts: insertsFromPorts(part),
+      lumber: part.texture === "oak-open",
+    });
   if (shape === "post")
     return makePost(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, part.material === "steel");
+  if (shape === "bracket") return makeBracket(part, mat);
   if (shape === "board") return makeBoard(part, mat);
   if (shape === "led") return makeLed(part, mat);
   if (shape === "led-strip") return makeLedStrip(part, mat);
@@ -644,7 +1038,15 @@ function hitsWalk(obj) {
 function tintIfNeeded(root, piece) {
   if (!piece.color) return;
   root.traverse((child) => {
-    if (child.material?.color && !child.userData.keepColor) child.material.color.set(piece.color);
+    if (child.userData.keepColor) return;
+    const mats = Array.isArray(child.material) ? child.material : child.material ? [child.material] : [];
+    for (const mat of mats) {
+      if (!mat.color || mat.userData?.keepColor) continue;
+      mat.color.set(piece.color);
+      // Edge bands and end-grain caps keep their relative shading under a tint.
+      const mul = mat.userData?.tintMul ?? child.userData.tintMul;
+      if (mul) mat.color.multiplyScalar(mul);
+    }
   });
 }
 
@@ -735,6 +1137,10 @@ export function createWorkshop(canvas) {
 
   const floorMap = grayWoodMap({ planks: 12, seed: 2 });
   floorMap.repeat.set(3, 3);
+  // One ground only. A GridHelper on y = 0 sat on the same plane as this
+  // disk and the bench top — do not add one back. Sink the mesh, offset
+  // its depth, and never receiveShadow: shadow maps on a huge coplanar
+  // ground flicker even after the helper is gone.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
@@ -742,21 +1148,39 @@ export function createWorkshop(canvas) {
       map: floorMap,
       roughness: 0.86,
       metalness: 0.02,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 8,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
+  floor.position.y = -0.12;
+  floor.renderOrder = -1;
+  floor.receiveShadow = false;
+  floor.castShadow = false;
+  floor.userData.baseMaterial = floor.material;
   scene.add(floor);
 
-  const grid = new THREE.GridHelper(4, 20, 0xffffff, 0x6a6a6a);
-  grid.position.y = 0.002;
-  const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
-  for (const mat of gridMats) {
-    mat.transparent = true;
-    mat.opacity = 0.28;
-    mat.toneMapped = false;
-  }
-  scene.add(grid);
+  // Soft contact shadow grounding the bench on the floor. The floor never
+  // receiveShadows (see above), so this baked blob is the AO feel instead:
+  // unlit, depthWrite off, and drawn after the floor via renderOrder — three
+  // reasons it cannot z-fight the plane 2 mm below it.
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.7, 2.0),
+    new THREE.MeshBasicMaterial({
+      map: contactShadowMap(),
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = floor.position.y + 0.002;
+  contactShadow.renderOrder = 0;
+  contactShadow.castShadow = false;
+  contactShadow.receiveShadow = false;
+  scene.add(contactShadow);
 
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
   benchMap.repeat.set(2, 1.2);
@@ -771,6 +1195,7 @@ export function createWorkshop(canvas) {
   );
   bench.position.set(0, -0.03, 0);
   bench.receiveShadow = true;
+  bench.userData.baseMaterial = bench.material;
   scene.add(bench);
 
   const group = new THREE.Group();
@@ -779,11 +1204,17 @@ export function createWorkshop(canvas) {
   scene.add(cableGroup);
   const fx = new THREE.Group();
   scene.add(fx);
+  const gltfLoader = new GLTFLoader();
+  let instructionRoot = null;
+  let instructionUrl = null;
 
   const transform = new TransformControls(camera, canvas);
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const meshes = new Map();
+  // Photo scans are intentionally client-only. Their compact triangle buffers
+  // survive project syncs in this map and render as ordinary selectable bodies.
+  const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
   let snapOn = true;
@@ -1030,9 +1461,84 @@ export function createWorkshop(canvas) {
   });
   scene.add(transform.getHelper());
 
+  /* ---- Materials panel: per-piece color + roughness, applied live --------
+     Color and texture persist through the project API (the server keeps
+     them on the piece); roughness is a client-side dressing kept in a map
+     so sync() can re-apply it after every rebuild. */
+  const matOverrides = new Map(); // pieceId -> { roughness }
+
+  function eachTintableMaterial(root, fn) {
+    root.traverse((child) => {
+      if (!child.isMesh || child.userData.keepColor) return;
+      // Shading overrides may be live on child.material; edit the real one.
+      const base = child.userData.baseMaterial || child.material;
+      const mats = Array.isArray(base) ? base : base ? [base] : [];
+      for (const mat of mats) {
+        if (!mat || mat.userData?.keepColor) continue;
+        fn(mat, child);
+      }
+    });
+  }
+
+  function setPieceMaterial(id, { color, roughness } = {}) {
+    const mesh = meshes.get(id);
+    if (!mesh) return false;
+    if (roughness != null && Number.isFinite(Number(roughness))) {
+      const value = THREE.MathUtils.clamp(Number(roughness), 0, 1);
+      matOverrides.set(id, { ...(matOverrides.get(id) || {}), roughness: value });
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.roughness !== undefined) mat.roughness = value;
+      });
+    }
+    if (color) {
+      const piece = mesh.userData.piece;
+      if (piece) piece.color = color;
+      const record = reconstructed.get(id);
+      if (record) record.piece.color = color;
+      eachTintableMaterial(mesh, (mat, child) => {
+        if (!mat.color) return;
+        mat.color.set(color);
+        const mul = mat.userData?.tintMul ?? child.userData.tintMul;
+        if (mul) mat.color.multiplyScalar(mul);
+      });
+    }
+    return true;
+  }
+
+  function getPieceMaterial(id) {
+    const mesh = meshes.get(id);
+    if (!mesh) return null;
+    const piece = mesh.userData.piece || {};
+    const part = mesh.userData.part || {};
+    let roughness = matOverrides.get(id)?.roughness;
+    if (roughness == null) {
+      eachTintableMaterial(mesh, (mat) => {
+        if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
+      });
+    }
+    return {
+      color: `#${new THREE.Color(piece.color || part.color || PALE).getHexString()}`,
+      texture: piece.texture || part.texture || null,
+      roughness: roughness ?? 0.6,
+    };
+  }
+
+  function applyMatOverrides() {
+    for (const [id, override] of matOverrides) {
+      const mesh = meshes.get(id);
+      if (!mesh || override.roughness == null) continue;
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.roughness !== undefined) mat.roughness = override.roughness;
+      });
+    }
+  }
+
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
+  // Look is unlit clay — MeshBasicMaterial, no shadows — so the bench reads as form.
   let shading = "material";
+  let lookOn = false;
+  let measureOn = false;
   const solidMat = new THREE.MeshStandardMaterial({
     color: 0xcfcfcf,
     roughness: 0.85,
@@ -1040,22 +1546,66 @@ export function createWorkshop(canvas) {
     flatShading: true,
   });
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, wireframe: true, toneMapped: false });
+  const unlitMat = new THREE.MeshBasicMaterial({ color: 0xd4d0c8, toneMapped: false });
+  const unlitFloorMat = new THREE.MeshBasicMaterial({
+    color: 0xd4d0c8,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 8,
+  });
+
+  function emitViewport() {
+    canvas.dispatchEvent(new CustomEvent("ikealive-viewport", { detail: { look: lookOn, measure: measureOn } }));
+  }
+
+  function applyLookLights() {
+    renderer.shadowMap.enabled = !lookOn;
+    key.castShadow = !lookOn;
+    key.intensity = lookOn ? 0 : 1.3;
+    fill.intensity = lookOn ? 0 : 0.32;
+    rim.intensity = lookOn ? 0 : 0.18;
+    hemi.intensity = lookOn ? 1 : 0.9;
+    floor.receiveShadow = false;
+    bench.receiveShadow = !lookOn;
+    // Clay renders still want grounding, just less of it.
+    contactShadow.material.opacity = lookOn ? 0.28 : 0.55;
+  }
+
+  function meshOverride() {
+    if (lookOn) return unlitMat;
+    if (shading === "solid") return solidMat;
+    if (shading === "wire") return wireMat;
+    return null;
+  }
 
   function applyShading() {
+    applyLookLights();
+    const override = meshOverride();
     for (const root of [group, cableGroup]) {
       root.traverse((child) => {
         if (!child.isMesh) return;
         if (!child.userData.baseMaterial) child.userData.baseMaterial = child.material;
-        child.material =
-          shading === "solid" ? solidMat : shading === "wire" ? wireMat : child.userData.baseMaterial;
+        child.material = override || child.userData.baseMaterial;
       });
     }
+    floor.material = lookOn ? unlitFloorMat : floor.userData.baseMaterial;
+    bench.material = lookOn ? unlitMat : bench.userData.baseMaterial;
   }
 
   function setShading(mode) {
     if (!["solid", "material", "wire"].includes(mode)) return;
     shading = mode;
+    lookOn = false;
     applyShading();
+    emitViewport();
+  }
+
+  function setLook(on) {
+    lookOn = Boolean(on);
+    applyShading();
+    emitViewport();
+    return lookOn;
   }
 
   function frameSelected() {
@@ -1096,6 +1646,7 @@ export function createWorkshop(canvas) {
 
   const timelineEl = document.getElementById("cad-timeline");
   const dimsEl = document.getElementById("cad-dims");
+  const measureEl = document.getElementById("cad-measure");
   const benchPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const sketchFx = new THREE.Group();
   scene.add(sketchFx);
@@ -1156,9 +1707,15 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && measureOn) {
+      measureOn = false;
+      clearMeasure();
+      canvas.classList.remove("measuring");
+      emitViewport();
+    }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected) transform.attach(selected);
+    else if (selected && !measureOn) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -1184,7 +1741,7 @@ export function createWorkshop(canvas) {
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
   function updateDims() {
-    if (!dimsEl || sketch) return;
+    if (!dimsEl || sketch || measureOn) return;
     const data = selected?.userData;
     if (!data?.part || !selected.parent) {
       dimsEl.classList.remove("on");
@@ -1202,6 +1759,133 @@ export function createWorkshop(canvas) {
     const dep = Math.max(1, Math.round(d.y * selected.scale.z));
     const h = Math.max(1, Math.round(d.z * selected.scale.y));
     placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
+  }
+
+  /* ---- Measure: click two world points, read millimetres (Blender ruler) ---- */
+  const measureFx = new THREE.Group();
+  scene.add(measureFx);
+  const measureDotGeo = new THREE.SphereGeometry(0.006, 14, 12);
+  const measureDotMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const measureLineMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  let measureA = null;
+  let measureB = null;
+  let measureLocked = false;
+  let measureDown = null;
+
+  function snapMeasure(point) {
+    const step = snapOn ? 0.001 : 0.0001;
+    return new THREE.Vector3(
+      Math.round(point.x / step) * step,
+      Math.round(point.y / step) * step,
+      Math.round(point.z / step) * step,
+    );
+  }
+
+  function hitWorld(ev) {
+    pointAt(ev);
+    const hits = ray.intersectObjects([group, bench, floor], true);
+    if (hits.length) return hits[0].point.clone();
+    const out = new THREE.Vector3();
+    return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  function clearMeasure() {
+    measureA = null;
+    measureB = null;
+    measureLocked = false;
+    measureFx.clear();
+    measureEl?.classList.remove("on");
+  }
+
+  function drawMeasure() {
+    measureFx.clear();
+    if (!measureA) return;
+    const a = new THREE.Mesh(measureDotGeo, measureDotMat);
+    a.position.copy(measureA);
+    measureFx.add(a);
+    if (!measureB) return;
+    const b = new THREE.Mesh(measureDotGeo, measureDotMat);
+    b.position.copy(measureB);
+    measureFx.add(b);
+    measureFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([measureA, measureB]), measureLineMat));
+  }
+
+  function fmtMm(meters) {
+    const rounded = Math.round(meters * 1000 * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded} mm` : `${rounded.toFixed(1)} mm`;
+  }
+
+  function placeMeasure(world, html) {
+    if (!measureEl) return;
+    dimVec.copy(world).project(camera);
+    if (dimVec.z > 1) {
+      measureEl.classList.remove("on");
+      return;
+    }
+    measureEl.style.left = `${(dimVec.x * 0.5 + 0.5) * canvas.clientWidth}px`;
+    measureEl.style.top = `${(-dimVec.y * 0.5 + 0.5) * canvas.clientHeight}px`;
+    if (measureEl.dataset.body !== html) {
+      measureEl.dataset.body = html;
+      measureEl.innerHTML = html;
+    }
+    measureEl.classList.add("on");
+  }
+
+  function updateMeasureLabel() {
+    if (!measureEl || !measureOn || !measureA || !measureB) {
+      measureEl?.classList.remove("on");
+      return;
+    }
+    const mid = measureA.clone().lerp(measureB, 0.5);
+    const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
+    const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
+    const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
+    placeMeasure(
+      mid,
+      `<strong>${fmtMm(measureA.distanceTo(measureB))}</strong><small>Δ ${dx} × ${dy} × ${dz} mm</small>`,
+    );
+  }
+
+  function measureClick(ev) {
+    const hit = hitWorld(ev);
+    if (!hit) return;
+    const point = snapMeasure(hit);
+    if (!measureA || measureLocked) {
+      measureA = point;
+      measureB = null;
+      measureLocked = false;
+      drawMeasure();
+      return;
+    }
+    measureB = point;
+    measureLocked = true;
+    drawMeasure();
+  }
+
+  function setMeasure(on) {
+    const next = Boolean(on);
+    if (next === measureOn) return measureOn;
+    measureOn = next;
+    canvas.classList.toggle("measuring", measureOn);
+    if (measureOn) {
+      if (cadTool) setCadTool(null);
+      transform.detach();
+    } else {
+      clearMeasure();
+      if (selected && !cadTool) transform.attach(selected);
+    }
+    emitViewport();
+    return measureOn;
   }
 
   function sketchCenter(s) {
@@ -1282,6 +1966,13 @@ export function createWorkshop(canvas) {
   }
 
   window.addEventListener("pointermove", (ev) => {
+    if (measureOn && measureA && !measureLocked) {
+      const hit = hitWorld(ev);
+      if (hit) {
+        measureB = snapMeasure(hit);
+        drawMeasure();
+      }
+    }
     if (!sketch) return;
     if (sketch.phase === "draw") {
       const hit = castBench(ev);
@@ -1377,7 +2068,8 @@ export function createWorkshop(canvas) {
     if (legToTop) {
       const tw = boxB.max.x - boxB.min.x;
       const td = boxB.max.z - boxB.min.z;
-      const inset = Math.min(0.05, tw * 0.09);
+      const legW = Math.max(boxA.max.x - boxA.min.x, boxA.max.z - boxA.min.z);
+      const inset = legCenterInset(tw, legW);
       const sx = cA.x >= cB.x ? 1 : -1;
       const sz = cA.z >= cB.z ? 1 : -1;
       let y = boxB.min.y - hA / 2;
@@ -1391,7 +2083,8 @@ export function createWorkshop(canvas) {
     } else if (topToLeg) {
       const tw = boxA.max.x - boxA.min.x;
       const td = boxA.max.z - boxA.min.z;
-      const inset = Math.min(0.05, tw * 0.09);
+      const legW = Math.max(boxB.max.x - boxB.min.x, boxB.max.z - boxB.min.z);
+      const inset = legCenterInset(tw, legW);
       const sx = cB.x >= cA.x ? 1 : -1;
       const sz = cB.z >= cA.z ? 1 : -1;
       target = {
@@ -1463,7 +2156,7 @@ export function createWorkshop(canvas) {
   }
 
   timelineEl?.addEventListener("click", (ev) => {
-    if (ev.target.closest(".cad-tl-undo")) document.getElementById("undo-edit")?.click();
+    if (ev.target.closest(".cad-tl-undo")) document.querySelector("[data-undo]")?.click();
   });
 
   // Place / delete chips fall out of the piece-list diff between syncs, so
@@ -1528,6 +2221,14 @@ export function createWorkshop(canvas) {
   window.addEventListener("keydown", (ev) => {
     const tag = ev.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+    if (ev.key === "Escape" && measureOn) {
+      if (measureA) {
+        clearMeasure();
+        return;
+      }
+      setMeasure(false);
+      return;
+    }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
   });
 
@@ -1537,6 +2238,30 @@ export function createWorkshop(canvas) {
     shadow(root);
     root.userData = { piece, part, ports: part.ports || [] };
     if (!lab) addEdaDecor(root, piece, part);
+    return root;
+  }
+
+  function meshForReconstruction(record) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(record.positions, 3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const material = stdMat({
+      color: new THREE.Color(record.piece.color || "#c9d2da"),
+      roughness: 0.5,
+      metalness: 0.04,
+      flatShading: false,
+      side: THREE.DoubleSide,
+    });
+    const root = shadow(new THREE.Mesh(geometry, material));
+    root.userData = {
+      piece: record.piece,
+      part: record.part,
+      ports: [],
+      reconstructed: true,
+      voxelCount: record.voxelCount,
+      triangleCount: record.triangleCount,
+    };
     return root;
   }
 
@@ -1572,7 +2297,6 @@ export function createWorkshop(canvas) {
         .slice(0, 4)
         .filter((leg) => leg.dist < Math.max(tw, td) * 1.35 + 0.35);
       if (nearby.length < 4) continue;
-      const inset = Math.min(0.05, tw * 0.09);
       const slots = [
         [-1, -1],
         [1, -1],
@@ -1583,6 +2307,7 @@ export function createWorkshop(canvas) {
         leg.used = true;
         const src = legs.find((row) => row.piece.id === leg.piece.id);
         if (src) src.used = true;
+        const inset = legCenterInset(tw, Math.max(leg.part.dimsMm.x, leg.part.dimsMm.y) * MM);
         const [sx, sz] = slots[i] || slots[0];
         const world = new THREE.Vector3(
           top.mesh.position.x + sx * (tw / 2 - inset),
@@ -1618,6 +2343,16 @@ export function createWorkshop(canvas) {
       group.add(mesh);
       meshes.set(piece.id, mesh);
     }
+    for (const record of reconstructed.values()) {
+      const mesh = meshForReconstruction(record);
+      poseMesh(mesh, record.piece, record.part);
+      group.add(mesh);
+      meshes.set(record.piece.id, mesh);
+    }
+    for (const id of [...matOverrides.keys()]) {
+      if (!meshes.has(id)) matOverrides.delete(id);
+    }
+    applyMatOverrides();
     cableGroup.clear();
     const cableNets = project.netlist?.cableNets || {};
     const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
@@ -1710,6 +2445,10 @@ export function createWorkshop(canvas) {
 
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0 || transform.dragging) return;
+    if (measureOn) {
+      measureDown = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
     if (cadTool === "sketch-rect" || cadTool === "sketch-circle") {
       sketchDown(ev);
       return;
@@ -1719,6 +2458,15 @@ export function createWorkshop(canvas) {
       return;
     }
     pick(ev);
+  });
+
+  canvas.addEventListener("pointerup", (ev) => {
+    if (!measureOn || !measureDown || ev.button !== 0) return;
+    const dx = ev.clientX - measureDown.x;
+    const dy = ev.clientY - measureDown.y;
+    measureDown = null;
+    if (dx * dx + dy * dy > 25) return;
+    measureClick(ev);
   });
 
   function resize() {
@@ -1780,16 +2528,73 @@ export function createWorkshop(canvas) {
   }
 
   function explode(amount) {
+    const target = instructionRoot || group;
     let i = 0;
-    meshes.forEach((mesh) => {
+    target.traverse((mesh) => {
+      if (!mesh.isMesh) return;
       mesh.position.y += amount * (0.02 + (i % 4) * 0.03);
       i += 1;
     });
   }
 
+  function disposeObject(root) {
+    root.traverse((child) => {
+      child.geometry?.dispose?.();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        material?.map?.dispose?.();
+        material?.dispose?.();
+      }
+    });
+  }
+
+  function clearInstructionMesh() {
+    if (instructionRoot) {
+      scene.remove(instructionRoot);
+      disposeObject(instructionRoot);
+      instructionRoot = null;
+    }
+    instructionUrl = null;
+    group.visible = true;
+    cableGroup.visible = true;
+  }
+
+  function frameInstruction(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    root.scale.multiplyScalar(0.9 / maxDim);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    root.position.sub(fittedCenter);
+    root.position.y -= fitted.min.y;
+  }
+
+  async function loadInstructionMesh(url, { camera: nextCamera } = {}) {
+    const meshUrl = String(url || "").trim();
+    if (!meshUrl) throw new Error("No mesh URL");
+    if (instructionUrl === meshUrl && instructionRoot) {
+      if (nextCamera) setCamera(nextCamera);
+      resize();
+      return { meshUrl, reused: true };
+    }
+    clearInstructionMesh();
+    group.visible = false;
+    cableGroup.visible = false;
+    const gltf = await gltfLoader.loadAsync(meshUrl);
+    instructionRoot = gltf.scene || gltf.scenes?.[0];
+    if (!instructionRoot) throw new Error("GLB had no scene");
+    frameInstruction(instructionRoot);
+    scene.add(instructionRoot);
+    instructionUrl = meshUrl;
+    if (nextCamera) setCamera(nextCamera);
+    resize();
+    return { meshUrl };
+  }
+
   function setLed(on) {
     // Emission only draws in material shading — same rule as Blender's solid view.
-    if (shading !== "material") return;
+    if (lookOn || shading !== "material") return;
     meshes.forEach((mesh) => {
       if (mesh.userData.part?.firmwareRole !== "led") return;
       mesh.traverse((child) => {
@@ -1826,17 +2631,122 @@ export function createWorkshop(canvas) {
     if (boxHelper && selected) boxHelper.update();
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
+    updateMeasureLabel();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
   tick();
 
+  function addReconstructedMesh(spec) {
+    if (!spec?.id || !(spec.positions instanceof Float32Array) || spec.positions.length < 9) {
+      throw new Error("The reconstructed body has no triangle vertices.");
+    }
+    const dimsMm = {
+      x: Math.max(1, Number(spec.dimensionsMm?.x) || 1),
+      y: Math.max(1, Number(spec.dimensionsMm?.y) || 1),
+      z: Math.max(1, Number(spec.dimensionsMm?.z) || 1),
+    };
+    const piece = {
+      id: spec.id,
+      partId: "scan-mesh",
+      x: Number(spec.x) || 0,
+      y: Number(spec.y) || (dimsMm.z * MM) / 2,
+      z: Number(spec.z) || 0,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      sx: 1,
+      sy: 1,
+      sz: 1,
+      color: spec.color || "#c9d2da",
+      reconstructed: true,
+    };
+    const part = {
+      id: "scan-mesh",
+      name: spec.name || "Scanned object",
+      category: "scan",
+      dimsMm,
+      color: piece.color,
+    };
+    const record = {
+      piece,
+      part,
+      positions: spec.positions,
+      voxelCount: Number(spec.voxelCount) || 0,
+      triangleCount: Number(spec.triangleCount) || spec.positions.length / 9,
+    };
+    reconstructed.set(piece.id, record);
+    const old = meshes.get(piece.id);
+    if (old) {
+      group.remove(old);
+      old.geometry?.dispose?.();
+      old.material?.dispose?.();
+    }
+    const mesh = meshForReconstruction(record);
+    poseMesh(mesh, piece, part);
+    group.add(mesh);
+    meshes.set(piece.id, mesh);
+    pushOp("S", `Scan ${part.name} · ${record.triangleCount.toLocaleString()} triangles`);
+    attach(mesh);
+    return { piece, part };
+  }
+
+  function removeReconstructed(id) {
+    if (!reconstructed.has(id)) return false;
+    const mesh = meshes.get(id);
+    if (mesh) {
+      if (selected === mesh) attach(null);
+      group.remove(mesh);
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+      meshes.delete(id);
+    }
+    reconstructed.delete(id);
+    pushOp("D", "Delete scanned object");
+    return true;
+  }
+
+  function updateReconstructedPose(pose) {
+    const record = reconstructed.get(pose?.id);
+    if (!record) return false;
+    for (const key of ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz"]) {
+      if (Number.isFinite(Number(pose[key]))) record.piece[key] = Number(pose[key]);
+    }
+    applyPose(record.piece);
+    return true;
+  }
+
+  function duplicateReconstructed(id) {
+    const source = reconstructed.get(id);
+    if (!source) return null;
+    let suffix = reconstructed.size + 1;
+    while (reconstructed.has(`scan-mesh-${suffix}`)) suffix += 1;
+    return addReconstructedMesh({
+      id: `scan-mesh-${suffix}`,
+      name: `${source.part.name} copy`,
+      positions: source.positions,
+      dimensionsMm: source.part.dimsMm,
+      voxelCount: source.voxelCount,
+      triangleCount: source.triangleCount,
+      color: source.piece.color,
+      x: source.piece.x + source.part.dimsMm.x * MM + 0.02,
+      y: source.piece.y,
+      z: source.piece.z,
+    });
+  }
+
   return {
     sync,
     setSim,
     setCamera,
+    loadInstructionMesh,
+    clearInstructionMesh,
     setShading,
     getShading: () => shading,
+    setLook,
+    getLook: () => lookOn,
+    setMeasure,
+    getMeasure: () => measureOn,
     frameSelected,
     explode,
     setLed,
@@ -1844,6 +2754,8 @@ export function createWorkshop(canvas) {
     select: (id) => selectById(id),
     clearSelect: () => attach(null),
     applyPose,
+    setPieceMaterial,
+    getPieceMaterial,
     setEda,
     highlightNet,
     setPendingPort,
@@ -1857,6 +2769,17 @@ export function createWorkshop(canvas) {
       onPoseCommit = fn;
     },
     getSelected: () => selected?.userData || null,
+    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, positions, voxelCount, triangleCount }) => ({
+      piece,
+      part,
+      positions,
+      voxelCount,
+      triangleCount,
+    })),
+    addReconstructedMesh,
+    removeReconstructed,
+    updateReconstructedPose,
+    duplicateReconstructed,
     getSelectedPose: () => readPose(selected),
     onSketch: (fn) => {
       onSketchCommit = fn;

@@ -2,6 +2,7 @@ import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { usableOpenAiKey } from "./secrets.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
+import { extractGuideWithGliner2, GLINER2_BACKEND } from "./gliner2.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -254,7 +255,7 @@ export function parseGuide(
     appliedEdits,
     ignoredEdits,
     raw: text,
-    parser: "local-gliner-standin",
+    parser: "local-parser",
   });
 }
 
@@ -268,7 +269,7 @@ function emptyGuide({ locked = false, productArticle = null, instructions = "" }
     appliedEdits: [],
     ignoredEdits: [],
     raw: "",
-    parser: "local-gliner-standin",
+    parser: "local-parser",
   });
 }
 
@@ -339,7 +340,7 @@ function parseJsonObject(text) {
   }
 }
 
-function guideFromModel(parsed, { raw, instructions = "", availableTools = [] } = {}) {
+function guideFromModel(parsed, { raw, instructions = "", availableTools = [], parser = "openai" } = {}) {
   if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) return null;
   const steps = parsed.steps.map((step, i) => {
     const body = String(step.body || step.instruction || step.text || "").trim();
@@ -370,7 +371,7 @@ function guideFromModel(parsed, { raw, instructions = "", availableTools = [] } 
     appliedEdits: [],
     ignoredEdits: [],
     raw,
-    parser: "openai",
+    parser,
   });
 }
 
@@ -435,8 +436,8 @@ async function extractGuideWithOpenAI(
 }
 
 /**
- * Custom guides go through OpenAI when a key is set so pasted text and dropped
- * photos become the actual steps. Official sheets stay on the transcribed text.
+ * Custom guide text goes through local GLiNER 2 first. Diagram-only plates keep
+ * the vision path. Official sheets stay on their locked transcription.
  */
 export async function parseGuideAsync(
   raw,
@@ -447,6 +448,27 @@ export async function parseGuideAsync(
   const plates = (images || []).filter((image) =>
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
+  const modelText = String(raw || "").trim();
+  const hasPdfPageText = /Page\s+\d+:\s+\S[\s\S]{30,}/i.test(modelText);
+  const hasTextForGliner = Boolean(modelText && (!plates.length || hasPdfPageText));
+  if (hasTextForGliner) {
+    try {
+      const extracted = await extractGuideWithGliner2(raw, deps);
+      const modeled = guideFromModel(extracted, {
+        raw,
+        instructions,
+        availableTools,
+        parser: GLINER2_BACKEND,
+      });
+      if (modeled?.steps?.length) {
+        ikealiveLog("parse", "GLiNER 2 ok", { title: modeled.title, steps: modeled.steps.length });
+        return modeled;
+      }
+      ikealiveWarn("parse", "GLiNER 2 returned no steps; using fallback");
+    } catch (error) {
+      ikealiveWarn("parse", "GLiNER 2 unavailable; using fallback", String(error?.message || error));
+    }
+  }
   if (plates.length) {
     ikealiveLog("parse", "vision plates", { count: plates.length });
     try {
@@ -644,13 +666,35 @@ export function storyboardForStep(guide, stepNumber) {
   }));
 }
 
+/** Camera + catalog parts for the Three.js workshop. No Seedance, no fal. */
+export function scenePlanForStep(guide, stepNumber, frameIndex = 0) {
+  const frames = storyboardForStep(guide, stepNumber);
+  const step = guide?.steps?.find((s) => Number(s.number) === Number(stepNumber));
+  const last = Math.max(0, frames.length - 1);
+  const idx = Math.max(0, Math.min(Number(frameIndex) || 0, last));
+  const frame = frames[idx] || {};
+  const camera = frame.camera || { az: 42, el: 28, zoom: 1 };
+  return {
+    number: Number(step?.number || stepNumber) || 0,
+    engine: "workshop",
+    parts: [...new Set((frame.parts || step?.partsUsed || []).filter(Boolean))],
+    camera: { az: camera.az, el: camera.el, zoom: camera.zoom },
+    explode: Number(frame.explode) || 0,
+    caption: frame.caption || step?.body || `Step ${stepNumber}`,
+    frame: idx,
+    frames: frames.length,
+  };
+}
+
 export function plateKind(guide, step = {}) {
   const blob = `${guide?.title || ""} ${step.body || ""} ${(step.partsUsed || []).join(" ")} ${
     guide?.raw || ""
   }`.toLowerCase();
   if (/billy|kallax|bookcase|bookshelf|shelf unit|wall shelf/.test(blob)) return "bookcase";
-  if ((step.partsUsed || []).some((id) => /^lack-/.test(id))) return "table";
-  if (/lack|side table|table top/.test(blob) && !/bookcase|shelf/.test(blob)) return "table";
+  if ((step.partsUsed || []).some((id) => id === "generic-side-table" || /^lack-/.test(id) || id === "test-table")) {
+    return "table";
+  }
+  if (/test table|generic|scanned object|side table|table top/.test(blob) && !/bookcase|shelf/.test(blob)) return "table";
   return "box";
 }
 
@@ -742,6 +786,43 @@ export function generateFix(reviewId) {
 
 export function defaultGuide() {
   return officialGuide({ availableTools: ["allen-key"] });
+}
+
+function mmPart(dimsMm, fallback = 550) {
+  const n = Math.round(Number(dimsMm) || fallback);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Custom IKEAlive step plan for a scanned (or placeholder) object.
+ * Same shape as the official film — numbered plates — generated for this object.
+ */
+export function scannedObjectGuide({ name = "", dimsMm = {}, notes = "" } = {}) {
+  const x = mmPart(dimsMm.x, 550);
+  const y = mmPart(dimsMm.y, 550);
+  const z = mmPart(dimsMm.z, 450);
+  const title = String(name || "").trim() || "Scanned object";
+  const tableLike = x >= 280 && y >= 280 && z >= 220 && z <= 1100;
+  const space = Math.max(1.2, (Math.max(x, y) + 250) / 1000).toFixed(1);
+  const raw = tableLike
+    ? `${title} — ${x} × ${y} × ${z} mm
+1. Unpack the top and four supports. Check them against the measured ${x} × ${y} × ${z} mm envelope. Specs needed for an exact IKEA article.
+2. Put a rug or the box lid on the floor. Keep about ${space} m of clear space so the finish and the floor both survive.
+3. Place the top face down in the middle of the pad, underside up, with a corner ready at each corner.
+4. Fasten each support into a corner until the shoulder meets the top. Do not overtighten.
+5. Flip the piece upright with a second person if it is awkward. Set it down and check that it sits flat and does not rock.`
+    : `${title} — ${x} × ${y} × ${z} mm
+1. Unpack the scanned object and count every part against the measured ${x} × ${y} × ${z} mm envelope. Specs needed for an exact IKEA article.
+2. Put a rug or the box lid on the floor. Keep about ${space} m of clear space around the footprint.
+3. Place the body on its stable face in the middle of the pad so the joints you will fasten are facing you.
+4. Fasten the supports or fittings until they sit flush. Do not overtighten.
+5. Stand the piece upright with a second person if it is large. Check it does not wobble.`;
+  const guide = parseGuide(raw, { instructions: notes, official: false });
+  return {
+    ...guide,
+    source: "scan",
+    scanned: { name: title, dimsMm: { x, y, z }, tableLike },
+  };
 }
 
 export function remixGuide() {

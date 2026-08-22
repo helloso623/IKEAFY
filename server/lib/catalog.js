@@ -1,5 +1,101 @@
 const PARTS = [
   {
+    id: "generic-side-table",
+    sku: "TEST-TABLE-550",
+    ikeaArticle: null,
+    name: "Test table 55×55",
+    brand: "Generic",
+    category: "furniture",
+    shape: "table",
+    cost: 12,
+    store: "generic",
+    storeUrl: "",
+    includedIn: [],
+    dimsMm: { x: 550, y: 550, z: 450 },
+    massG: 6100,
+    material: "particleboard",
+    color: "#ecdfc6",
+    texture: "birch-foil",
+    printable: false,
+    strengthMpa: 12,
+    thermalAlpha: 0.00003,
+    ports: [],
+    specs: { loadKg: 25, indoor: true, placeholder: true },
+    note: "Generic 550 × 550 mm top, ~450 mm high. Specs needed for an exact IKEA article.",
+  },
+  {
+    id: "generic-stool",
+    sku: "GEN-STOOL-400",
+    ikeaArticle: null,
+    name: "Flat-pack stool 40×40",
+    brand: "Generic",
+    category: "furniture",
+    shape: "table",
+    cost: 10,
+    store: "generic",
+    storeUrl: "",
+    includedIn: [],
+    dimsMm: { x: 400, y: 400, z: 450 },
+    massG: 3600,
+    material: "birch plywood",
+    color: "#d8b47b",
+    texture: "oak-open",
+    printable: false,
+    strengthMpa: 30,
+    thermalAlpha: 0.00003,
+    ports: [],
+    specs: { loadKg: 100, indoor: true, placeholder: true },
+    note: "Generic flat-pack stool, 400 × 400 × 450 mm.",
+  },
+  {
+    id: "generic-shelf-board",
+    sku: "GEN-SHELF-800",
+    ikeaArticle: null,
+    name: "Shelf board 80×25",
+    brand: "Generic",
+    category: "furniture",
+    shape: "slab",
+    cost: 9,
+    store: "generic",
+    storeUrl: "",
+    includedIn: [],
+    dimsMm: { x: 800, y: 250, z: 18 },
+    massG: 2400,
+    material: "pine",
+    color: "#d8b47b",
+    texture: "oak-open",
+    printable: false,
+    strengthMpa: 30,
+    thermalAlpha: 0.00003,
+    ports: [],
+    specs: { loadKg: 20, indoor: true, placeholder: true },
+    note: "Generic 800 × 250 × 18 mm shelf board.",
+  },
+  {
+    id: "generic-shelf-bracket",
+    sku: "GEN-BRACKET-200",
+    ikeaArticle: null,
+    name: "Shelf bracket 20 cm",
+    brand: "Generic",
+    category: "fastener",
+    shape: "bracket",
+    cost: 3,
+    store: "generic",
+    storeUrl: "",
+    includedIn: [],
+    dimsMm: { x: 30, y: 200, z: 200 },
+    massG: 350,
+    material: "steel",
+    color: "#303236",
+    texture: "powder-coat",
+    printable: false,
+    strengthMpa: 250,
+    thermalAlpha: 0.000012,
+    ports: [],
+    specs: { loadKg: 20, indoor: true, placeholder: true },
+    note: "Generic 200 × 200 mm steel shelf bracket.",
+  },
+  {
     id: "lack-table",
     sku: "IKEA-LACK-304.499.08",
     ikeaArticle: "304.499.08",
@@ -14,7 +110,7 @@ const PARTS = [
     dimsMm: { x: 550, y: 550, z: 450 },
     massG: 6100,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: false,
     strengthMpa: 12,
@@ -38,7 +134,7 @@ const PARTS = [
     dimsMm: { x: 550, y: 550, z: 36 },
     massG: 4200,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: false,
     strengthMpa: 12,
@@ -66,7 +162,7 @@ const PARTS = [
     dimsMm: { x: 50, y: 50, z: 414 },
     massG: 480,
     material: "particleboard",
-    color: "#f3efe6",
+    color: "#ecdfc6",
     texture: "birch-foil",
     printable: true,
     strengthMpa: 10,
@@ -85,7 +181,7 @@ const PARTS = [
     cost: 25.0,
     store: "IKEA",
     storeUrl: "https://www.ikea.com/search?q=LINNMON",
-    dimsMm: { x: 1000, y: 600, z: 25 },
+    dimsMm: { x: 1000, y: 600, z: 34 },
     massG: 8200,
     material: "particleboard",
     color: "#ffffff",
@@ -106,7 +202,7 @@ const PARTS = [
     cost: 6.0,
     store: "IKEA",
     storeUrl: "https://www.ikea.com/search?q=ADILS",
-    dimsMm: { x: 38, y: 38, z: 700 },
+    dimsMm: { x: 40, y: 40, z: 700 },
     massG: 1100,
     material: "steel",
     color: "#222222",
@@ -591,6 +687,56 @@ const PARTS = [
     specs: { loadKg: 12 },
   },
 ];
+
+const LAB_SHELF_SKIP_IDS = new Set([
+  "arduino-nano",
+  "esp32-dev",
+  "led-5mm",
+  "ws2812-strip",
+  "tactile-btn",
+  "breadboard",
+  "resistor-220",
+  "psu-5v2a",
+  "jumper-m2m",
+  "usb-mini-cable",
+  "soldering-iron",
+  "multimeter",
+  "enclosure-print",
+]);
+
+/** Lab shelf: furniture, hardware, tape, and hand tools — no boards or robotics. */
+export function isLabShelfPart(part) {
+  if (!part) return false;
+  if (part.category === "electronics" || part.category === "cable") return false;
+  if (LAB_SHELF_SKIP_IDS.has(part.id)) return false;
+  if (part.firmwareRole) return false;
+  return true;
+}
+
+export function labShelfParts(parts = PARTS) {
+  return parts.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
+
+/** Typed in shop chat — boards stay hidden until one of these hits. */
+export const ELECTRONICS_SEARCH =
+  /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+
+export function isElectronicsQuery(query) {
+  return ELECTRONICS_SEARCH.test(String(query || ""));
+}
+
+export function includeLabElectronics({ query = "", showElectronics = false } = {}) {
+  return Boolean(showElectronics) || isElectronicsQuery(query);
+}
+
+/** Default Lab catalog is furniture/hardware. Electronics only if searched or toggled. */
+export function filterLabCatalog(parts, { query = "", showElectronics = false } = {}) {
+  const list = Array.isArray(parts) ? parts : [];
+  if (includeLabElectronics({ query, showElectronics })) {
+    return list.map((p) => ({ ...p }));
+  }
+  return list.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
 
 export function listParts() {
   return PARTS.map((p) => ({ ...p }));

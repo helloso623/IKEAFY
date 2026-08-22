@@ -5,8 +5,10 @@ import { addPiece, emptyProject, seedLampTable, snapshotSim, resetSim } from "..
 
 test("room plan stays on budget and offers cheaper wood", () => {
   const plan = planRoom({ widthM: 3, depthM: 4, budget: 20, want: "table" });
+  assert.equal(plan.pick.id, "generic-side-table");
+  assert.equal(plan.pick.dimsMm.x, 550);
+  assert.equal(plan.pick.dimsMm.z, 450);
   assert.ok(plan.pick.cost <= 20);
-  assert.ok(plan.pick.dimsMm);
   assert.ok(plan.pick.footprintM.w < 3);
   assert.ok(plan.ordered[0].x < 3);
   assert.ok(plan.overlay.mode === "photo-overlay");
@@ -23,6 +25,7 @@ test("order nudge moves the piece in the photo plane", () => {
 
 test("seeded lamp table isolates a board and reset works", () => {
   const p = seedLampTable();
+  assert.equal(p.pieces[0].partId, "generic-side-table");
   assert.ok(p.abstractions.some((a) => a.kind === "board"));
   assert.ok(p.cables.length >= 1);
   snapshotSim(p);

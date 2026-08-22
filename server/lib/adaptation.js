@@ -36,12 +36,14 @@ function pickPart({ want, budget, widthM, depthM }) {
     (part) => isPlaceable(part) && fitsRoom(part, widthM, depthM),
   );
   const tables = furniture.filter(isWholeTable);
+  const placeholder = tables.find((part) => part.id === "generic-side-table" || part.specs?.placeholder);
+  if (placeholder) return placeholder;
   if (tables.length) return tables[0];
   if (furniture.length) return furniture[0];
   const anyFit = searchParts({ maxCost: budget, category: "furniture" }).filter(
     (part) => isPlaceable(part) && fitsRoom(part, widthM, depthM),
   );
-  return anyFit[0] || getPart("lack-table");
+  return anyFit[0] || getPart("generic-side-table") || getPart("lack-table");
 }
 
 function cheaperFits(pick, { budget, widthM, depthM }) {
