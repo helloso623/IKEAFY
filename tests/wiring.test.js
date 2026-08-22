@@ -283,13 +283,9 @@ test("one Get the Reel click has exactly one assembly start path", () => {
 
 test("electronics stays off the Lab header and inspect", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
-  const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
-  assert.match(modes, /data-mode="ikeafy"/);
-  assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
-  assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
-  assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
-  assert.match(html, /id="lab-spaces"/);
+  assert.equal(/data-mode="bench"/.test(html), false, "Desk is inside Lab, not a header product");
+  assert.equal(/data-mode="house"/.test(html), false, "House is inside Lab, not a header product");
+  assert.equal(/data-mode="ar"/.test(html), false, "AR is inside Lab, not a header product");
   assert.doesNotMatch(html, /id="electronics-only"/);
   assert.doesNotMatch(html, /id="flash-btn"/);
   assert.doesNotMatch(html, /id="isolate-btn"/);
@@ -347,14 +343,10 @@ test("dead simulation controls stay out of the Lab", () => {
 });
 
 test("Lab spaces are Bench only; House and Scan were removed", () => {
-  const spacesAt = html.indexOf('id="lab-spaces"');
-  assert.ok(spacesAt > 0, "Lab space switcher must exist");
-  const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
-  assert.match(spaces, /data-lab="desk"/);
-  assert.match(spaces, />Bench</);
-  assert.doesNotMatch(spaces, /data-lab="house"/);
-  assert.doesNotMatch(spaces, /data-lab="ar"/);
-  assert.doesNotMatch(spaces, /id="scan-btn"/);
+  assert.doesNotMatch(html, /id="lab-spaces"/, "the space switcher nav was removed — only Bench exists");
+  assert.doesNotMatch(html, /data-lab="house"/);
+  assert.doesNotMatch(html, /data-lab="ar"/);
+  assert.doesNotMatch(html, /id="scan-btn"/);
   assert.doesNotMatch(html, /id="ar-photo"/);
   assert.doesNotMatch(html, /id="room-scene"/);
   assert.doesNotMatch(html, /id="scan-object-panel"/);
@@ -368,7 +360,6 @@ test("Lab spaces are Bench only; House and Scan were removed", () => {
   assert.match(main, /ikealiveLog\("lab"/);
   const css = read("client/src/styles.css");
   assert.doesNotMatch(css, /data-lab="ar"/);
-  assert.match(css, /#app\.mode-lab \.modes \[data-mode="ikeafy"\]/);
   assert.match(css.replace(/\s+/g, " "), /\.upload-actions button[^}]*flex: 1 1 0/);
   assert.doesNotMatch(css, /\.house-drawer/);
 });

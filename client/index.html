@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
     />
-    <title>IKEAlive — the booklet, as a film</title>
+    <title>Dylan — the booklet, as a film</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -32,15 +32,8 @@
       <header class="top">
         <div class="top-left">
           <a class="brand" href="#intro" data-go-interface="intro">
-            <strong>IKEAlive</strong>
+            <strong>Dylan</strong>
           </a>
-          <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
-            <button data-mode="ikeafy" class="on">IKEAlive</button>
-            <button data-mode="lab">Lab</button>
-          </nav>
-          <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
-            <button type="button" data-lab="desk" class="on">Bench</button>
-          </nav>
         </div>
         <form id="omnibox-form" class="omnibox-form" role="search">
           <input
@@ -52,10 +45,9 @@
           />
         </form>
         <div class="top-right">
-          <button type="button" id="omnibox-ask">Ask</button>
           <div class="top-actions">
             <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
-            <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
+            <button type="button" class="quiet not-intro-only" id="nav-back">Back</button>
           </div>
         </div>
       </header>
@@ -64,7 +56,7 @@
       <section class="iface iface-intro" data-pane="ikeafy" data-interface-pane="intro" aria-label="Start">
         <div class="landing landing-intro">
           <div class="landing-copy">
-            <p class="kicker"><span class="kicker-spark" aria-hidden="true">✨</span> IKEAlive engine</p>
+            <p class="kicker"><span class="kicker-spark" aria-hidden="true">✨</span> Dylan engine</p>
             <h1>Your furniture, from <span class="hl">3D model</span> to finished build.</h1>
 
             <ul class="upload-feature-grid">
@@ -232,7 +224,7 @@
       </main>
 
       <!-- ============ WATCH — four Finley-style cards ============ -->
-      <aside class="rail cards" data-pane="ikeafy" data-watch-card="bom" aria-label="IKEAlive watch">
+      <aside class="rail cards" data-pane="ikeafy" data-watch-card="bom" aria-label="Dylan watch">
         <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
           <nav class="watch-picks" aria-label="Watch cards">
             <button type="button" class="watch-pick on" data-watch-card="bom">Assembly inventory</button>
@@ -315,7 +307,6 @@
           <strong class="lab-pane-title desk-space">Model / Bodies</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
-        <button type="button" class="primary bench-upload-cta desk-space" data-go-interface="upload">Upload IKEA instructions →</button>
         <div class="pane bench-nav lab-tree">
           <details class="lab-folder lab-model desk-space" id="lab-model" open>
             <summary class="lab-folder-sum">
@@ -426,7 +417,7 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Hunt dimension-matched tops, legs, aprons, stretchers, and boards; print the cut list; and create IKEAlive steps">Hunt table pieces</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Hunt dimension-matched tops, legs, aprons, stretchers, and boards; print the cut list; and create Dylan steps">Hunt table pieces</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -501,7 +492,7 @@
           <details class="lab-sheet" id="diy-build-sheet">
             <summary class="lab-sheet-sum">Piece-plan history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Hunt table pieces finds dimension-matched tops, legs, aprons, stretchers, and boards for the current model. It makes a PDF and IKEAlive todo while older revisions stay here.</p>
+              <p class="hint lab-hint">Hunt table pieces finds dimension-matched tops, legs, aprons, stretchers, and boards for the current model. It makes a PDF and Dylan todo while older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>
@@ -519,6 +510,9 @@
         ></div>
       </aside>
 
+      <button type="button" id="bench-upload-cta" class="primary bench-upload-cta lab-only hidden" data-go-interface="upload">
+        Upload IKEA instructions →
+      </button>
       <button
         type="button"
         id="ai-orb"

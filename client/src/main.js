@@ -1192,6 +1192,7 @@ bindVoice({
 });
 
 window.__ikeafyApplyShop = applyShopActions;
+window.setIkealiveMode = setMode;
 
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;

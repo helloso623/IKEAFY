@@ -3,14 +3,23 @@ const app = document.getElementById("app");
 function setInterface(name) {
   if (!app || (name !== "intro" && name !== "upload" && name !== "watch")) return;
   app.setAttribute("data-interface", name);
-  const tab = document.querySelector('#modes [data-mode="ikeafy"]');
-  if (app.dataset.mode !== "ikeafy") tab?.click();
+  if (app.dataset.mode !== "ikeafy") window.setIkealiveMode?.("ikeafy");
   window.dispatchEvent(new Event("resize"));
 }
 
 function goMode(name) {
-  const tab = document.querySelector(`#modes [data-mode="${name}"]`);
-  tab?.click();
+  window.setIkealiveMode?.(name);
+}
+
+function goBack() {
+  if (!app) return;
+  if (app.dataset.mode === "lab") {
+    setInterface("intro");
+    return;
+  }
+  const current = app.dataset.interface;
+  if (current === "watch") setInterface("upload");
+  else if (current === "upload") goMode("lab");
 }
 
 function setWatchCard(name) {
@@ -30,6 +39,8 @@ document.addEventListener("click", (event) => {
   if (go) setInterface(go.getAttribute("data-go-interface"));
   const goModeBtn = event.target.closest("[data-go-mode]");
   if (goModeBtn) goMode(goModeBtn.getAttribute("data-go-mode"));
+  const back = event.target.closest("#nav-back");
+  if (back) goBack();
   const pick = event.target.closest(".watch-pick");
   if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
 });
