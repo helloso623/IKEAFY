@@ -432,7 +432,7 @@ export function persistLabTool(project, tool, value) {
   return project.labTools[tool];
 }
 
-/** Keep immutable ways-to-make outputs so later model edits preserve prior revisions. */
+/** Keep immutable piece plans so later model edits preserve prior revisions. */
 export function appendDiyBuild(project, build, limit = 12) {
   project.diyHistory ||= [];
   const stored = JSON.parse(JSON.stringify(build));

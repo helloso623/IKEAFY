@@ -2,8 +2,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
+import {
+  buildWeldedTopology,
+  componentMode as normalizeComponentMode,
+  selectedWeldVertices,
+  subdivideTriangleAttributes,
+  updateComponentSelection,
+} from "./mesh-components.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -54,8 +62,8 @@ function grayWoodMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) 
 
 const grainCanvasCache = new Map();
 
-function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true } = {}) {
-  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}`;
+function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true, blotches = false } = {}) {
+  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}:${blotches}`;
   const cached = grainCanvasCache.get(key);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
@@ -66,6 +74,34 @@ function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arc
   const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, size, size);
+  if (blotches) {
+    // Solid wood first reads as tone shifting across the board, then as
+    // streaks. Two low-frequency layers put that in before any line work:
+    // broad soft blotches (heartwood/sapwood drift) and wide vertical
+    // early/latewood bands running with the grain.
+    for (let i = 0; i < 7; i += 1) {
+      const cx = rand() * size;
+      const cy = rand() * size;
+      const radius = size * (0.22 + rand() * 0.3);
+      const dark = rand() > 0.42;
+      const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+      const tone = dark ? "96, 72, 44" : "255, 246, 226";
+      grad.addColorStop(0, `rgba(${tone}, ${(contrast * (dark ? 0.55 : 0.85)).toFixed(4)})`);
+      grad.addColorStop(1, `rgba(${tone}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+    }
+    for (let i = 0; i < 9; i += 1) {
+      const x = rand() * size;
+      const w = size * (0.03 + rand() * 0.09);
+      const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
+      grad.addColorStop(0, "rgba(104, 80, 50, 0)");
+      grad.addColorStop(0.5, `rgba(104, 80, 50, ${(contrast * (0.28 + rand() * 0.5)).toFixed(4)})`);
+      grad.addColorStop(1, "rgba(104, 80, 50, 0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - w, 0, w * 2, size);
+    }
+  }
   for (let i = 0; i < 46; i += 1) {
     const x = rand() * size;
     const drift = (rand() - 0.5) * size * 0.14;
@@ -110,6 +146,49 @@ function grainRepeat(mm) {
   return THREE.MathUtils.clamp((Number(mm) || 280) / 280, 1, 4);
 }
 
+/* Brushed-metal streaks: a mostly-white canvas scored by long horizontal
+   lines. Sampled as a roughness map it turns one flat roughness value into
+   fine gloss/dull lanes, and as a bump map it puts the same lanes into the
+   specular normal — the classic brushed look, procedurally, ~50 KB of canvas
+   instead of a texture download. Left in linear space (no colorSpace) since
+   both slots want raw values. */
+const brushedCanvasCache = new Map();
+
+function brushedCanvas(seed = 1, size = 512) {
+  const cached = brushedCanvasCache.get(seed);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  let s = (seed * 6151 + 92821) % 233280;
+  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  ctx.fillStyle = "#e9e9e9";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 640; i += 1) {
+    const y = rand() * size;
+    const bright = rand() > 0.5;
+    const tone = bright ? 255 : Math.round(120 + rand() * 70);
+    ctx.strokeStyle = `rgba(${tone}, ${tone}, ${tone}, ${(0.05 + rand() * 0.16).toFixed(3)})`;
+    ctx.lineWidth = 0.5 + rand();
+    ctx.beginPath();
+    ctx.moveTo(-4, y);
+    ctx.lineTo(size + 4, y + (rand() - 0.5) * 2);
+    ctx.stroke();
+  }
+  brushedCanvasCache.set(seed, canvas);
+  return canvas;
+}
+
+function brushedTexture(seed, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(brushedCanvas(seed));
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
+
 function seedFrom(part) {
   let n = 3;
   for (const ch of String(part?.id || "x")) n = (n * 31 + ch.charCodeAt(0)) % 997;
@@ -142,9 +221,12 @@ function contactShadowMap(size = 256) {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Foil sheen: a hash-noise jitter on roughness, injected into the foil
-// laminate shader. A few ALU ops per fragment, no extra textures, and the
-// constant cache key means every foil part shares one compiled program.
+// Foil sheen: roughness jitter injected into the foil laminate shader. Two
+// scales — an isotropic paper-fleck sparkle plus row-quantized streaks that
+// run with the printed grain, so highlights smear into brushed lines the way
+// melamine over particleboard really does. A few ALU ops per fragment, no
+// extra textures, and the constant cache key means every foil part shares
+// one compiled program.
 function addFoilGrain(mat) {
   mat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -152,11 +234,12 @@ function addFoilGrain(mat) {
       `#include <roughnessmap_fragment>
       #ifdef USE_MAP
       float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
-      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      float ikeaStreak = fract(sin(floor(vMapUv.x * 220.0) * 12.9898) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.06 + (ikeaStreak - 0.5) * 0.1, 0.04, 1.0);
       #endif`,
     );
   };
-  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  mat.customProgramCacheKey = () => "ikealive-foil-grain-v2";
   return mat;
 }
 
@@ -315,16 +398,53 @@ function foilMaterial(part, hex, kind) {
   // one extra sample of a texture already on the GPU — and jitter roughness.
   mat.bumpMap = map;
   mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  // Real anisotropic specular, rotated to stretch highlights along the
+  // printed grain (streaks run down V in the canvas). Reads against the
+  // scene environment, so the sheen slides as the camera orbits.
+  mat.anisotropy = kind === "white" ? 0.2 : 0.35;
+  mat.anisotropyRotation = Math.PI / 2;
   return addFoilGrain(mat);
 }
 
+/* Open-grain solid wood: blotchy tone drift and latewood bands under the
+   streaks, the same canvas reused as bump (pores catch raking light) and as
+   a roughness map (dark latewood reads slightly duller than sanded face).
+   Each part warms or cools a touch by seed so boards never match exactly. */
 function openWoodMaterial(part, hex) {
+  const seed = seedFrom(part);
   const map = grainTexture(
-    { contrast: 0.17, seed: seedFrom(part), flecks: true, arcs: true },
+    { contrast: 0.22, seed, flecks: true, arcs: true, blotches: true },
     grainRepeat(part.dimsMm?.x),
     grainRepeat(part.dimsMm?.y),
   );
-  return stdMat({ color: new THREE.Color(hex), map, roughness: 0.74, metalness: 0 });
+  const color = new THREE.Color(hex);
+  color.offsetHSL(((seed % 13) - 6) * 0.0016, 0, ((seed % 7) - 3) * 0.008);
+  const mat = stdMat({ color, map, roughness: 0.78, metalness: 0 });
+  mat.bumpMap = map;
+  mat.bumpScale = 0.55;
+  mat.roughnessMap = map;
+  return mat;
+}
+
+/* Brushed steel: full metalness against the room environment, streaked
+   roughness and bump so highlights draw out into brush lines, and real
+   anisotropic specular running with the brush direction. */
+function brushedMetalMaterial(part, hex) {
+  const streaks = brushedTexture(
+    seedFrom(part),
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(hex),
+    metalness: 0.92,
+    roughness: 0.38,
+    roughnessMap: streaks,
+    anisotropy: 0.55,
+  });
+  mat.bumpMap = streaks;
+  mat.bumpScale = 0.05;
+  return mat;
 }
 
 function materialFor(part, piece) {
@@ -335,15 +455,15 @@ function materialFor(part, piece) {
   if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
   if (texture === "white-foil") return foilMaterial(part, hex, "white");
   if (texture === "oak-open") return openWoodMaterial(part, hex);
+  if (texture === "metal" || part.material === "steel") return brushedMetalMaterial(part, hex);
   if (texture === "powder-coat")
     return stdMat({ color: new THREE.Color(hex), roughness: 0.42, metalness: 0.35 });
   const color = new THREE.Color(hex);
-  const metal = texture === "metal" || part.material === "steel";
   const pcb = /^pcb-/.test(texture || "");
   const mat = stdMat({
     color,
-    roughness: metal ? 0.28 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
-    metalness: metal ? 0.72 : pcb ? 0.12 : 0.05,
+    roughness: pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
+    metalness: pcb ? 0.12 : 0.05,
     emissive: part.firmwareRole === "led" ? new THREE.Color(0x2a2a2a) : 0x000000,
   });
   if (pcb) mat.map = pcbMap(hex);
@@ -1123,11 +1243,23 @@ export function createWorkshop(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+  // Image-based specular: a prefiltered procedural room (no downloads) so
+  // metals mirror something instead of reading as grey plastic, foil
+  // laminate catches window-shaped sheen, and the roughness slider visibly
+  // travels from mirror to matte. Look mode is untouched — its unlit
+  // MeshBasicMaterial overrides ignore scene.environment by design.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.45;
+  pmrem.dispose();
+
   const orbit = new OrbitControls(camera, canvas);
   orbit.target.set(0, 0.2, 0);
   orbit.enableDamping = true;
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.9);
+  // The environment now carries part of the ambient term, so the hemisphere
+  // light steps back to keep overall exposure where it was.
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.55);
   scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffffff, 1.3);
   key.position.set(2, 3, 1);
@@ -1225,6 +1357,10 @@ export function createWorkshop(canvas) {
   const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
+  let componentMode = null;
+  let componentSelection = new Set();
+  let componentRows = [];
+  let onComponentSelect = () => {};
   let snapOn = true;
   let editMode = "translate";
   let simOn = false;
@@ -1424,16 +1560,20 @@ export function createWorkshop(canvas) {
   }
 
   function attach(mesh, quiet = false) {
+    const changedBody = selected !== (mesh || null);
+    if (changedBody) componentSelection = new Set();
     selected = mesh || null;
     if (!mesh) {
       transform.detach();
       markSelected(null);
+      refreshComponentOverlay();
       if (!quiet) onSelect(null);
       return false;
     }
-    if (sculptMode || cadTool || meshTool) transform.detach();
+    if (sculptMode || cadTool || meshTool || componentMode) transform.detach();
     else transform.attach(mesh);
     markSelected(mesh);
+    refreshComponentOverlay();
     if (!quiet) onSelect(mesh.userData);
     return true;
   }
@@ -1458,6 +1598,7 @@ export function createWorkshop(canvas) {
     mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
     mesh.scale.set(piece.sx || 1, piece.sy || 1, piece.sz || 1);
     markSelected(mesh);
+    if (mesh === selected) refreshComponentOverlay();
     return true;
   }
 
@@ -1470,11 +1611,11 @@ export function createWorkshop(canvas) {
   });
   scene.add(transform.getHelper());
 
-  /* ---- Materials panel: per-piece color + roughness, applied live --------
+  /* ---- Materials panel: per-piece color + roughness + metalness, live ----
      Color and texture persist through the project API (the server keeps
-     them on the piece); roughness is a client-side dressing kept in a map
-     so sync() can re-apply it after every rebuild. */
-  const matOverrides = new Map(); // pieceId -> { roughness }
+     them on the piece); roughness and metalness are client-side dressing
+     kept in a map so sync() can re-apply them after every rebuild. */
+  const matOverrides = new Map(); // pieceId -> { roughness, metalness }
 
   function eachTintableMaterial(root, fn) {
     root.traverse((child) => {
@@ -1489,7 +1630,7 @@ export function createWorkshop(canvas) {
     });
   }
 
-  function setPieceMaterial(id, { color, roughness } = {}) {
+  function setPieceMaterial(id, { color, roughness, metalness } = {}) {
     const mesh = meshes.get(id);
     if (!mesh) return false;
     if (roughness != null && Number.isFinite(Number(roughness))) {
@@ -1497,6 +1638,13 @@ export function createWorkshop(canvas) {
       matOverrides.set(id, { ...(matOverrides.get(id) || {}), roughness: value });
       eachTintableMaterial(mesh, (mat) => {
         if (mat.roughness !== undefined) mat.roughness = value;
+      });
+    }
+    if (metalness != null && Number.isFinite(Number(metalness))) {
+      const value = THREE.MathUtils.clamp(Number(metalness), 0, 1);
+      matOverrides.set(id, { ...(matOverrides.get(id) || {}), metalness: value });
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.metalness !== undefined) mat.metalness = value;
       });
     }
     if (color) {
@@ -1520,24 +1668,26 @@ export function createWorkshop(canvas) {
     const piece = mesh.userData.piece || {};
     const part = mesh.userData.part || {};
     let roughness = matOverrides.get(id)?.roughness;
-    if (roughness == null) {
-      eachTintableMaterial(mesh, (mat) => {
-        if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
-      });
-    }
+    let metalness = matOverrides.get(id)?.metalness;
+    eachTintableMaterial(mesh, (mat) => {
+      if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
+      if (metalness == null && mat.metalness !== undefined) metalness = mat.metalness;
+    });
     return {
       color: `#${new THREE.Color(piece.color || part.color || PALE).getHexString()}`,
       texture: piece.texture || part.texture || null,
       roughness: roughness ?? 0.6,
+      metalness: metalness ?? 0.05,
     };
   }
 
   function applyMatOverrides() {
     for (const [id, override] of matOverrides) {
       const mesh = meshes.get(id);
-      if (!mesh || override.roughness == null) continue;
+      if (!mesh) continue;
       eachTintableMaterial(mesh, (mat) => {
-        if (mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.roughness != null && mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.metalness != null && mat.metalness !== undefined) mat.metalness = override.metalness;
       });
     }
   }
@@ -1647,7 +1797,16 @@ export function createWorkshop(canvas) {
   function saveSculpt() {
     const id = selected?.userData?.piece?.id;
     if (!id) return;
-    sculptStore.set(id, sculptTargets(selected).map((child) => child.geometry));
+    const geometries = sculptTargets(selected).map((child) => child.geometry);
+    sculptStore.set(id, geometries);
+    const record = reconstructed.get(id);
+    if (record && geometries.length === 1) {
+      const geometry = geometries[0];
+      record.positions = new Float32Array(geometry.getAttribute("position").array);
+      const color = geometry.getAttribute("color")?.array;
+      record.colors = color ? new Float32Array(color) : null;
+      record.triangleCount = record.positions.length / 9;
+    }
   }
 
   function applySculptStore() {
@@ -1775,11 +1934,12 @@ export function createWorkshop(canvas) {
     const mode = ["grab", "smooth", "inflate"].includes(next) ? next : null;
     sculptMode = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (meshTool) setMeshTool(null);
       transform.detach();
-    } else if (selected && !meshTool) {
+    } else if (selected && !meshTool && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("sculpting", Boolean(mode));
@@ -1789,57 +1949,389 @@ export function createWorkshop(canvas) {
     return sculptMode;
   }
 
+  /* ---- Blender-like vertex / edge / face component selection -------------
+     The overlay is world-space and disposable; the furniture geometry remains
+     the source of truth. Topology welds duplicate triangle corners so scaling
+     and selective subdivision always move/split every copy together. */
+  const componentOverlay = new THREE.Group();
+  scene.add(componentOverlay);
+  let componentPickObjects = [];
+  const componentPointMat = new THREE.PointsMaterial({
+    color: 0x62b7ff,
+    size: 6,
+    sizeAttenuation: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentPointSelectedMat = new THREE.PointsMaterial({
+    color: 0xffda1a,
+    size: 10,
+    sizeAttenuation: false,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeMat = new THREE.LineBasicMaterial({
+    color: 0x62b7ff,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeSelectedMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentFaceMat = new THREE.MeshBasicMaterial({
+    color: 0x3d9cf0,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    toneMapped: false,
+  });
+  const componentFaceSelectedMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+
+  function qualifiedComponentKey(targetIndex, localId) {
+    return `${targetIndex}|${localId}`;
+  }
+
+  function localComponentSelection(targetIndex) {
+    const prefix = `${targetIndex}|`;
+    return [...componentSelection]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length));
+  }
+
+  function clearComponentOverlay() {
+    componentOverlay.traverse((child) => child.geometry?.dispose?.());
+    componentOverlay.clear();
+    componentPickObjects = [];
+    componentRows = [];
+  }
+
+  function worldPosition(child, point) {
+    return new THREE.Vector3(point[0], point[1], point[2]).applyMatrix4(child.matrixWorld);
+  }
+
+  function positionGeometry(values) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(values, 3));
+    return geometry;
+  }
+
+  function addComponentPoints(row) {
+    const all = [];
+    const selectedPoints = [];
+    const keys = [];
+    for (const vertex of row.topology.vertices) {
+      const key = qualifiedComponentKey(row.index, vertex.id);
+      const point = worldPosition(row.child, vertex.position);
+      all.push(point.x, point.y, point.z);
+      keys.push(key);
+      if (componentSelection.has(key)) selectedPoints.push(point.x, point.y, point.z);
+    }
+    const points = new THREE.Points(positionGeometry(all), componentPointMat);
+    points.userData.componentKeys = keys;
+    points.userData.componentKind = "vertex";
+    componentOverlay.add(points);
+    componentPickObjects.push(points);
+    if (selectedPoints.length) {
+      componentOverlay.add(new THREE.Points(positionGeometry(selectedPoints), componentPointSelectedMat));
+    }
+  }
+
+  function edgePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const edge of row.topology.edges) {
+      const key = qualifiedComponentKey(row.index, edge.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      const [a, b] = edge.vertices.map((index) => worldPosition(row.child, row.topology.vertices[index].position));
+      values.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentEdges(row) {
+    const all = edgePositions(row);
+    const lines = new THREE.LineSegments(positionGeometry(all.values), componentEdgeMat);
+    lines.userData.componentKeys = all.keys;
+    lines.userData.componentKind = "edge";
+    componentOverlay.add(lines);
+    componentPickObjects.push(lines);
+    const highlighted = edgePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(
+        new THREE.LineSegments(positionGeometry(highlighted.values), componentEdgeSelectedMat),
+      );
+    }
+  }
+
+  function facePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const face of row.topology.faces) {
+      const key = qualifiedComponentKey(row.index, face.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      for (const vertexIndex of face.vertices) {
+        const point = worldPosition(row.child, row.topology.vertices[vertexIndex].position);
+        values.push(point.x, point.y, point.z);
+      }
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentFaces(row) {
+    const all = facePositions(row);
+    const faces = new THREE.Mesh(positionGeometry(all.values), componentFaceMat);
+    faces.userData.componentKeys = all.keys;
+    faces.userData.componentKind = "face";
+    componentOverlay.add(faces);
+    componentPickObjects.push(faces);
+    const highlighted = facePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(new THREE.Mesh(positionGeometry(highlighted.values), componentFaceSelectedMat));
+    }
+  }
+
+  function refreshComponentOverlay() {
+    clearComponentOverlay();
+    if (!componentMode || !selected) return;
+    componentRows = sculptTargets(selected).map((child, index) => {
+      const geometry = sculptGeometry(child);
+      child.updateMatrixWorld(true);
+      return {
+        index,
+        child,
+        topology: buildWeldedTopology(geometry.getAttribute("position").array),
+      };
+    });
+    for (const row of componentRows) {
+      if (componentMode === "vertex") addComponentPoints(row);
+      else if (componentMode === "edge") addComponentEdges(row);
+      else addComponentFaces(row);
+    }
+  }
+
+  function componentKeyFromHit(hit) {
+    const keys = hit.object.userData.componentKeys || [];
+    if (hit.object.userData.componentKind === "face") return keys[hit.faceIndex] || null;
+    if (hit.object.userData.componentKind === "edge") return keys[Math.floor(hit.index / 2)] || null;
+    return keys[hit.index] || null;
+  }
+
+  function emitComponentSelection() {
+    const detail = {
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+      name: selected?.userData?.part?.name || "body",
+    };
+    onComponentSelect(detail);
+    canvas.dispatchEvent(new CustomEvent("ikealive-components", { detail }));
+  }
+
+  function pickComponent(ev) {
+    if (!componentMode || !selected) return false;
+    pointAt(ev);
+    ray.params.Points.threshold = 0.014;
+    ray.params.Line.threshold = 0.009;
+    const hits = ray.intersectObjects(componentPickObjects, false);
+    const key = hits.length ? componentKeyFromHit(hits[0]) : null;
+    componentSelection = updateComponentSelection(componentSelection, key, {
+      shiftKey: ev.shiftKey,
+      empty: !key,
+    });
+    transform.detach();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function setComponentMode(next) {
+    const mode = normalizeComponentMode(next);
+    if (componentMode !== mode) componentSelection = new Set();
+    componentMode = mode;
+    if (mode) {
+      if (cadTool) setCadTool(null);
+      if (measureOn) setMeasure(false);
+      if (meshTool) setMeshTool(null);
+      if (sculptMode) setSculptMode(null);
+      transform.detach();
+    } else if (selected && !cadTool && !measureOn && !meshTool && !sculptMode) {
+      transform.attach(selected);
+    }
+    canvas.classList.toggle("component-editing", Boolean(mode));
+    for (const button of document.querySelectorAll("[data-component-mode]")) {
+      const active = Boolean(mode) && button.dataset.componentMode === mode;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return componentMode;
+  }
+
+  function clearComponentSelection() {
+    if (!componentSelection.size) return false;
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function scaleComponentSelection(factor) {
+    const amount = Number(factor);
+    if (!selected || !componentMode || !componentSelection.size) return null;
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const picked = [];
+    for (const row of componentRows) {
+      const local = localComponentSelection(row.index);
+      const vertices = selectedWeldVertices(row.topology, componentMode, local);
+      for (const index of vertices) {
+        picked.push({ row, index, world: worldPosition(row.child, row.topology.vertices[index].position) });
+      }
+    }
+    if (!picked.length) return null;
+    const center = picked.reduce((sum, entry) => sum.add(entry.world), new THREE.Vector3())
+      .divideScalar(picked.length);
+    const byRow = new Map();
+    for (const entry of picked) {
+      let edits = byRow.get(entry.row);
+      if (!edits) byRow.set(entry.row, (edits = []));
+      edits.push(entry);
+    }
+    for (const [row, edits] of byRow) {
+      const geometry = row.child.geometry;
+      const position = geometry.getAttribute("position");
+      const inverse = row.child.matrixWorld.clone().invert();
+      for (const entry of edits) {
+        const localPoint = entry.world.clone().sub(center).multiplyScalar(amount).add(center).applyMatrix4(inverse);
+        for (const occurrence of row.topology.vertices[entry.index].indices) {
+          position.setXYZ(occurrence, localPoint.x, localPoint.y, localPoint.z);
+        }
+      }
+      position.needsUpdate = true;
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    }
+    saveSculpt();
+    const name = selected.userData.part?.name || "body";
+    pushOp("S", `Scale ${componentSelection.size} ${componentMode} components · ${name}`);
+    onMeshEdit({
+      tool: "component-scale",
+      name,
+      label: `Scaled ${componentSelection.size} selected ${componentMode} components`,
+    });
+    refreshComponentOverlay();
+    return { scope: "components", count: componentSelection.size, mode: componentMode };
+  }
+
+  function geometryAttributeInput(geometry) {
+    return Object.fromEntries(
+      Object.entries(geometry.attributes)
+        .filter(([name]) => name !== "normal" && name !== "tangent")
+        .map(([name, attribute]) => [
+          name,
+          {
+            array: attribute.array,
+            itemSize: attribute.itemSize,
+            normalized: attribute.normalized,
+          },
+        ]),
+    );
+  }
+
+  function geometryFromSubdivision(oldGeometry, result) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.name = oldGeometry.name;
+    for (const [name, attribute] of Object.entries(result.attributes)) {
+      geometry.setAttribute(
+        name,
+        new THREE.BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized),
+      );
+    }
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    if (oldGeometry.groups.length) {
+      let startFace = 0;
+      while (startFace < result.faceMaterials.length) {
+        const materialIndex = result.faceMaterials[startFace];
+        let endFace = startFace + 1;
+        while (
+          endFace < result.faceMaterials.length &&
+          result.faceMaterials[endFace] === materialIndex
+        ) {
+          endFace += 1;
+        }
+        geometry.addGroup(startFace * 3, (endFace - startFace) * 3, materialIndex);
+        startFace = endFace;
+      }
+    }
+    return geometry;
+  }
+
   function subdivideSelected() {
     const id = selected?.userData?.piece?.id;
     if (!id) return false;
     const targets = sculptTargets(selected);
+    const selective =
+      (componentMode === "edge" || componentMode === "face") && componentSelection.size > 0;
     let total = 0;
     for (const child of targets) total += sculptGeometry(child).getAttribute("position").count;
-    if (total > 60000) return false; // once around the loop is plenty
-    for (const child of targets) {
-      const geo = child.geometry;
-      const pos = geo.getAttribute("position");
-      const uv = geo.getAttribute("uv");
-      const nextPos = new Float32Array(pos.count * 4 * 3);
-      const nextUv = uv ? new Float32Array(pos.count * 4 * 2) : null;
-      let w = 0;
-      let wUv = 0;
-      const P = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)];
-      const U = (i) => (uv ? [uv.getX(i), uv.getY(i)] : null);
-      const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
-      const push = (p, t) => {
-        nextPos.set(p, w);
-        w += 3;
-        if (nextUv && t) {
-          nextUv.set(t, wUv);
-          wUv += 2;
-        }
-      };
-      for (let i = 0; i < pos.count; i += 3) {
-        const [a, b, cV] = [P(i), P(i + 1), P(i + 2)];
-        const [ta, tb, tc] = [U(i), U(i + 1), U(i + 2)];
-        const ab = mid(a, b);
-        const bc = mid(b, cV);
-        const ca = mid(cV, a);
-        const tab = ta && mid(ta, tb);
-        const tbc = tb && mid(tb, tc);
-        const tca = tc && mid(tc, ta);
-        push(a, ta); push(ab, tab); push(ca, tca);
-        push(ab, tab); push(b, tb); push(bc, tbc);
-        push(ca, tca); push(bc, tbc); push(cV, tc);
-        push(ab, tab); push(bc, tbc); push(ca, tca);
-      }
-      const nextGeo = new THREE.BufferGeometry();
-      nextGeo.setAttribute("position", new THREE.BufferAttribute(nextPos, 3));
-      if (nextUv) nextGeo.setAttribute("uv", new THREE.BufferAttribute(nextUv, 2));
-      nextGeo.computeVertexNormals();
-      child.geometry = nextGeo;
-      geo.dispose();
+    if ((!selective && total > 60000) || total > 240000) return false;
+    const pending = [];
+    let beforeFaces = 0;
+    let afterFaces = 0;
+    for (let index = 0; index < targets.length; index += 1) {
+      const child = targets[index];
+      const local = selective ? localComponentSelection(index) : [];
+      if (selective && !local.length) continue;
+      const geometry = child.geometry;
+      const result = subdivideTriangleAttributes(geometryAttributeInput(geometry), {
+        mode: selective ? componentMode : null,
+        selection: local,
+        groups: geometry.groups,
+      });
+      beforeFaces += result.beforeFaces;
+      afterFaces += result.afterFaces;
+      pending.push({ child, geometry, next: geometryFromSubdivision(geometry, result) });
+    }
+    if (!pending.length || afterFaces * 3 > 240000) {
+      pending.forEach(({ next }) => next.dispose());
+      return false;
+    }
+    for (const { child, geometry, next } of pending) {
+      child.geometry = next;
+      geometry.dispose();
     }
     saveSculpt();
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
     const name = selected?.userData?.part?.name || "body";
-    pushOp("S", `Subdivide · ${name}`);
-    return true;
+    const scope = selective ? `${componentMode} selection` : "whole mesh";
+    pushOp("S", `Subdivide ${scope} · ${name}`);
+    onMeshEdit({ tool: "subdivide", name, label: `Subdivide ${scope}` });
+    return { scope: selective ? "selection" : "all", beforeFaces, afterFaces };
   }
 
   /* ---- Mesh tools: extrude / inset / bevel / knife-lite / loop cut --------
@@ -2287,11 +2779,12 @@ export function createWorkshop(canvas) {
     const mode = MESH_TOOLS.includes(next) ? next : null;
     meshTool = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (sculptMode) setSculptMode(null);
       transform.detach();
-    } else if (selected && !sculptMode && !cadTool && !measureOn) {
+    } else if (selected && !sculptMode && !cadTool && !measureOn && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("modeling", Boolean(mode));
@@ -2519,6 +3012,7 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && componentMode) setComponentMode(null);
     if (cadTool && sculptMode) setSculptMode(null);
     if (cadTool && meshTool) setMeshTool(null);
     if (cadTool && measureOn) {
@@ -2529,7 +3023,7 @@ export function createWorkshop(canvas) {
     }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected && !measureOn) transform.attach(selected);
+    else if (selected && !measureOn && !componentMode) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -2716,13 +3210,16 @@ export function createWorkshop(canvas) {
     measureOn = next;
     canvas.classList.toggle("measuring", measureOn);
     if (measureOn) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (meshTool) setMeshTool(null);
       if (sculptMode) setSculptMode(null);
       transform.detach();
     } else {
       clearMeasure();
-      if (selected && !cadTool && !meshTool && !sculptMode) transform.attach(selected);
+      if (selected && !cadTool && !meshTool && !sculptMode && !componentMode) {
+        transform.attach(selected);
+      }
     }
     syncMeasureRead();
     emitViewport();
@@ -3086,6 +3583,10 @@ export function createWorkshop(canvas) {
       setMeasure(false);
       return;
     }
+    if (ev.key === "Escape" && componentMode) {
+      if (!clearComponentSelection()) setComponentMode(null);
+      return;
+    }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
     if (ev.key === "Escape" && meshTool) setMeshTool(null);
     if (ev.key === "Escape" && sculptMode) setSculptMode(null);
@@ -3323,6 +3824,7 @@ export function createWorkshop(canvas) {
       jointPick(ev);
       return;
     }
+    if (componentMode && selected && pickComponent(ev)) return;
     if (meshTool && selected && beginMeshStroke(ev)) return;
     if (sculptMode && selected && beginSculptStroke(ev)) {
       if (sculptMode !== "grab") sculptStep(sculptStroke.hit);
@@ -3694,6 +4196,19 @@ export function createWorkshop(canvas) {
     setSculptMode,
     getSculptMode: () => sculptMode,
     subdivideSelected,
+    setComponentMode,
+    getComponentMode: () => componentMode,
+    getComponentSelection: () => ({
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+    }),
+    hasComponentSelection: () => componentSelection.size > 0,
+    clearComponentSelection,
+    scaleComponentSelection,
+    onComponentSelect: (fn) => {
+      onComponentSelect = fn;
+    },
     onSculpt: (fn) => {
       onSculpt = fn;
     },
@@ -3715,7 +4230,7 @@ export function createWorkshop(canvas) {
       if (meshTool) setMeshTool(null);
       editMode = mode;
       transform.setMode(mode);
-      if (selected) transform.attach(selected);
+      if (selected && !componentMode) transform.attach(selected);
       return editMode;
     },
     getMode: () => editMode,

@@ -1,9 +1,17 @@
-const GENERATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn)\b/i;
-const PLACE_VERB = /\b(add|place|put|drop)\b/i;
-const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn|add|place|put|drop)\b/i;
-const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|photo)\b/i;
+const GENERATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate)\b/i;
+const PLACE_VERB = /\b(add|place|put|drop|insert)\b/i;
+const CREATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate|add|place|put|drop|insert)\b/i;
+const REQUEST_OBJECT = /\b(?:want|need|would\s+like)\b[\s\S]*\b(?:a|an|the|some)\b/i;
+const NON_MODEL_ASK =
+  /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|photo)\b|(?:\b(?:watch|play|upload|record)\b[\s\S]*\bvideo\b)/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
 const BRANDED_STYLE_ASK = /\b(?:ikea|lack|linnmon|linmon|kallax|billy|malm)[\s-]+(?:like|style|inspired)\b/i;
+const CATALOG_DROP_NOUN =
+  /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
+const EDIT_EXISTING =
+  /\b(?:make|scale|resize)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b|\b(?:make|scale|resize)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b/i;
 const MODEL_NOUN =
   /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner)\b/i;
 const NON_GENERATION_COMMAND =
@@ -144,11 +152,12 @@ export function sanitizeMeshAction(raw = {}) {
 export function isMeshBuildAsk(message) {
   const source = String(message || "").trim();
   if (!source || CONVERSATION_ONLY.test(source) || NON_GENERATION_COMMAND.test(source)) return false;
+  if (EDIT_EXISTING.test(source)) return false;
   if (GUIDE_CONTEXT.test(source) || NON_MODEL_ASK.test(source)) return false;
   if (BRANDED_CATALOG_ASK.test(source) && !BRANDED_STYLE_ASK.test(source)) return false;
-  if (PLACE_VERB.test(source) && !GENERATE_VERB.test(source) && !MODEL_NOUN.test(source)) return false;
+  if (PLACE_VERB.test(source) && CATALOG_DROP_NOUN.test(source)) return false;
   const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
-  const createsMesh = GENERATE_VERB.test(source) || (PLACE_VERB.test(source) && MODEL_NOUN.test(source));
+  const createsMesh = GENERATE_VERB.test(source) || REQUEST_OBJECT.test(source) || PLACE_VERB.test(source);
   const directPrompt = !/[?]$/.test(source) && source.split(/\s+/).length <= 8;
   return createsMesh || directNoun || directPrompt;
 }

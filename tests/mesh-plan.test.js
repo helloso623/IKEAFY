@@ -15,11 +15,16 @@ test("described builds route to meshes while explicit catalog drops stay catalog
   assert.equal(isMeshBuildAsk("generate a sculptural lamp"), true);
   assert.equal(isMeshBuildAsk("purple horned monster"), true);
   assert.equal(isMeshBuildAsk("warm room corner"), true);
+  assert.equal(isMeshBuildAsk("place a moon rover"), true);
+  assert.equal(isMeshBuildAsk("I want a dragon"), true);
+  assert.equal(isMeshBuildAsk("render a video camera"), true);
   assert.equal(isMeshBuildAsk("add a lack table"), false);
   assert.equal(isMeshBuildAsk("make a LACK table"), false);
   assert.equal(isMeshBuildAsk("model a LACK-like table"), true);
   assert.equal(isMeshBuildAsk("add zip ties"), false);
+  assert.equal(isMeshBuildAsk("put four legs"), true);
   assert.equal(isMeshBuildAsk("find a cheap table"), false);
+  assert.equal(isMeshBuildAsk("make the selected mesh taller"), false);
 });
 
 test("round pedestal proof is a circular top plus one central leg", () => {

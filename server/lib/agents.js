@@ -121,7 +121,7 @@ const CREATIVE_HINTS =
 const HARD_HINTS = /stress|break|aero|flow|weather|rain|heat|cold|firmware|arduino|circuit|architect|optim/i;
 const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
-const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
+const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom|bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower/i;
 const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create |spawn /i;
 const CATALOG_ASK =
   /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon|leg|lamp)\b/i;
@@ -378,7 +378,8 @@ export function describeScene(ctx = {}) {
 }
 
 function selectedPieceFromCtx(ctx = {}) {
-  const id = ctx.scene?.selected?.id;
+  const selected = ctx.scene?.selected;
+  const id = selected?.id;
   if (id && ctx.project?.pieces) {
     const hit = ctx.project.pieces.find((p) => p.id === id);
     if (hit) return hit;
@@ -390,7 +391,70 @@ function selectedPieceFromCtx(ctx = {}) {
   if (ctx.project?.selection && ctx.project.pieces) {
     return ctx.project.pieces.find((p) => p.id === ctx.project.selection) || null;
   }
+  if (id) {
+    return {
+      id,
+      partId: selected.partId || (selected.generated ? "ai-mesh" : "scan-mesh"),
+      x: Number(selected.x) || 0,
+      y: Number(selected.y) || 0,
+      z: Number(selected.z) || 0,
+      rx: Number(selected.rx) || 0,
+      ry: Number(selected.ry) || 0,
+      rz: Number(selected.rz) || 0,
+      sx: Number(selected.sx) || 1,
+      sy: Number(selected.sy) || 1,
+      sz: Number(selected.sz) || 1,
+      reconstructed: Boolean(selected.reconstructed),
+      generated: Boolean(selected.generated),
+    };
+  }
   return null;
+}
+
+function selectedTransformPlan(message, ctx = {}) {
+  const lower = String(message || "").toLowerCase();
+  if (!MOVE_HINTS.test(lower) || isCatalogAsk(lower) || /\bcamera\b/.test(lower)) return null;
+  const piece = selectedPieceFromCtx(ctx);
+  if (
+    !piece ||
+    !/\b(this|it|piece|selected|left|right|forward|back|up|down|rotate|scale|bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower)\b/.test(
+      lower,
+    )
+  ) {
+    return null;
+  }
+  const step = 0.05;
+  const pose = {};
+  if (/\brotate\b/.test(lower)) {
+    const direction = /\b(?:left|counter[\s-]*clockwise)\b/.test(lower) ? 1 : -1;
+    pose.ry = (Number(piece.ry) || 0) + direction * (Math.PI / 12);
+  } else {
+    if (/\bleft\b/.test(lower)) pose.x = (Number(piece.x) || 0) - step;
+    else if (/\bright\b/.test(lower)) pose.x = (Number(piece.x) || 0) + step;
+    if (/\bforward|front\b/.test(lower)) pose.z = (Number(piece.z) || 0) - step;
+    else if (/\bback\b/.test(lower)) pose.z = (Number(piece.z) || 0) + step;
+    if (/\bup\b/.test(lower) && !/\bsetup\b/.test(lower)) pose.y = (Number(piece.y) || 0) + step;
+    else if (/\bdown\b/.test(lower)) pose.y = (Number(piece.y) || 0) - step;
+  }
+  const grow = /\b(scale\s+up|bigger|larger|wider|taller|deeper|double|twice)\b/.test(lower);
+  const shrink = /\b(scale\s+down|smaller|narrower|shorter|shallower|half)\b/.test(lower);
+  if (grow || shrink) {
+    const factor = /\b(?:double|twice)\b/.test(lower) ? 2 : /\bhalf\b/.test(lower) ? 0.5 : grow ? 1.1 : 0.9;
+    const axes = /\bwider|narrower\b/.test(lower)
+      ? ["sx"]
+      : /\btaller|shorter\b/.test(lower)
+        ? ["sy"]
+        : /\bdeeper|shallower\b/.test(lower)
+          ? ["sz"]
+          : ["sx", "sy", "sz"];
+    for (const axis of axes) pose[axis] = Math.max(0.01, (Number(piece[axis]) || 1) * factor);
+  }
+  if (!Object.keys(pose).length) return null;
+  return {
+    handles: true,
+    text: `Edited ${ctx.scene?.selected?.name || piece.partId}.`,
+    actions: [{ type: "move", id: piece.id, ...pose }],
+  };
 }
 
 function isSceneAsk(text) {
@@ -450,6 +514,9 @@ export function planCreativeActions(message, ctx = {}) {
     };
   }
 
+  const transform = selectedTransformPlan(message, ctx);
+  if (transform) return transform;
+
   if (isMeshBuildAsk(message)) {
     const mesh = localMeshAction(message, ctx);
     if (mesh) {
@@ -479,23 +546,6 @@ export function planCreativeActions(message, ctx = {}) {
   }
 
   if (MOVE_HINTS.test(lower) && !isCatalogAsk(lower)) {
-    const piece = selectedPieceFromCtx(ctx);
-    const nudgePiece = piece && !/\bcamera\b/.test(lower) && /\b(this|it|piece|selected|left|right|forward|back|up|down)\b/.test(lower);
-    if (nudgePiece) {
-      const step = 0.05;
-      const pose = {};
-      if (/\bleft\b/.test(lower)) pose.x = (Number(piece.x) || 0) - step;
-      else if (/\bright\b/.test(lower)) pose.x = (Number(piece.x) || 0) + step;
-      if (/\bforward|front\b/.test(lower)) pose.z = (Number(piece.z) || 0) - step;
-      else if (/\bback\b/.test(lower)) pose.z = (Number(piece.z) || 0) + step;
-      if (/\bup\b/.test(lower) && !/\bsetup\b/.test(lower)) pose.y = (Number(piece.y) || 0) + step;
-      else if (/\bdown\b/.test(lower)) pose.y = (Number(piece.y) || 0) - step;
-      if (Object.keys(pose).length) {
-        actions.push({ type: "move", id: piece.id, ...pose });
-        text = `Moved ${ctx.scene?.selected?.name || piece.partId}.`;
-        return { handles: true, text, actions };
-      }
-    }
     actions.push(cameraAction(lower));
     text = "Nudged the camera. Drag a piece to move or rotate it on the bench.";
     return { handles: true, text, actions };

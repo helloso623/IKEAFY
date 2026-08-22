@@ -8,7 +8,6 @@ import {
   ownedTools,
   pickManualPdfHit,
   findIkeaManual,
-  searchDiyOffers,
   searchFurniturePieceOffers,
   searchToolOffers,
 } from "../server/lib/tavily.js";
@@ -80,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("board research asks for dimensioned shaped pieces instead of fasteners", async () => {
+test("construction search asks for dimensioned ways and excludes fastener catalogs", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -95,15 +94,19 @@ test("board research asks for dimensioned shaped pieces instead of fasteners", a
   };
   try {
     const offers = await searchFurniturePieceOffers(
-      [
-        { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
-        { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
-      ],
+      {
+        modelDimensionsMm: { x: 900, y: 500, z: 740 },
+        cutList: [
+          { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
+          { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
+        ],
+        ways: [],
+      },
       { fetchFn },
     );
-    assert.match(query, /buy cut-to-size furniture board/i);
-    assert.match(query, /tabletop|table legs/i);
-    assert.match(query, /-screws -bolts -fasteners/);
+    assert.match(query, /ways to physically build custom object 900 x 500 x 740 mm/i);
+    assert.match(query, /construction method cut list shaped stock/i);
+    assert.match(query, /-screws -bolts -fasteners -McMaster/);
     assert.equal(offers.length, 1);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
@@ -111,34 +114,30 @@ test("board research asks for dimensioned shaped pieces instead of fasteners", a
   }
 });
 
-test("DIY research keeps board and hardware offers in separate current-model groups", async () => {
+test("construction research includes the analyzed silhouette, support, material, and dimensions", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
-  const queries = [];
-  const fetchFn = async (_url, init = {}) => {
-    const query = JSON.parse(init.body).query;
-    queries.push(query);
-    const hardware = /connection hardware/i.test(query);
-    return {
-      ok: true,
-      json: async () => ({
-        results: [{
-          title: hardware ? "Mounting plates" : "Cut tabletop",
-          url: hardware ? "https://example.com/plates" : "https://example.org/top",
-        }],
-      }),
-    };
-  };
+  let query = "";
   try {
-    const offers = await searchDiyOffers({
-      modelDimensionsMm: { x: 900, y: 500, z: 740 },
-      cutList: [{ qty: 1, name: "tabletop", dimensions: "900 × 500 × 18 mm" }],
-      hardwareLines: [{ qty: 4, name: "mounting plate", dimensions: "80 × 80 mm" }],
-      ways: [],
-    }, { fetchFn });
-    assert.equal(queries.length, 2);
-    assert.match(queries.find((query) => /connection hardware/i.test(query)), /80 × 80 mm/);
-    assert.deepEqual(new Set(offers.map((offer) => offer.group)), new Set(["boards-and-stock", "hardware"]));
+    await searchFurniturePieceOffers(
+      {
+        name: "Round dining object",
+        modelDimensionsMm: { x: 900, y: 900, z: 740 },
+        profile: { topShape: "round", supportStyle: "central", materialFamily: "wood" },
+        cutList: [{ qty: 1, name: "circular top", dimensions: "900 × 900 × 28 mm" }],
+        ways: [],
+      },
+      {
+        fetchFn: async (_url, init) => {
+          query = JSON.parse(init.body).query;
+          return { ok: true, json: async () => ({ results: [] }) };
+        },
+      },
+    );
+    assert.match(query, /900 x 900 x 740 mm/);
+    assert.match(query, /round central wood silhouette/);
+    assert.match(query, /circular top 900 × 900 × 28 mm/);
+    assert.match(query, /-McMaster/);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;

@@ -2564,6 +2564,9 @@ body.lab-resizing * {
 
 .lab-view-tools {
   pointer-events: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .lab-tool {
@@ -2587,6 +2590,11 @@ body.lab-resizing * {
   color: var(--lab-ink);
 }
 
+.lab-view-tools .component-mode.on {
+  border-color: #ffda1a;
+  color: #ffda1a;
+}
+
 .lab-tool.lab-finish {
   margin-right: 0.45rem;
   border-color: #b89e00;
@@ -2597,6 +2605,37 @@ body.lab-resizing * {
 
 .lab-tool.lab-finish.busy {
   opacity: 0.65;
+}
+
+.finish-progress {
+  position: absolute;
+  z-index: 8;
+  top: 2.9rem;
+  right: 0.75rem;
+  width: min(25rem, calc(100% - 1.5rem));
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lab-panel) 94%, transparent);
+  box-shadow: 0 8px 24px #0003;
+  font-family: var(--lab-mono);
+  font-size: 11px;
+}
+
+.finish-progress[hidden] { display: none; }
+
+.finish-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+}
+
+.finish-progress progress {
+  display: block;
+  width: 100%;
+  height: 0.55rem;
+  accent-color: #ffda1a;
 }
 
 .lab-tool-rule {
@@ -2976,6 +3015,7 @@ body.lab-resizing * {
 #view.sculpting { cursor: grab; }
 #view.sculpting:active { cursor: grabbing; }
 #view.modeling { cursor: crosshair; }
+#view.component-editing { cursor: pointer; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;

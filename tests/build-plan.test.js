@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildWaysForProject,
   buildPlanSource,
   matchIkeaArticle,
   modelComponents,
   modelSignature,
+  pieceBomForProject,
 } from "../server/lib/build-plan.js";
 import { addPiece, appendDiyBuild, emptyProject } from "../server/lib/project.js";
 
@@ -14,14 +14,14 @@ function piece(partId, id, scale = {}) {
   return { id, partId, sx: 1, sy: 1, sz: 1, ...scale };
 }
 
-test("ways-to-make plan follows the current scaled table dimensions", () => {
+test("piece hunt follows the current scaled table dimensions", () => {
   const project = emptyProject();
   project.name = "Changed table";
   addPiece(project, "lack-top", { x: 0, y: 0.72, z: 0, sx: 1.4, sz: 1.1 });
   for (const [x, z] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) {
     addPiece(project, "lack-leg", { x, y: 0.35, z });
   }
-  const plan = buildWaysForProject(project);
+  const plan = pieceBomForProject(project);
   assert.equal(plan.ok, true);
   assert.equal(plan.modelDimensionsMm.x, 770);
   assert.ok(plan.modelSignature.startsWith("model-"));
@@ -29,9 +29,11 @@ test("ways-to-make plan follows the current scaled table dimensions", () => {
   assert.ok(plan.lines.some((line) => line.role === "top"));
   assert.ok(plan.lines.some((line) => line.role === "leg"));
   assert.ok(plan.ways.some((way) => way.recommended && way.joinery));
+  assert.ok(plan.similarityScore >= 90);
+  assert.equal(plan.ways[0].similarity.dimensions, 100);
 });
 
-test("model signatures change and old ways remain in history", () => {
+test("model signatures change and old piece plans remain in history", () => {
   const component = {
     pieceId: "p1",
     partId: "lack-top",
@@ -49,21 +51,21 @@ test("model signatures change and old ways remain in history", () => {
   assert.equal(project.diyHistory[0].bom.lines[0].id, "top-a");
 });
 
-test("LACK-sized model yields dimensioned pieces and connection hardware", () => {
-  const plan = buildWaysForProject({
+test("LACK-sized model yields a tabletop and legs without a fastener list", () => {
+  const plan = pieceBomForProject({
     name: "My side table",
     pieces: [piece("generic-side-table", "table-1")],
   });
   assert.equal(plan.ikeaMatch.article, "304.499.08");
   assert.deepEqual(plan.cutList.map((line) => [line.role, line.qty]), [["top", 1], ["leg", 4]]);
   assert.ok(plan.cutList.every((line) => line.category === "furniture-piece"));
-  assert.ok(plan.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
-  assert.ok(plan.hardwareLines.some((line) => /screw/i.test(line.name)));
+  assert.equal(plan.hardwareLines, undefined);
+  assert.equal(plan.lines.some((line) => /screw|bolt|fastener|mounting plate/i.test(line.name)), false);
   assert.equal(plan.lines.some((line) => line.sources.some((source) => /mcmaster/i.test(source.url))), false);
 });
 
 test("custom top and posts produce board and leg candidates by millimetres", () => {
-  const plan = buildWaysForProject({
+  const plan = pieceBomForProject({
     name: "Narrow console",
     pieces: [
       piece("generic-shelf-board", "top", { sx: 1.5 }),
@@ -81,14 +83,14 @@ test("custom top and posts produce board and leg candidates by millimetres", () 
 });
 
 test("generic whole table also offers dimensioned apron and stretcher pieces", () => {
-  const plan = buildWaysForProject({
+  const plan = pieceBomForProject({
     name: "Wide table",
     pieces: [piece("generic-side-table", "table", { sx: 1.3 })],
   });
   const apronRoute = plan.ways.find((way) => way.id === "apron-frame");
   assert.ok(apronRoute);
   assert.match(apronRoute.joinery, /mortise|dowel/i);
-  assert.deepEqual(apronRoute.additionalCuts.map((line) => [line.role, line.qty]), [
+  assert.deepEqual(apronRoute.additionalPieces.map((line) => [line.role, line.qty]), [
     ["apron", 2],
     ["apron", 2],
   ]);
@@ -107,7 +109,7 @@ test("IKEA article is only emitted for a close dimension match", () => {
 });
 
 test("round pedestal model keeps the final circular and tapered shapes", () => {
-  const plan = buildWaysForProject({
+  const plan = pieceBomForProject({
     name: "Round dining table",
     pieces: [piece("generic-round-pedestal-table", "round-1")],
   });
@@ -116,19 +118,52 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.deepEqual(plan.cutList.map((line) => line.shape), ["circular slab", "tapered cylinder", "circular slab"]);
   assert.ok(plan.ways.some((way) => way.id === "turned-pedestal"));
   assert.equal(plan.cutList[0].dimsMm.x, 900);
-  assert.ok(plan.hardwareLines.some((line) => /connector bolts/i.test(line.name)));
+  assert.equal(plan.hardwareLines, undefined);
+  assert.equal(plan.profile.topShape, "round");
+  assert.equal(plan.profile.supportStyle, "central");
+  assert.ok(plan.similarityScore >= 95);
+  assert.equal(plan.ways[0].id, "turned-pedestal");
+  assert.equal(plan.ways[0].similarity.silhouette, 100);
 });
 
-test("ways-to-make source is numbered for the IKEAlive parser", () => {
-  const plan = buildWaysForProject({
+test("a LACK-sized round pedestal mesh is not mislabeled as a square four-leg LACK", () => {
+  const plan = pieceBomForProject(
+    { name: "Edited round object", pieces: [] },
+    {
+      model: [
+        {
+          id: "mesh-round",
+          name: "Edited pedestal mesh",
+          shape: "generated-mesh",
+          dimsMm: { x: 550, y: 550, z: 450 },
+          material: { texture: "wood", roughness: 0.55, metalness: 0 },
+          geometryAnalysis: {
+            source: "local-triangle-analysis",
+            topShape: "round",
+            supportStyle: "central",
+            silhouette: "round-pedestal",
+          },
+        },
+      ],
+    },
+  );
+  assert.equal(plan.ikeaMatch, null);
+  assert.deepEqual(plan.cutList.map((line) => line.shape), ["circular slab", "tapered cylinder", "circular slab"]);
+  assert.equal(plan.ways[0].id, "turned-pedestal");
+  assert.ok(plan.ways[0].similarity.score > 90);
+  assert.equal(plan.ways.some((way) => /LACK/.test(way.title)), false);
+});
+
+test("piece-plan source is numbered for the IKEAlive parser", () => {
+  const plan = pieceBomForProject({
     name: "Shelf",
     pieces: [piece("generic-shelf-board", "shelf")],
   });
   const source = buildPlanSource(plan);
   assert.match(source, /Construction ways:/);
-  assert.match(source, /Cut list:/);
-  assert.match(source, /Connection hardware:/);
-  assert.match(source, /shelf brackets|wall screws/i);
+  assert.match(source, /Closest construction similarity:/);
+  assert.match(source, /Geometry-derived pieces:/);
+  assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
   assert.match(source, /^1\. Freeze this model revision/m);
-  assert.match(source, /^6\. Turn the table upright/m);
+  assert.match(source, /^6\. Place the object/m);
 });

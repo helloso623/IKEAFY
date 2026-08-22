@@ -31,6 +31,10 @@ test("any descriptive prompt produces one editable 3D generation action", withou
     ["purple horned monster", "creature"],
     ["warm room corner", "scene"],
     ["moon rover", "object"],
+    ["model a moon rover", "object"],
+    ["place a moon rover", "object"],
+    ["I want a dragon", "object"],
+    ["render a video camera", "object"],
   ];
 
   for (const [message, kind] of cases) {
