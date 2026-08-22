@@ -1423,7 +1423,7 @@ export function createWorkshop(canvas) {
       if (!quiet) onSelect(null);
       return false;
     }
-    if (sculptMode || cadTool) transform.detach();
+    if (sculptMode || cadTool || meshTool) transform.detach();
     else transform.attach(mesh);
     markSelected(mesh);
     if (!quiet) onSelect(mesh.userData);
@@ -1769,8 +1769,9 @@ export function createWorkshop(canvas) {
     if (mode) {
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
+      if (meshTool) setMeshTool(null);
       transform.detach();
-    } else if (selected) {
+    } else if (selected && !meshTool) {
       transform.attach(selected);
     }
     canvas.classList.toggle("sculpting", Boolean(mode));
@@ -1831,6 +1832,509 @@ export function createWorkshop(canvas) {
     const name = selected?.userData?.part?.name || "body";
     pushOp("S", `Subdivide · ${name}`);
     return true;
+  }
+
+  /* ---- Mesh tools: extrude / inset / bevel / knife-lite / loop cut --------
+     Fusion-flavored direct modeling on the selected body. Extrude and inset
+     press-pull the face under the cursor (welded, so sides stretch with it).
+     Bevel chamfers the nearest box edge. Knife and loop cut split triangles
+     along a plane so the new edge loop is real geometry the sculpt brushes
+     can grab. Everything persists through sculptStore, like the brushes. */
+  const MESH_TOOLS = ["extrude", "inset", "bevel", "knife", "loopcut"];
+  let meshTool = null;
+  let meshStroke = null;
+  let onMeshEdit = () => {};
+  const knifeFx = new THREE.Group();
+  scene.add(knifeFx);
+
+  const FACE_EPS = 0.0012; // welded verts within 1.2 mm of the face plane move with it
+
+  function selectedHit(ev) {
+    if (!selected) return null;
+    pointAt(ev);
+    const hits = ray.intersectObject(selected, true).filter((h) => !h.object.isSprite && h.face);
+    return hits.length ? hits[0] : null;
+  }
+
+  function worldFaceNormal(hit) {
+    return hit.face.normal
+      .clone()
+      .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld))
+      .normalize();
+  }
+
+  function cameraPlaneThrough(point) {
+    const normal = camera.getWorldDirection(new THREE.Vector3());
+    return new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
+  }
+
+  function dragDelta(ev, stroke) {
+    pointAt(ev);
+    const out = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(stroke.dragPlane, out)) return null;
+    return out.sub(stroke.hit);
+  }
+
+  // Split every triangle that crosses the plane so an edge lands exactly on
+  // it. pos/uv are non-indexed local arrays; winding is preserved.
+  function cutTrianglesWithPlane(pos, uv, plane, eps = 1e-6) {
+    const nextPos = [];
+    const nextUv = uv ? [] : null;
+    const point = (vi) => new THREE.Vector3(pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2]);
+    const tex = (vi) => (uv ? [uv[vi * 2], uv[vi * 2 + 1]] : null);
+    const emit = (p, t) => {
+      nextPos.push(p.x, p.y, p.z);
+      if (nextUv) nextUv.push(t ? t[0] : 0, t ? t[1] : 0);
+    };
+    const mixUv = (a, b, t) => (a && b ? [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t] : null);
+    const count = pos.length / 3;
+    for (let vi = 0; vi < count; vi += 3) {
+      const p = [point(vi), point(vi + 1), point(vi + 2)];
+      const t = [tex(vi), tex(vi + 1), tex(vi + 2)];
+      const d = p.map((corner) => plane.distanceToPoint(corner));
+      const side = d.map((x) => (x > eps ? 1 : x < -eps ? -1 : 0));
+      if (!side.includes(1) || !side.includes(-1)) {
+        for (let k = 0; k < 3; k += 1) emit(p[k], t[k]);
+        continue;
+      }
+      const plus = side.filter((s) => s === 1).length;
+      const minus = side.filter((s) => s === -1).length;
+      if (plus === 1 && minus === 1) {
+        // One corner sits on the plane: split the opposite edge once.
+        const z = side.indexOf(0);
+        const x = (z + 1) % 3;
+        const y = (z + 2) % 3;
+        const frac = d[x] / (d[x] - d[y]);
+        const m = p[x].clone().lerp(p[y], frac);
+        const mUv = mixUv(t[x], t[y], frac);
+        emit(p[z], t[z]); emit(p[x], t[x]); emit(m, mUv);
+        emit(p[z], t[z]); emit(m, mUv); emit(p[y], t[y]);
+        continue;
+      }
+      // Classic 1-vs-2 split: three triangles around the lone corner.
+      const loneSign = plus === 1 ? 1 : -1;
+      const l = side.indexOf(loneSign);
+      const x = (l + 1) % 3;
+      const y = (l + 2) % 3;
+      const fa = d[l] / (d[l] - d[x]);
+      const fb = d[l] / (d[l] - d[y]);
+      const a = p[l].clone().lerp(p[x], fa);
+      const b = p[l].clone().lerp(p[y], fb);
+      const aUv = mixUv(t[l], t[x], fa);
+      const bUv = mixUv(t[l], t[y], fb);
+      emit(p[l], t[l]); emit(a, aUv); emit(b, bUv);
+      emit(a, aUv); emit(p[x], t[x]); emit(p[y], t[y]);
+      emit(a, aUv); emit(p[y], t[y]); emit(b, bUv);
+    }
+    return { pos: new Float32Array(nextPos), uv: nextUv ? new Float32Array(nextUv) : null };
+  }
+
+  function writeCutGeometry(child, pos, uv) {
+    const old = child.geometry;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    if (uv) geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geo.computeVertexNormals();
+    geo.computeBoundingBox();
+    geo.computeBoundingSphere();
+    child.geometry = geo;
+    if (old !== geo) old.dispose();
+    return geo;
+  }
+
+  function localPlaneFor(child, worldPlane) {
+    child.updateMatrixWorld(true);
+    return worldPlane.clone().applyMatrix4(child.matrixWorld.clone().invert());
+  }
+
+  // Cut all sculptable children of the selected body with a world plane.
+  function cutSelectedWithPlane(worldPlane) {
+    let grew = false;
+    for (const child of sculptTargets(selected)) {
+      const geo = sculptGeometry(child);
+      const pos = geo.getAttribute("position").array;
+      const uv = geo.getAttribute("uv")?.array || null;
+      const cut = cutTrianglesWithPlane(pos, uv, localPlaneFor(child, worldPlane));
+      if (cut.pos.length === pos.length) continue;
+      writeCutGeometry(child, cut.pos, cut.uv);
+      grew = true;
+    }
+    if (grew) saveSculpt();
+    return grew;
+  }
+
+  function beginFaceStroke(hit) {
+    const normal = worldFaceNormal(hit);
+    const targets = sculptTargets(selected).map(prepSculptTarget);
+    const center = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    let picked = 0;
+    let maxR = 0.001;
+    for (const target of targets) {
+      target.facePicks = [];
+      for (const group of target.groups) {
+        groupCenter(target, group, c);
+        if (Math.abs(c.clone().sub(hit.point).dot(normal)) > FACE_EPS) continue;
+        target.facePicks.push({
+          group,
+          base: group.map((i) => [target.world[i * 3], target.world[i * 3 + 1], target.world[i * 3 + 2]]),
+        });
+        center.add(c);
+        picked += 1;
+      }
+    }
+    if (!picked) return false;
+    center.divideScalar(picked);
+    for (const target of targets) {
+      for (const pick of target.facePicks) {
+        const r = c.set(pick.base[0][0], pick.base[0][1], pick.base[0][2]).distanceTo(center);
+        if (r > maxR) maxR = r;
+      }
+    }
+    meshStroke = {
+      kind: meshTool,
+      hit: hit.point.clone(),
+      normal,
+      center,
+      maxR,
+      targets,
+      dragPlane: cameraPlaneThrough(hit.point),
+      moved: false,
+      label: "",
+    };
+    orbit.enabled = false;
+    return true;
+  }
+
+  function moveFaceStroke(ev) {
+    const stroke = meshStroke;
+    const delta = dragDelta(ev, stroke);
+    if (!delta) return;
+    const v = new THREE.Vector3();
+    if (stroke.kind === "extrude") {
+      const step = snapOn ? 0.001 : 0.0005;
+      const dist = Math.round(delta.dot(stroke.normal) / step) * step;
+      for (const target of stroke.targets) {
+        for (const { group, base } of target.facePicks) {
+          group.forEach((i, k) => {
+            target.world[i * 3] = base[k][0] + stroke.normal.x * dist;
+            target.world[i * 3 + 1] = base[k][1] + stroke.normal.y * dist;
+            target.world[i * 3 + 2] = base[k][2] + stroke.normal.z * dist;
+          });
+        }
+        writeSculptTarget(target);
+      }
+      stroke.moved = true;
+      stroke.label = `Extrude ${asMm(Math.abs(dist))} mm`;
+      placeDims(
+        stroke.center.clone().addScaledVector(stroke.normal, dist + 0.02),
+        `<strong>${asMm(dist)} mm</strong><small>extrude · release to keep</small>`,
+      );
+      return;
+    }
+    // Inset: drag toward the face center to taper the face inward.
+    const inward = stroke.center.clone().sub(stroke.hit);
+    inward.addScaledVector(stroke.normal, -inward.dot(stroke.normal));
+    if (inward.lengthSq() < 1e-8) inward.set(1, 0, 0);
+    inward.normalize();
+    const k = THREE.MathUtils.clamp(1 - delta.dot(inward) / stroke.maxR, 0.05, 2.5);
+    for (const target of stroke.targets) {
+      for (const { group, base } of target.facePicks) {
+        group.forEach((i, idx) => {
+          v.set(base[idx][0], base[idx][1], base[idx][2]).sub(stroke.center).multiplyScalar(k).add(stroke.center);
+          target.world[i * 3] = v.x;
+          target.world[i * 3 + 1] = v.y;
+          target.world[i * 3 + 2] = v.z;
+        });
+      }
+      writeSculptTarget(target);
+    }
+    stroke.moved = true;
+    const pct = Math.round((1 - k) * 100);
+    stroke.label = `Inset ${pct}%`;
+    placeDims(
+      stroke.center.clone().addScaledVector(stroke.normal, 0.02),
+      `<strong>${pct}%</strong><small>inset · release to keep</small>`,
+    );
+  }
+
+  // The 12 edges of the selected body's world box, each with its two
+  // outward face axes — bevel chamfers whichever edge sits under the click.
+  function nearestBoxEdge(box, point) {
+    const min = box.min;
+    const max = box.max;
+    const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    let best = null;
+    for (let run = 0; run < 3; run += 1) {
+      const fixed = [0, 1, 2].filter((axis) => axis !== run);
+      for (const signA of [-1, 1]) {
+        for (const signB of [-1, 1]) {
+          const a = new THREE.Vector3();
+          const b = new THREE.Vector3();
+          a.setComponent(run, min.getComponent(run));
+          b.setComponent(run, max.getComponent(run));
+          for (const [fi, sign] of [[fixed[0], signA], [fixed[1], signB]]) {
+            const value = sign > 0 ? max.getComponent(fi) : min.getComponent(fi);
+            a.setComponent(fi, value);
+            b.setComponent(fi, value);
+          }
+          const closest = new THREE.Vector3();
+          new THREE.Line3(a, b).closestPointToPoint(point, true, closest);
+          const dist = closest.distanceTo(point);
+          if (best && dist >= best.dist) continue;
+          const outward = axes[fixed[0]].clone().multiplyScalar(signA)
+            .add(axes[fixed[1]].clone().multiplyScalar(signB))
+            .normalize();
+          const size = box.getSize(new THREE.Vector3());
+          best = {
+            dist,
+            point: closest,
+            outward,
+            maxW: 0.45 * Math.min(size.getComponent(fixed[0]), size.getComponent(fixed[1])),
+          };
+        }
+      }
+    }
+    return best;
+  }
+
+  function beginBevelStroke(hit) {
+    const box = new THREE.Box3().setFromObject(selected);
+    if (box.isEmpty()) return false;
+    const edge = nearestBoxEdge(box, hit.point);
+    if (!edge || !(edge.maxW > 0.001)) return false;
+    const targets = sculptTargets(selected).map((child) => {
+      const geo = sculptGeometry(child);
+      return {
+        child,
+        basePos: geo.getAttribute("position").array.slice(),
+        baseUv: geo.getAttribute("uv")?.array.slice() || null,
+      };
+    });
+    meshStroke = {
+      kind: "bevel",
+      hit: hit.point.clone(),
+      edge,
+      targets,
+      dragPlane: cameraPlaneThrough(hit.point),
+      width: 0,
+      moved: false,
+      label: "",
+    };
+    orbit.enabled = false;
+    return true;
+  }
+
+  function applyBevel(width) {
+    const stroke = meshStroke;
+    const { edge } = stroke;
+    for (const target of stroke.targets) {
+      if (width < 0.0005) {
+        writeCutGeometry(target.child, target.basePos.slice(), target.baseUv ? target.baseUv.slice() : null);
+        continue;
+      }
+      const worldPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+        edge.outward,
+        edge.point.clone().addScaledVector(edge.outward, -width),
+      );
+      const plane = localPlaneFor(target.child, worldPlane);
+      const cut = cutTrianglesWithPlane(target.basePos, target.baseUv, plane);
+      // Flatten everything past the plane onto it: the chamfer facet.
+      const v = new THREE.Vector3();
+      for (let i = 0; i < cut.pos.length; i += 3) {
+        v.set(cut.pos[i], cut.pos[i + 1], cut.pos[i + 2]);
+        const d = plane.distanceToPoint(v);
+        if (d > 1e-6) {
+          v.addScaledVector(plane.normal, -d);
+          cut.pos[i] = v.x;
+          cut.pos[i + 1] = v.y;
+          cut.pos[i + 2] = v.z;
+        }
+      }
+      writeCutGeometry(target.child, cut.pos, cut.uv);
+    }
+  }
+
+  function moveBevelStroke(ev) {
+    const stroke = meshStroke;
+    const delta = dragDelta(ev, stroke);
+    if (!delta) return;
+    const step = snapOn ? 0.001 : 0.0005;
+    const width = THREE.MathUtils.clamp(
+      Math.round(-delta.dot(stroke.edge.outward) / step) * step,
+      0,
+      stroke.edge.maxW,
+    );
+    stroke.width = width;
+    applyBevel(width);
+    stroke.moved = width >= 0.0005;
+    stroke.label = `Bevel ${asMm(width)} mm`;
+    placeDims(
+      stroke.edge.point.clone().addScaledVector(stroke.edge.outward, 0.03),
+      `<strong>${asMm(width)} mm</strong><small>bevel · drag inward, release to keep</small>`,
+    );
+  }
+
+  function beginKnifeStroke(hit) {
+    meshStroke = {
+      kind: "knife",
+      hit: hit.point.clone(),
+      end: hit.point.clone(),
+      dragPlane: cameraPlaneThrough(hit.point),
+      moved: false,
+      label: "",
+    };
+    orbit.enabled = false;
+    return true;
+  }
+
+  function moveKnifeStroke(ev) {
+    const stroke = meshStroke;
+    const delta = dragDelta(ev, stroke);
+    if (!delta) return;
+    stroke.end = stroke.hit.clone().add(delta);
+    knifeFx.clear();
+    knifeFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([stroke.hit, stroke.end]), measureLineMat));
+    placeDims(
+      stroke.hit.clone().lerp(stroke.end, 0.5).add(new THREE.Vector3(0, 0.02, 0)),
+      `<strong>Knife</strong><small>release to cut through the body</small>`,
+    );
+  }
+
+  function endKnifeStroke() {
+    const stroke = meshStroke;
+    knifeFx.clear();
+    if (stroke.end.distanceTo(stroke.hit) < 0.005) return false;
+    const camDir = camera.getWorldDirection(new THREE.Vector3());
+    const normal = stroke.end.clone().sub(stroke.hit).cross(camDir);
+    if (normal.lengthSq() < 1e-10) return false;
+    normal.normalize();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, stroke.hit);
+    if (!cutSelectedWithPlane(plane)) return false;
+    stroke.label = "Knife cut";
+    return true;
+  }
+
+  // Loop cut: one click adds a real edge loop across the body, perpendicular
+  // to its longest axis that is not the clicked face's normal.
+  function applyLoopCut(hit) {
+    const normal = worldFaceNormal(hit);
+    const box = new THREE.Box3().setFromObject(selected);
+    if (box.isEmpty()) return false;
+    const size = box.getSize(new THREE.Vector3());
+    const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    let bestAxis = -1;
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (Math.abs(normal.dot(axes[axis])) > 0.7) continue;
+      if (bestAxis < 0 || size.getComponent(axis) > size.getComponent(bestAxis)) bestAxis = axis;
+    }
+    if (bestAxis < 0) bestAxis = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
+    const at = snapOn ? snap10(hit.point.getComponent(bestAxis)) : hit.point.getComponent(bestAxis);
+    const point = hit.point.clone().setComponent(bestAxis, at);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axes[bestAxis], point);
+    if (!cutSelectedWithPlane(plane)) return false;
+    const name = selected?.userData?.part?.name || "body";
+    pushOp("L", `Loop cut · ${name}`);
+    onMeshEdit({ tool: "loopcut", name });
+    return true;
+  }
+
+  function beginMeshStroke(ev) {
+    const hit = selectedHit(ev);
+    if (!hit) return false;
+    if (meshTool === "loopcut") {
+      applyLoopCut(hit);
+      return true;
+    }
+    if (meshTool === "extrude" || meshTool === "inset") return beginFaceStroke(hit);
+    if (meshTool === "bevel") return beginBevelStroke(hit);
+    if (meshTool === "knife") return beginKnifeStroke(hit);
+    return false;
+  }
+
+  function moveMeshStroke(ev) {
+    if (!meshStroke) return;
+    if (meshStroke.kind === "bevel") moveBevelStroke(ev);
+    else if (meshStroke.kind === "knife") moveKnifeStroke(ev);
+    else moveFaceStroke(ev);
+  }
+
+  function endMeshStroke() {
+    const stroke = meshStroke;
+    if (!stroke) return;
+    let moved = stroke.moved;
+    if (stroke.kind === "knife") moved = endKnifeStroke();
+    meshStroke = null;
+    orbit.enabled = true;
+    dimsEl?.classList.remove("on");
+    if (!moved) return;
+    saveSculpt();
+    const name = selected?.userData?.part?.name || "body";
+    const chips = { extrude: "E", inset: "I", bevel: "B", knife: "K" };
+    pushOp(chips[stroke.kind] || "M", `${stroke.label || stroke.kind} · ${name}`);
+    onMeshEdit({ tool: stroke.kind, name, label: stroke.label });
+  }
+
+  function setMeshTool(next) {
+    const mode = MESH_TOOLS.includes(next) ? next : null;
+    meshTool = mode;
+    if (mode) {
+      if (cadTool) setCadTool(null);
+      if (measureOn) setMeasure(false);
+      if (sculptMode) setSculptMode(null);
+      transform.detach();
+    } else if (selected && !sculptMode && !cadTool && !measureOn) {
+      transform.attach(selected);
+    }
+    canvas.classList.toggle("modeling", Boolean(mode));
+    for (const btn of document.querySelectorAll("[data-mesh-tool]")) {
+      btn.classList.toggle("on", Boolean(mode) && btn.dataset.meshTool === mode);
+    }
+    return meshTool;
+  }
+
+  /* ---- Hide / unhide: Blender's H and Alt+H for bench bodies ------------- */
+  const hiddenIds = new Set();
+
+  function applyHidden() {
+    for (const id of [...hiddenIds]) {
+      const mesh = meshes.get(id);
+      if (!mesh) {
+        hiddenIds.delete(id);
+        continue;
+      }
+      mesh.visible = false;
+    }
+  }
+
+  function setPieceHidden(id, on) {
+    const mesh = meshes.get(id);
+    if (!mesh) return false;
+    if (on) {
+      hiddenIds.add(id);
+      mesh.visible = false;
+      if (selected === mesh) attach(null);
+    } else {
+      hiddenIds.delete(id);
+      mesh.visible = true;
+    }
+    return true;
+  }
+
+  function hideSelected() {
+    const id = selected?.userData?.piece?.id;
+    if (!id) return false;
+    const name = selected.userData.part?.name || "body";
+    setPieceHidden(id, true);
+    pushOp("H", `Hide ${name}`);
+    return true;
+  }
+
+  function unhideAll() {
+    const count = hiddenIds.size;
+    for (const id of [...hiddenIds]) setPieceHidden(id, false);
+    if (count) pushOp("H", `Unhide ${count} ${count === 1 ? "body" : "bodies"}`);
+    return count;
   }
 
   // Blender-style viewport shading: solid and wire share one override material
@@ -2008,6 +2512,7 @@ export function createWorkshop(canvas) {
     clearJoint();
     cadTool = next || null;
     if (cadTool && sculptMode) setSculptMode(null);
+    if (cadTool && meshTool) setMeshTool(null);
     if (cadTool && measureOn) {
       measureOn = false;
       clearMeasure();
@@ -2042,7 +2547,7 @@ export function createWorkshop(canvas) {
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
   function updateDims() {
-    if (!dimsEl || sketch || measureOn) return;
+    if (!dimsEl || sketch || measureOn || meshStroke) return;
     const data = selected?.userData;
     if (!data?.part || !selected.parent) {
       dimsEl.classList.remove("on");
@@ -2094,10 +2599,32 @@ export function createWorkshop(canvas) {
 
   function hitWorld(ev) {
     pointAt(ev);
-    const hits = ray.intersectObjects([group, bench, floor], true);
+    const visibleRoots = group.children.filter((child) => child.visible);
+    const hits = ray.intersectObjects([...visibleRoots, bench, floor], true);
     if (hits.length) return hits[0].point.clone();
     const out = new THREE.Vector3();
     return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  // Sidebar twin of the floating label — the Fusion-style measure readout.
+  function syncMeasureRead() {
+    const readEl = document.getElementById("measure-readout");
+    if (!readEl) return;
+    if (!measureA || !measureB) {
+      readEl.textContent = measureOn
+        ? "Click two points in the viewport."
+        : "Turn Measure on, then click two points.";
+      return;
+    }
+    const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
+    const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
+    const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
+    readEl.textContent = `${fmtMm(measureA.distanceTo(measureB))} · Δ ${dx} × ${dy} × ${dz} mm`;
+  }
+
+  function getMeasuredMm() {
+    if (!measureA || !measureB) return 0;
+    return measureA.distanceTo(measureB) * 1000;
   }
 
   function clearMeasure() {
@@ -2106,10 +2633,12 @@ export function createWorkshop(canvas) {
     measureLocked = false;
     measureFx.clear();
     measureEl?.classList.remove("on");
+    syncMeasureRead();
   }
 
   function drawMeasure() {
     measureFx.clear();
+    syncMeasureRead();
     if (!measureA) return;
     const a = new THREE.Mesh(measureDotGeo, measureDotMat);
     a.position.copy(measureA);
@@ -2180,11 +2709,14 @@ export function createWorkshop(canvas) {
     canvas.classList.toggle("measuring", measureOn);
     if (measureOn) {
       if (cadTool) setCadTool(null);
+      if (meshTool) setMeshTool(null);
+      if (sculptMode) setSculptMode(null);
       transform.detach();
     } else {
       clearMeasure();
-      if (selected && !cadTool) transform.attach(selected);
+      if (selected && !cadTool && !meshTool && !sculptMode) transform.attach(selected);
     }
+    syncMeasureRead();
     emitViewport();
     return measureOn;
   }
@@ -2271,6 +2803,10 @@ export function createWorkshop(canvas) {
       moveSculptStroke(ev);
       return;
     }
+    if (meshStroke) {
+      moveMeshStroke(ev);
+      return;
+    }
     if (measureOn && measureA && !measureLocked) {
       const hit = hitWorld(ev);
       if (hit) {
@@ -2295,6 +2831,10 @@ export function createWorkshop(canvas) {
   window.addEventListener("pointerup", () => {
     if (sculptStroke) {
       endSculptStroke();
+      return;
+    }
+    if (meshStroke) {
+      endMeshStroke();
       return;
     }
     if (!sketch || sketch.phase !== "draw") return;
@@ -2419,7 +2959,7 @@ export function createWorkshop(canvas) {
 
   function jointPick(ev) {
     pointAt(ev);
-    const hits = ray.intersectObjects(group.children, true);
+    const hits = ray.intersectObjects(group.children.filter((child) => child.visible), true);
     const mesh = hits.length ? hitsWalk(hits[0].object) : null;
     if (!mesh?.userData?.piece) return;
     if (!jointFirstMesh) {
@@ -2539,6 +3079,8 @@ export function createWorkshop(canvas) {
       return;
     }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
+    if (ev.key === "Escape" && meshTool) setMeshTool(null);
+    if (ev.key === "Escape" && sculptMode) setSculptMode(null);
   });
 
   function meshFor(piece, part) {
@@ -2663,6 +3205,7 @@ export function createWorkshop(canvas) {
     }
     applyMatOverrides();
     applySculptStore();
+    applyHidden();
     cableGroup.clear();
     const cableNets = project.netlist?.cableNets || {};
     const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
@@ -2733,7 +3276,7 @@ export function createWorkshop(canvas) {
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
     const hits = ray
-      .intersectObjects(group.children, true)
+      .intersectObjects(group.children.filter((child) => child.visible), true)
       .filter((h) => !h.object.isSprite && h.object.visible !== false);
     if (!hits.length) {
       attach(null);
@@ -2767,6 +3310,7 @@ export function createWorkshop(canvas) {
       jointPick(ev);
       return;
     }
+    if (meshTool && selected && beginMeshStroke(ev)) return;
     if (sculptMode && selected && beginSculptStroke(ev)) {
       if (sculptMode !== "grab") sculptStep(sculptStroke.hit);
       return;
@@ -3110,10 +3654,22 @@ export function createWorkshop(canvas) {
     onSculpt: (fn) => {
       onSculpt = fn;
     },
+    setMeshTool,
+    getMeshTool: () => meshTool,
+    onMeshEdit: (fn) => {
+      onMeshEdit = fn;
+    },
+    hideSelected,
+    unhideAll,
+    setPieceHidden,
+    isPieceHidden: (id) => hiddenIds.has(id),
+    hiddenCount: () => hiddenIds.size,
+    getMeasuredMm,
     setMode: (mode) => {
       if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
       if (cadTool) setCadTool(null);
       if (sculptMode) setSculptMode(null);
+      if (meshTool) setMeshTool(null);
       editMode = mode;
       transform.setMode(mode);
       if (selected) transform.attach(selected);
