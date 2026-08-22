@@ -30,7 +30,7 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
-  seed: (empty = false) => post("/api/project/seed", { empty }),
+  seed: () => post("/api/project/seed", { empty: true }),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),

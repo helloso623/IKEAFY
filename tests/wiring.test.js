@@ -124,6 +124,21 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
+test("Lab loadCatalog hides electronics, cables, and bench irons", () => {
+  assert.match(main, /function isLabShelfPart|isLabShelfPart\(/);
+  assert.match(main, /category !== "electronics"/);
+  assert.match(main, /category !== "cable"/);
+  assert.match(main, /soldering-iron/);
+  assert.match(main, /multimeter/);
+  assert.match(main, /enclosure-print/);
+  assert.match(main, /arduino-nano/);
+  assert.match(main, /\.filter\(isLabShelfPart\)/);
+  const server = read("server/index.js");
+  assert.match(server, /state\.project = emptyProject\(\)/);
+  assert.doesNotMatch(server, /req\.body\?\.lamp \? seedLampTable/);
+  assert.doesNotMatch(html, /Arduino Nano|ESP32|Half breadboard|Soldering iron|Digital multimeter|Printable lamp enclosure/);
+});
+
 test("the bench catalog scrolls in one well of sample cards", () => {
   assert.match(html, /id="catalog-well"/);
   assert.match(html, /id="catalog"/);

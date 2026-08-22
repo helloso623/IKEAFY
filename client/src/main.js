@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
+import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 
@@ -33,7 +34,12 @@ function showEmptyInspect() {
 
 function selectedPieceId() {
   const id = selectedIds[0] || shop.getSelected()?.piece?.id;
-  if (id && project.pieces.some((p) => p.id === id)) return id;
+  if (
+    id &&
+    (project.pieces.some((p) => p.id === id) || shop.getReconstructed?.().some((entry) => entry.piece.id === id))
+  ) {
+    return id;
+  }
   return "";
 }
 
@@ -114,7 +120,7 @@ function sizePlain(part) {
 
 /**
  * Lab is furniture-only for now. Electronics chrome (Arduino, nets, isolate)
- * stays off the panel even if catalog parts still exist on the server.
+ * stays off the panel; loadCatalog also drops boards, cables, and bench irons.
  */
 function applyChrome(chrome) {
   void chrome?.electronics;
@@ -166,7 +172,8 @@ async function refreshProject() {
   project = await api.project();
   shop.sync(project, partsById);
   applyChrome(project.chrome);
-  const still = selectedIds.filter((id) => project.pieces.some((p) => p.id === id));
+  const scanIds = new Set(shop.getReconstructed?.().map((entry) => entry.piece.id) || []);
+  const still = selectedIds.filter((id) => project.pieces.some((p) => p.id === id) || scanIds.has(id));
   const lostSelection = selectedIds.length > 0 && still.length === 0;
   selectedIds = still;
   if (lostSelection) showEmptyInspect();
@@ -179,17 +186,20 @@ async function refreshProject() {
 function renderBenchPieces() {
   const list = $("bench-pieces");
   if (!list) return;
-  if (!project.pieces.length) {
+  const scanBodies = shop.getReconstructed?.() || [];
+  if (!project.pieces.length && !scanBodies.length) {
     list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
     return;
   }
   const current = selectedPieceId();
-  list.innerHTML = project.pieces
-    .map((piece) => {
-      const part = partsById[piece.partId];
+  const regular = project.pieces.map((piece) => ({ piece, part: partsById[piece.partId] }));
+  list.innerHTML = [...regular, ...scanBodies]
+    .map(({ piece, part: entryPart }) => {
+      const part = entryPart || partsById[piece.partId];
       const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
       const on = piece.id === current ? " on" : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      const scan = piece.reconstructed ? ` · ${part?.dimsMm ? `${Math.round(part.dimsMm.x)}×${Math.round(part.dimsMm.y)}×${Math.round(part.dimsMm.z)} mm` : "mesh"}` : "";
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -240,12 +250,22 @@ function updateCatalogHint(parts, typed) {
   }
 }
 
+function isLabShelfPart(part) {
+  if (!part) return false;
+  if (part.category === "electronics" || part.category === "cable") return false;
+  if (/^(arduino-nano|esp32-dev|led-5mm|ws2812-strip|tactile-btn|breadboard|resistor-220|psu-5v2a|jumper-m2m|usb-mini-cable|soldering-iron|multimeter|enclosure-print)$/.test(part.id)) {
+    return false;
+  }
+  if (part.firmwareRole) return false;
+  return true;
+}
+
 async function loadCatalog(raw) {
   const typed = raw == null ? activeQuery() : String(raw);
   const q = { q: catalogNeedle(typed) };
   const budget = $("cost")?.value || parseBudget(typed);
   if (budget) q.maxCost = budget;
-  const parts = (await api.catalog(q)).filter((p) => p.category !== "electronics" && p.category !== "cable");
+  const parts = (await api.catalog(q)).filter(isLabShelfPart);
   for (const p of parts) partsById[p.id] = p;
   updateCatalogHint(parts, typed);
   const shelf = $("catalog");
@@ -362,9 +382,8 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
   if (id) {
     selectedIds = [id];
     shop.select(id);
-    const piece = project.pieces.find((p) => p.id === id);
-    const part = partsById[piece?.partId];
-    if (part) showPart(part, piece);
+    const picked = selectedPiece();
+    if (picked?.part) showPart(picked.part, picked.piece);
     else syncEditButtons();
   }
 });
@@ -377,6 +396,8 @@ $("cost")?.addEventListener("change", () => {
 function selectedPiece() {
   const id = selectedPieceId();
   if (!id) return null;
+  const scan = shop.getReconstructed?.().find((entry) => entry.piece.id === id);
+  if (scan) return scan;
   const piece = project.pieces.find((p) => p.id === id);
   if (!piece) return null;
   return { piece, part: partsById[piece.partId] };
@@ -386,17 +407,19 @@ function syncFunctionStrip() {
   const picked = selectedPiece();
   const hint = $("fn-hint");
   if (hint) {
-    hint.textContent = picked
-      ? picked.piece.functionLabel
+    hint.textContent = picked?.piece.reconstructed
+      ? "Scanned meshes can be moved, scaled, duplicated, or deleted locally."
+      : picked
+        ? picked.piece.functionLabel
         ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
         : `Assign a job to ${picked.part?.name || "this piece"}.`
-      : "Pick a piece, then assign a job.";
+        : "Pick a piece, then assign a job.";
   }
   const row = $("fn-btns");
   if (!row) return;
   for (const btn of row.querySelectorAll("[data-fn]")) {
     const fn = btn.dataset.fn;
-    btn.disabled = !picked;
+    btn.disabled = !picked || Boolean(picked.piece.reconstructed);
     btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
   }
 }
@@ -408,6 +431,7 @@ function showPart(part, piece) {
   const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
   if (shopLine) lines.push(shopLine);
   if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
+  if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
   lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
   syncEditButtons();
@@ -564,6 +588,11 @@ $("print-btn").addEventListener("click", async () => {
 
 async function commitPose(pose) {
   if (!pose?.id) return;
+  if (shop.updateReconstructedPose?.(pose)) {
+    renderBenchPieces();
+    hud("Placed scanned mesh locally.");
+    return;
+  }
   const result = await api.move({ ...pose, snap: shop.getSnap() });
   if (result?.ok === false) {
     hud(result.error || "Could not move that piece.");
@@ -592,6 +621,14 @@ function setSnap(on) {
 async function duplicateSelected() {
   const id = selectedPieceId();
   if (!id) return hud("Pick a piece, then Duplicate.");
+  const scanCopy = shop.duplicateReconstructed?.(id);
+  if (scanCopy) {
+    selectedIds = [scanCopy.piece.id];
+    renderBenchPieces();
+    showPart(scanCopy.part, scanCopy.piece);
+    hud("Duplicated the scanned mesh locally.");
+    return;
+  }
   const result = await api.duplicate(id);
   if (result?.ok === false) return hud(result.error || "Could not duplicate that piece.");
   await refreshProject();
@@ -624,6 +661,14 @@ async function redoLastEdit() {
 
 async function removePiece(id) {
   if (!id) return;
+  if (shop.removeReconstructed?.(id)) {
+    selectedIds = selectedIds.filter((pieceId) => pieceId !== id);
+    showEmptyInspect();
+    renderBenchPieces();
+    syncDeleteButton();
+    hud("Deleted scanned object.");
+    return;
+  }
   const result = await api.remove(id);
   if (result?.ok === false) {
     hud(result.error || "Could not delete that piece.");
@@ -736,6 +781,78 @@ for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
   });
 }
 
+let scanSequence = 0;
+$("scan-btn")?.addEventListener("click", () => {
+  setMode("lab");
+  setLabSpace("desk");
+  const panel = $("scan-object-panel");
+  if (panel) {
+    panel.open = true;
+    panel.scrollIntoView({ block: "nearest" });
+  }
+  hud("Scan object — add aligned front, side and top photos, then enter its scale.");
+});
+
+$("scan-reconstruct")?.addEventListener("click", async () => {
+  const button = $("scan-reconstruct");
+  const output = $("scan-reconstruct-out");
+  const files = {
+    front: $("scan-front")?.files?.[0],
+    side: $("scan-side")?.files?.[0],
+    top: $("scan-top")?.files?.[0],
+  };
+  if (!files.front || !files.side || !files.top) {
+    const message = "Choose front, side and top photos first.";
+    if (output) output.textContent = message;
+    hud(message);
+    return;
+  }
+  button.disabled = true;
+  if (output) output.textContent = "Segmenting silhouettes and carving a binary visual hull…";
+  hud("Reconstructing locally from three silhouettes…");
+  try {
+    // Let the busy label paint before the CPU-only voxel pass starts.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const result = await reconstructFromFiles(files, {
+      scaleMm: Number($("scan-scale-mm")?.value),
+      scaleKind: $("scan-scale-kind")?.value || "circumference",
+      resolution: 28,
+    });
+    for (const viewName of ["front", "side", "top"]) {
+      drawSilhouettePreview($(`scan-${viewName}-preview`), result.masks[viewName]);
+    }
+    scanSequence += 1;
+    let id = `scan-mesh-${scanSequence}`;
+    const used = new Set(shop.getReconstructed?.().map((entry) => entry.piece.id) || []);
+    while (used.has(id)) id = `scan-mesh-${++scanSequence}`;
+    const added = shop.addReconstructedMesh({
+      id,
+      name: `Scanned object ${scanSequence}`,
+      positions: result.positions,
+      dimensionsMm: result.dimensionsMm,
+      voxelCount: result.voxelCount,
+      triangleCount: result.triangleCount,
+    });
+    selectedIds = [id];
+    renderBenchPieces();
+    showPart(added.part, added.piece);
+    shop.frameSelected?.();
+    const dims = result.dimensionsMm;
+    const summary =
+      `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
+      `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
+      `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm.`;
+    if (output) output.textContent = summary;
+    hud("Reconstructed a real triangle mesh and added it to Bodies.");
+  } catch (err) {
+    const message = err?.message || "Could not reconstruct those photos.";
+    if (output) output.textContent = message;
+    hud(message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("back-ikealive")?.addEventListener("click", (ev) => {
   ev.preventDefault();
   setMode("ikeafy");
@@ -784,7 +901,7 @@ window.addEventListener("keydown", (ev) => {
 
 async function boot() {
   const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
-  for (const p of all) partsById[p.id] = p;
+  for (const p of all.filter(isLabShelfPart)) partsById[p.id] = p;
   const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
   $("agent-bar").innerHTML = roster;
   const studioBar = $("ikea-agent-bar");

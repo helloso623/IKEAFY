@@ -1,4 +1,4 @@
-import { cheaperAlternatives, getPart, listParts, searchParts } from "./catalog.js";
+import { cheaperAlternatives, getPart, isLabShelfPart, listParts, searchParts } from "./catalog.js";
 import { engineeringReport, runSuite } from "./physics.js";
 import { parseGuide, expandStep, defaultGuide } from "./ikeafy.js";
 import { planRoom } from "./adaptation.js";
@@ -130,17 +130,7 @@ const NOUN_PARTS = {
   table: "lack-table",
   tables: "lack-table",
   lack: "lack-table",
-  led: "led-5mm",
-  leds: "led-5mm",
-  button: "tactile-btn",
-  buttons: "tactile-btn",
-  nano: "arduino-nano",
 };
-const LAMP_KIT = [
-  { partId: "arduino-nano", pose: { x: 0.08, y: 0.26, z: 0.04 }, label: "control" },
-  { partId: "led-5mm", pose: { x: 0.14, y: 0.26, z: 0.04 }, label: "light" },
-  { partId: "tactile-btn", pose: { x: 0.02, y: 0.26, z: 0.04 }, label: "sense" },
-];
 const LEG_CORNERS = [
   [-0.23, 0, -0.23],
   [0.23, 0, -0.23],
@@ -209,7 +199,7 @@ function isLampAsk(text) {
 
 function parseQtyNoun(text) {
   const match = String(text || "").match(
-    /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|pair)\s+(legs?|tops?|leds?|buttons?|tables?|lack)\b/i,
+    /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|pair)\s+(legs?|tops?|tables?|lack)\b/i,
   );
   if (!match) return null;
   const raw = match[1].toLowerCase();
@@ -241,14 +231,9 @@ function expandPart(part) {
   });
 }
 
-function lampKitFromCatalog() {
-  return LAMP_KIT.filter((item) => getPart(item.partId));
-}
-
 function furnitureOnlyHits(hits, message) {
-  if (isElectronicsAsk(message)) return hits;
-  const furniture = hits.filter((h) => h.category !== "electronics" && h.category !== "cable");
-  return furniture.length ? furniture : hits.filter((h) => h.category !== "electronics" && h.category !== "cable");
+  void message;
+  return hits.filter(isLabShelfPart);
 }
 
 function resolveAddList(message, ctx = {}) {
@@ -257,12 +242,14 @@ function resolveAddList(message, ctx = {}) {
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
 
   if (isLampAsk(lower)) {
-    return lampKitFromCatalog().map((item) => ({ ...item }));
+    const table = getPart("lack-table");
+    return table ? expandPart(table) : [];
   }
 
   const counted = parseQtyNoun(lower);
   if (counted && getPart(counted.partId)) {
     const part = getPart(counted.partId);
+    if (!isLabShelfPart(part) && !part.kitParts?.length) return [];
     if (part.kitParts?.length) {
       return expandPart(part);
     }
@@ -318,20 +305,19 @@ export function planCreativeActions(message, ctx = {}) {
   let text = "";
 
   if (isLampAsk(lower) && /\b(generate|make|build|create|add|put|design|drop)\b/.test(lower)) {
-    const kit = lampKitFromCatalog();
+    const table = getPart("lack-table");
+    const kit = table ? expandPart(table) : [];
     if (!kit.length) {
       return {
         handles: true,
-        text: "Nothing on the shelf can make a lamp — the catalog needs a nano, an LED, and a button.",
+        text: "Nothing on the shelf matches a lamp table. Try “lack” or “table”.",
         actions,
       };
     }
     for (const item of kit) {
       actions.push({ type: "add", partId: item.partId, pose: item.pose });
-      if (item.label) actions.push({ type: "label", partId: item.partId, label: item.label });
     }
-    actions.push({ type: "isolate", label: "lamp-board" });
-    text = `Placed ${describeAdds(kit)} on the bench as a lamp board.`;
+    text = `Dropped ${describeAdds(kit)} on the bench.`;
     return { handles: true, text, actions };
   }
 
@@ -426,7 +412,7 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
     if (action.type === "add" || action.type === "add_part") {
       const part = getPart(action.partId);
       if (!part) continue;
-      if (!electronics && (part.category === "electronics" || part.category === "cable")) continue;
+      if (!isLabShelfPart(part)) continue;
       out.push({
         type: "add",
         partId: part.id,
@@ -591,6 +577,7 @@ async function hostedReply(message, ctx, agent) {
       : process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini";
   const electronics = isElectronicsAsk(message);
   const catalogHint = listParts()
+    .filter(isLabShelfPart)
     .slice(0, 64)
     .map((p) => `${p.id} (${p.name}, ${p.category})`)
     .join("; ");
@@ -600,11 +587,7 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, label {type:"label", partId, label}, isolate {type:"isolate", label}. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
-          electronics
-            ? "Electronics were requested — nano, LED, and button are fair."
-            : "Furniture, tables, or catalog parts only — no Arduino, ports, firmware, or boards."
-        }`,
+        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, label {type:"label", partId, label}, isolate {type:"isolate", label}. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics.`,
       },
       { role: "user", content: message },
     ],

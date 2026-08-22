@@ -124,6 +124,7 @@
         <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
         <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
         <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
+        <div id="cad-measure" class="cad-dims cad-measure" aria-live="polite"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame"></canvas>
@@ -229,6 +230,49 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
+          <details class="lab-folder scan-object" id="scan-object-panel">
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
+              Scan object
+            </summary>
+            <div class="lab-folder-body">
+              <p class="hint lab-hint">Use a plain backdrop. Keep the object upright and fill each frame.</p>
+              <div class="scan-views">
+                <label class="field" for="scan-front">
+                  <span>Front photo</span>
+                  <input id="scan-front" type="file" accept="image/*" />
+                  <canvas id="scan-front-preview" width="0" height="0" aria-label="Front binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-side">
+                  <span>Side photo</span>
+                  <input id="scan-side" type="file" accept="image/*" />
+                  <canvas id="scan-side-preview" width="0" height="0" aria-label="Side binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-top">
+                  <span>Top photo</span>
+                  <input id="scan-top" type="file" accept="image/*" />
+                  <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
+                </label>
+              </div>
+              <div class="scan-scale">
+                <label class="field" for="scan-scale-kind">
+                  <span>Scale from</span>
+                  <select id="scan-scale-kind">
+                    <option value="circumference">Circumference</option>
+                    <option value="length">Known longest length</option>
+                  </select>
+                </label>
+                <label class="field" for="scan-scale-mm">
+                  <span>Scale (mm)</span>
+                  <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
+                </label>
+              </div>
+              <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
+              <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
+                Three silhouettes become a local binary visual hull, then a real triangle mesh.
+              </div>
+            </div>
+          </details>
           <details class="lab-folder catalog-panel" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
@@ -293,6 +337,10 @@
             <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
             <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
             <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
+            <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool" id="lab-look" title="Unlit clay view — no shadows">Look</button>
+            <button type="button" class="lab-tool" id="lab-look-at" title="Frame selected">Look at</button>
+            <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>

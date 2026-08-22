@@ -41,10 +41,11 @@ test(
   "local steward can add a catalog part",
   withoutHosted(async () => {
     const project = emptyProject();
-    const reply = await chat("add a cheap led", { project, costBarrier: 2 });
+    const reply = await chat("add zip ties", { project, costBarrier: 2 });
     assert.equal(reply.backend, "local-steward");
     assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
     assert.equal(project.pieces.length, 1);
+    assert.equal(project.pieces[0].partId, "zip-tie");
   }),
 );
 
@@ -76,25 +77,29 @@ test(
 );
 
 test(
-  "generate a lamp places nano, led, and button when they are in the catalog",
+  "generate a lamp drops a LACK table, not a Nano or LED",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("generate a lamp", { project });
     const ids = project.pieces.map((p) => p.partId);
-    assert.ok(ids.includes("arduino-nano"));
-    assert.ok(ids.includes("led-5mm"));
-    assert.ok(ids.includes("tactile-btn"));
+    assert.ok(ids.includes("lack-top"));
+    assert.equal(ids.filter((id) => id === "lack-leg").length, 4);
+    assert.equal(ids.includes("arduino-nano"), false);
+    assert.equal(ids.includes("led-5mm"), false);
+    assert.equal(ids.includes("tactile-btn"), false);
     assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
-    assert.ok(reply.actions.some((a) => a.type === "label"));
-    assert.ok(reply.actions.some((a) => a.type === "isolate" && a.label === "lamp-board"));
+    assert.equal(reply.actions.some((a) => a.type === "isolate"), false);
+    assert.doesNotMatch(reply.text, /arduino|nano|led|firmware/i);
   }),
 );
 
 test("creative desk plans add, camera, label, and isolate", () => {
   const lamp = planCreativeActions("generate a lamp");
-  assert.ok(lamp.actions.some((a) => a.type === "add"));
-  assert.ok(lamp.actions.some((a) => a.type === "label"));
-  assert.ok(lamp.actions.some((a) => a.type === "isolate"));
+  assert.ok(lamp.actions.some((a) => a.type === "add" && a.partId === "lack-top"));
+  assert.equal(lamp.actions.filter((a) => a.type === "add" && a.partId === "lack-leg").length, 4);
+  assert.equal(lamp.actions.some((a) => a.type === "isolate"), false);
+  const isolate = planCreativeActions("isolate the board");
+  assert.ok(isolate.actions.some((a) => a.type === "isolate"));
   const cam = planCreativeActions("move the camera left");
   assert.ok(cam.actions.some((a) => a.type === "camera" && a.az === 120));
 });

@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from "node:fs";
 import {
   cheaperAlternatives,
   getPart,
+  isLabShelfPart,
   listParts,
   PARTNERS,
   searchParts,
@@ -81,7 +82,6 @@ import {
   rescale,
   retexture,
   redoEdit,
-  seedLampTable,
   snapPose,
   snapshotSim,
   undoEdit,
@@ -169,7 +169,7 @@ app.get("/api/catalog", (req, res) => {
       store: req.query.store,
       minSpecs,
       dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
-    }),
+    }).filter(isLabShelfPart),
   );
 });
 
@@ -495,8 +495,8 @@ app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
 });
 
-app.post("/api/project/seed", (req, res) => {
-  state.project = req.body?.lamp ? seedLampTable() : emptyProject();
+app.post("/api/project/seed", (_req, res) => {
+  state.project = emptyProject();
   res.json(projectPayload(state.project));
 });
 

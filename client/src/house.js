@@ -171,7 +171,6 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
   const photoInput = $("room-photo");
   const adaptBtn = $("adapt-btn");
   const out = $("adapt-out");
-  const scanBtn = $("scan-btn");
   const scanOut = $("scan-out");
   const canvas = $("ar-photo");
   if (!adaptBtn || !canvas) {
@@ -310,11 +309,6 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
       hud(message);
     }
   }
-
-  scanBtn?.addEventListener("click", () => {
-    $("lab-room") && ($("lab-room").open = true);
-    scanFits();
-  });
 
   scanOut?.addEventListener("click", async (ev) => {
     const id = ev.target.closest("[data-add]")?.dataset.add;
