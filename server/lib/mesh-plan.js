@@ -267,14 +267,15 @@ function chairPlan(message) {
   const depth = measurement(message, "(?:depth|deep)", 500);
   const height = measurement(message, "(?:height|high|tall)", 900);
   const seatY = Math.min(height * 0.58, measurement(message, "(?:seat\\s+height)", 460));
+  const seatThickness = 45;
   const colorValue = /\b(red)\b/i.test(message) ? "#a9463d" : "#b8824f";
-  const legH = Math.max(200, seatY - 35);
+  const legH = Math.max(200, seatY - seatThickness / 2);
   const legW = Math.max(28, width * 0.07);
   return {
     name: "Custom chair",
     kind: "chair",
     components: [
-      component("box", "Seat", [width, 45, depth], [0, seatY, 0], { color: colorValue }),
+      component("box", "Seat", [width, seatThickness, depth], [0, seatY, 0], { color: colorValue }),
       component("box", "Back", [width, Math.max(180, height - seatY), 45], [0, (height + seatY) / 2, depth / 2 - 22], {
         color: colorValue,
       }),
@@ -465,7 +466,7 @@ function sculptedFallback(message) {
 export function meshPlanFromDescription(message) {
   const source = String(message || "");
   let plan;
-  if (/\btables?\b/i.test(source)) plan = tablePlan(source);
+  if (/\b(tables?|desks?)\b/i.test(source)) plan = tablePlan(source);
   else if (/\b(chair|seat)\b/i.test(source)) plan = chairPlan(source);
   else if (/\b(stool|bench)\b/i.test(source)) plan = stoolPlan(source);
   else if (/\b(sofa|couch)\b/i.test(source)) plan = sofaPlan(source);

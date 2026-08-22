@@ -96,7 +96,7 @@ function sizePlain(part) {
 
 /**
 
- * Lab is furniture/hardware by default. Electronics chrome (Arduino, nets,
+ * Lab is furniture-first by default. Electronics chrome (Arduino, nets,
  * isolate) stays off the panel. Boards only land on the shelf when #search /
  * shop chat asks for them, or the Show electronics toggle is on.
 

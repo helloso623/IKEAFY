@@ -35,6 +35,23 @@ test("round pedestal proof is a circular top plus one central leg", () => {
   assert.deepEqual(geometry.dimensionsMm, { x: 900, y: 900, z: 740 });
 });
 
+test("chair spawn has a seat, back, and four legs that meet the seat", () => {
+  const action = localMeshAction("spawn a 480 mm wide chair");
+  assert.equal(action.mesh.kind, "chair");
+  const seat = action.mesh.components.find((body) => body.name === "Seat");
+  const back = action.mesh.components.find((body) => body.name === "Back");
+  const legs = action.mesh.components.filter((body) => /^Leg \d+$/.test(body.name));
+  assert.ok(seat);
+  assert.ok(back);
+  assert.equal(legs.length, 4);
+  assert.ok(back.positionMm[1] > seat.positionMm[1]);
+  for (const leg of legs) {
+    assert.equal(leg.positionMm[1] + leg.sizeMm[1] / 2, seat.positionMm[1] - seat.sizeMm[1] / 2);
+  }
+  const geometry = buildAiMeshGeometry(action.mesh);
+  assert.deepEqual(geometry.dimensionsMm, { x: 480, y: 500, z: 900 });
+});
+
 test("recent user description grounds a spawn-it mesh follow-up", () => {
   const ctx = {
     history: [
