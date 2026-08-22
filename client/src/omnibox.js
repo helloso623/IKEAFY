@@ -3,11 +3,19 @@
 const QUESTION =
   /[?]|^\s*(what|which|who|where|when|why|how|can|could|should|is|are|do|does|did|will|would|may|might|recommend|suggest|help|any)\b/i;
 
+const BENCH_COMMAND =
+  /^\s*(add|put|drop|place|generate|make|build|create|move|rotate|label|isolate)\b/i;
+
 const STOP =
   /\b(what|which|who|where|when|why|how|can|could|should|is|are|do|does|did|will|would|please|find|show|list|get|search|look|recommend|suggest|help|me|my|a|an|the|some|any|for|with|under|over|cheap|cheaper|best|good|about)\b/gi;
 
 export function looksLikeQuestion(raw) {
-  return QUESTION.test(String(raw || "").trim());
+  const text = String(raw || "").trim();
+  return QUESTION.test(text) || BENCH_COMMAND.test(text);
+}
+
+export function looksLikeBenchCommand(raw) {
+  return BENCH_COMMAND.test(String(raw || "").trim());
 }
 
 export function catalogNeedle(raw) {
@@ -33,7 +41,7 @@ export function ensureOmnibox() {
     input.id = "omnibox";
     input.type = "search";
     input.autocomplete = "off";
-    input.placeholder = "Find a part or ask…";
+    input.placeholder = "Add a table, generate a lamp, or ask…";
     input.setAttribute("aria-label", "Search the catalog or ask the shop");
     header.insertBefore(input, header.querySelector(".top-actions"));
   }

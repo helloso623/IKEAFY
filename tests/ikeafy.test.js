@@ -264,3 +264,18 @@ test("parseGuideAsync uses the OpenAI result for this input, not LACK", async ()
     else process.env.OPENAI_API_KEY = previous;
   }
 });
+
+test("PDF plates are not parsed as plain text without vision", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const images = [{ name: "billy-1.jpg", type: "image/jpeg", dataUrl: "data:image/jpeg;base64,abc" }];
+    const guide = await parseGuideAsync("%PDF-1.4 stream junk from a drawing booklet", { images });
+    assert.equal(guide.steps.length, 0);
+    assert.doesNotMatch(guide.title, /LACK/i);
+    assert.doesNotMatch(String(guide.raw || ""), /stream junk/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});

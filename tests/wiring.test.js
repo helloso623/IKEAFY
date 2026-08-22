@@ -17,6 +17,7 @@ const read = (file) => readFileSync(path.join(root, file), "utf8");
 const html = read("client/index.html");
 const main = read("client/src/main.js");
 const studio = read("client/src/studio.js");
+const house = read("client/src/house.js");
 const apiSource = read("client/src/api.js");
 
 const markupIds = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
@@ -41,6 +42,11 @@ test("every id the studio reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `studio.js looks for ids that index.html does not define: ${missing}`);
 });
 
+test("every id house.js reaches for exists in the markup", () => {
+  const missing = [...idsUsedIn(house)].filter((id) => !markupIds.has(id));
+  assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
+});
+
 test("main.js and the studio do not both own the same control", () => {
   // #app and #film are containers on purpose: main.js decides which tab is up,
   // the studio decides what is inside the plate. Anything else being touched by
@@ -53,7 +59,7 @@ test("main.js and the studio do not both own the same control", () => {
 test("every api call the client makes is exported by the api client", () => {
   const exported = new Set([...apiSource.matchAll(/^\s{2}([\w]+):/gm)].map((m) => m[1]));
   const used = new Set(
-    [...`${main}\n${studio}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
+    [...`${main}\n${studio}\n${house}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
   );
   const missing = [...used].filter((name) => !exported.has(name));
   assert.deepEqual(missing, [], `client calls api methods that do not exist: ${missing}`);
@@ -74,10 +80,12 @@ test("the css does not hide the custom guide inputs while the studio is open", (
   assert.equal(guideHidden, false, "a blanket display:none on #guide-in kills the custom guide");
 });
 
-test("IKEAlive starts on PDF upload and plays a Veed reel on watch", () => {
+test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="pdf-upload"/);
   assert.match(html, /id="upload-form"/);
+  assert.match(html, /id="upload-progress"/);
   assert.match(html, /id="film-video"/);
+  assert.match(html, /id="film-status"/);
   assert.match(html, /id="film-play"/);
   assert.match(html, /id="film-wait"/);
   assert.match(html, /id="film-back"/);
@@ -85,9 +93,13 @@ test("IKEAlive starts on PDF upload and plays a Veed reel on watch", () => {
   assert.match(html, /panel watch chat/);
   assert.match(html, /id="ikea-chat-form"/);
   assert.equal(/<details class="studio-chat">/.test(html), false);
-  assert.match(studio, /video\/reel|bootReel|parseCustom/);
+  assert.match(studio, /bootReel|parseCustom/);
   assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
+  assert.match(studio, /FAL_KEY/);
+  assert.match(studio, /renderVideo/);
   assert.match(studio, /bom\.owned|You have this/);
+  const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
+  assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
 });
 
 test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
@@ -96,15 +108,22 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
     false,
     "studio.js must not invent a placeholder guide when the user drops photos",
   );
-  assert.match(studio, /pdfBase64|pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.match(studio, /pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.equal(
+    /plates\.text/.test(studio),
+    false,
+    "extracted PDF text must not be stuffed into the guide textarea",
+  );
 });
 
-test("electronics stays a bench feature of the main Ikeafy app", () => {
+test("electronics stays a Lab feature of the main IKEAlive app", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
-  assert.match(modes, /data-mode="bench"/);
-  assert.match(modes, /data-mode="house"/);
+  assert.match(modes, /data-mode="lab"/);
+  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
+  assert.match(html, /id="house-drawer"/);
   assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
 });
 
@@ -127,6 +146,36 @@ test("lab tests stay behind a details fold", () => {
   assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
 });
 
+test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
+  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo"]) {
+    assert.ok(markupIds.has(id), `House markup is missing #${id}`);
+  }
+  assert.match(main, /initHouse/);
+  assert.match(main, /back-ikealive/);
+  assert.match(html, /id="house-drawer"/);
+  assert.match(house, /api\.adapt/);
+  assert.match(house, /CHEAPER FITS/);
+  assert.match(house, /drawImage/);
+  assert.match(house, /drawPiece|fillRect/);
+  assert.match(apiSource, /^\s{2}adapt:/m);
+});
+
+test("the lab strip assigns jobs and runs one behavior suite", () => {
+  assert.match(html, /id="lab-strip"/);
+  assert.match(html, /id="fn-btns"/);
+  assert.match(html, /id="sim-behavior"/);
+  assert.match(html, /data-fn="support"/);
+  assert.match(html, /data-fn="light"/);
+  assert.match(html, /data-fn="sense"/);
+  assert.match(html, /data-fn="control"/);
+  assert.match(html, /data-fn="decorate"/);
+  const strip = html.slice(html.indexOf('id="lab-strip"'), html.indexOf('id="electronics-only"'));
+  assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
+  assert.match(main, /simBehavior/);
+  assert.match(main, /data-fn/);
+  assert.match(apiSource, /simBehavior/);
+});
+
 test("the workshop is the app — no leftover Next store", () => {
   const pkg = JSON.parse(read("package.json"));
   assert.equal(pkg.dependencies?.next, undefined);
@@ -139,6 +188,15 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
 });
 
+test("askShop applies creative-desk add, camera, label, and isolate", () => {
+  assert.match(main, /applyShopActions/);
+  assert.match(main, /api\.add\(/);
+  assert.match(main, /api\.label\(/);
+  assert.match(main, /api\.isolate\(/);
+  assert.match(main, /shop\.setCamera/);
+  assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
+});
+
 test("empty inspect is quiet — no ports, no Arduino", () => {
   const start = html.indexOf('id="inspect"');
   const block = html.slice(start, html.indexOf("</div>", start) + 6);
@@ -147,4 +205,23 @@ test("empty inspect is quiet — no ports, no Arduino", () => {
   assert.doesNotMatch(block, /Arduino/i);
   assert.match(main, /EMPTY_INSPECT|showEmptyInspect/, "main.js must restore the empty inspect");
   assert.match(main, /syncDeleteButton/, "delete should track whether a piece is selected");
+});
+
+test("Lab chrome is a CAD browser, viewport, and inspector", () => {
+  assert.match(html, /class="[^"]*lab-browser/, "left pane is the Fusion-style browser");
+  assert.match(html, /class="[^"]*lab-viewport/, "center pane is the CAD viewport");
+  assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
+  assert.match(html, /Catalog/);
+  assert.match(html, /Bodies/);
+  assert.match(html, /Parameters/);
+  assert.match(html, /Functions/);
+  assert.match(html, /Nets/);
+  const css = read("client/src/styles.css");
+  assert.match(css, /\.lab-browser/);
+  assert.match(css, /\.lab-viewport/);
+  assert.match(css, /\.lab-inspector/);
+  assert.match(css, /\.studio-side > \.watch \{/, "Finley watch cards keep their own chrome");
+  assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
+  assert.match(html, /class="panel watch bom"/);
+  assert.match(html, /class="studio-side"/);
 });

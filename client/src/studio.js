@@ -1,5 +1,5 @@
 /**
- * IKEAlive watch: a Veed reel of every step, driven by Back / Play-Stop / Next.
+ * IKEAlive watch: a Seedance 2.5 reel of every step, driven by Back / Play-Stop / Next.
  * Click a step in #steps or the scrub list to jump there. Upload (or Start)
  * builds the reel; this UI plays it.
  */
@@ -7,6 +7,8 @@
 import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
+const FAL_REQUIRED =
+  "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -46,6 +48,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     render: first("#render-video"),
     scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
+    filmStatus: first("#film-status"),
+    progress: first("#upload-progress"),
     pdf: first("#pdf-upload"),
     pdfName: first("#pdf-name"),
     pdfDrop: first("#pdf-drop", ".upload-drop"),
@@ -95,6 +99,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   function announce(message) {
     hud(text(message));
+    if (el.progress) el.progress.textContent = text(message);
+  }
+
+  function setBusy(on) {
+    state.submitting = Boolean(on);
+    if (el.parse) {
+      el.parse.disabled = state.submitting;
+      el.parse.textContent = state.submitting ? "Building…" : "Build the reel";
+    }
+  }
+
+  function showFilmStatus(message) {
+    if (el.filmStatus) {
+      el.filmStatus.textContent = message || "";
+      el.filmStatus.classList.toggle("hidden", !message);
+    }
+    if (message) setOut(el.renderOut, message);
   }
 
   function fail(error) {
@@ -133,19 +154,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
       el.customSource?.classList.toggle("hidden", official);
     }
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
-  }
-
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const comma = result.indexOf(",");
-        resolve(comma >= 0 ? result.slice(comma + 1) : result);
-      };
-      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
-      reader.readAsDataURL(file);
-    });
   }
 
   function showPdfName(file) {
@@ -370,9 +378,9 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      await bootReel();
       setInterface("watch");
-      announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
+      announce("Rendering Seedance 2.5…");
+      await bootReel();
       return view;
     } catch (error) {
       return fail(error);
@@ -382,61 +390,54 @@ export function initStudio({ api, hud = () => {} } = {}) {
   async function parseCustom(event) {
     event?.preventDefault();
     if (state.submitting) return null;
-    state.submitting = true;
+    setBusy(true);
     try {
       setMode("custom");
       const file = el.pdf?.files?.[0] || null;
-      const pasted = el.guide?.value || "";
-      let pdfBase64 = "";
+      const pasted = (el.guide?.value || "").trim();
       let images = [];
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
-        pdfBase64 = await fileToBase64(file);
-        if (isPdfFile(file)) {
-          try {
-            const plates = await pagesFromPdf(file);
-            images = plates.images || [];
-            if (plates.text && el.guide && !pasted.trim()) el.guide.value = plates.text;
-          } catch {
-            announce("Could not rasterize the PDF plates — trying extracted text.");
-          }
+        if (!isPdfFile(file)) {
+          return fail(new Error("Drop a PDF — IKEA manuals are drawings, not plain text."));
+        }
+        try {
+          const plates = await pagesFromPdf(file);
+          images = plates.images || [];
+        } catch (error) {
+          return fail(new Error(error?.message || "Could not read that PDF as plates."));
+        }
+        if (!images.length) {
+          return fail(new Error("That PDF has no readable plates."));
         }
       }
-      if (!pasted.trim() && !pdfBase64 && !images.length) {
+      if (!pasted && !images.length) {
         announce("Drop a PDF or paste a guide first.");
         return null;
       }
-      announce("Parsing the sheet…");
-      let guideText = el.guide?.value || pasted;
-      if ((pdfBase64 || images.length) && api.parseGuide) {
-        const parsed = await api.parseGuide(guideText, el.notes?.value || "", { pdfBase64, images });
-        if (parsed?.ok === false) return fail(new Error(parsed.reason));
-        if (parsed?.raw) {
-          guideText = parsed.raw;
-          if (el.guide) el.guide.value = parsed.raw;
-        }
-      }
-      announce("Starting the run and building the reel…");
+      announce(images.length ? "Reading the plates with vision…" : "Parsing the pasted guide…");
       const view = await api.runStart({
         mode: "custom",
-        guide: guideText,
+        guide: pasted,
         instructions: el.notes?.value || "",
-        pdfBase64,
         images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(guideText);
+      saveCustom(pasted);
       await renderReviews();
-      await bootReel();
       setInterface("watch");
-      announce("Reel ready. Watch the first step.");
+      announce("Rendering Seedance 2.5…");
+      await bootReel();
+      if (state.reel.some((clip) => clip.videoUrl)) {
+        announce("Reel ready. Watch the first step.");
+      }
       return view;
     } catch (error) {
       return fail(error);
     } finally {
-      state.submitting = false;
+      setBusy(false);
     }
   }
 
@@ -494,12 +495,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
   // ------------------------------------------------------------------- playback
 
   function hideVideo() {
-    if (!el.video) return;
-    el.video.pause();
-    el.video.removeAttribute("src");
-    el.video.load();
-    el.video.classList.add("hidden");
-    el.frame?.classList.remove("hidden");
+    if (el.video) {
+      el.video.pause();
+      el.video.removeAttribute("src");
+      el.video.load();
+      el.video.classList.add("hidden");
+    }
+    el.frame?.classList.add("hidden");
   }
 
   function stopPlayback({ keepFrame = false } = {}) {
@@ -791,58 +793,48 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   function clipFromPlan(step) {
-    const frames = Array.isArray(step?.frames) ? step.frames : [];
     return {
       number: Number(step?.number) || 0,
-      frames,
+      frames: [],
       videoUrl: step?.videoUrl || null,
-      provider: step?.provider || "local-storyboard",
+      provider: step?.provider || "seedance-2.5",
     };
   }
 
-  async function loadReel() {
-    if (!state.run) return [];
-    const body = {
-      runId: state.run.id,
-      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-    };
-    if (api.renderReel) {
-      try {
-        const result = await api.renderReel(body);
-        const clips = (result.steps || [])
-          .map((step) =>
-            clipFromPlan({
-              number: step.number,
-              frames: step.frames || step.plan,
-              videoUrl: step.videoUrl,
-              provider: step.provider,
-            }),
-          )
-          .filter((clip) => clip.number);
-        if (clips.length) return clips;
-      } catch (error) {
-        fail(error);
-      }
-    }
-    try {
-      const plan = api.video ? await api.video(body) : { steps: [] };
-      const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
-      if (clips.length) return clips;
-    } catch (error) {
-      fail(error);
-    }
+  function clipsFromOutline() {
     return (state.outline || []).map((item) => ({
       number: item.number,
-      frames: [
-        {
-          frame: 0,
-          durationMs: 1200,
-          caption: item.body || item.preview || `Step ${item.number}`,
-        },
-      ],
+      frames: [],
       videoUrl: null,
-      provider: "local-storyboard",
+      provider: "seedance-2.5",
     }));
+  }
+
+  async function falIsLive() {
+    if (!api.health) return false;
+    try {
+      const health = await api.health();
+      return Boolean(health?.video?.live);
+    } catch {
+      return false;
+    }
+  }
+
+  async function renderClipVideo(clip) {
+    if (!clip || !api.renderVideo || !state.run) {
+      throw new Error(FAL_REQUIRED);
+    }
+    const result = await api.renderVideo({
+      runId: state.run.id,
+      stepNumber: clip.number,
+      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+    });
+    clip.videoUrl = result.videoUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.videoUrl) {
+      throw new Error(result.error || result.reason || FAL_REQUIRED);
+    }
+    return clip;
   }
 
   async function upgradeReel(clips) {
@@ -851,26 +843,22 @@ export function initStudio({ api, hud = () => {} } = {}) {
     let live = 0;
     for (const clip of clips) {
       if (state.destroyed || token !== state.reelToken) return;
+      if (clip.videoUrl) {
+        live += 1;
+        continue;
+      }
       try {
-        const result = await api.renderVideo({
-          runId: state.run.id,
-          stepNumber: clip.number,
-          guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-        });
-        if (token !== state.reelToken) return;
-        clip.frames = result.frames || result.plan || clip.frames;
-        clip.videoUrl = result.videoUrl || null;
-        clip.provider = result.provider || clip.provider;
-        if (clip.videoUrl) live += 1;
-        setOut(
-          el.renderOut,
-          live
-            ? `Veed reel · ${live}/${clips.length} clips`
-            : `${result.provider || "local-storyboard"} · canvas storyboard (set FAL_KEY for Veed)`,
-        );
+        const status = `Rendering Seedance 2.5 · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.videoUrl) showFilmStatus(status);
+        await renderClipVideo(clip);
+        live += 1;
+        setOut(el.renderOut, `Seedance 2.5 · ${live}/${clips.length} films`);
         if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
-      } catch {
-        // Keep the local storyboard clip if Veed is down.
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_REQUIRED);
+        return;
       }
     }
   }
@@ -879,7 +867,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!state.run) return;
     stopPlayback();
     el.film?.classList.remove("hidden");
-    state.reel = await loadReel();
+    hideVideo();
+    state.reel = clipsFromOutline();
     state.clipIndex = Math.max(
       0,
       state.reel.findIndex((clip) => clip.number === state.run.cursor),
@@ -888,6 +877,27 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.frameIndex = 0;
     renderSteps();
     renderTransport();
+    showFilmStatus("Rendering Seedance 2.5…");
+
+    if (!(await falIsLive())) {
+      showFilmStatus(FAL_REQUIRED);
+      announce(FAL_REQUIRED);
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Rendering Seedance 2.5 · step ${first.number}…`);
+        showFilmStatus(`Rendering Seedance 2.5 · step ${first.number}…`);
+        await renderClipVideo(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_REQUIRED);
+      return;
+    }
+
     showClip(state.clipIndex, { play: true, restart: true });
     if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
@@ -895,6 +905,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function showVideo(url, { play = false } = {}) {
     if (!el.video || !url) return false;
     el.frame?.classList.add("hidden");
+    showFilmStatus("");
     el.video.classList.remove("hidden");
     if (el.video.src !== url) {
       el.video.src = url;
@@ -907,31 +918,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
       el.video.pause();
     }
     return true;
-  }
-
-  function playCanvasClip(clip, token) {
-    const frames = clip.frames || [];
-    const tick = () => {
-      if (state.destroyed || token !== state.playGen || !state.playingOn) return;
-      if (state.frameIndex >= frames.length) {
-        finishClip();
-        return;
-      }
-      const frame = frames[state.frameIndex];
-      drawFrame(frame);
-      setOut(el.caption, frame?.caption || state.step?.body || clipCaption(clip));
-      state.frameIndex += 1;
-      if (state.frameIndex >= frames.length) {
-        state.timer = setTimeout(finishClip, Math.max(120, Number(frame?.durationMs) || 1000));
-        return;
-      }
-      state.timer = setTimeout(tick, Math.max(120, Number(frame?.durationMs) || 1000));
-    };
-    if (!frames.length) {
-      finishClip();
-      return;
-    }
-    tick();
   }
 
   function showClip(index, { play = false, restart = true } = {}) {
@@ -963,10 +949,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
 
     hideVideo();
-    const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
-    drawFrame(frame);
-    renderTransport();
-    if (play) playCanvasClip(clip, state.playGen);
+    showFilmStatus(
+      play
+        ? `Rendering Seedance 2.5 · step ${clip.number}…`
+        : `No Seedance film for step ${clip.number} yet.`,
+    );
   }
 
   function finishClip() {
@@ -1236,7 +1223,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
-  listen(el.pdf, "change", () => showPdfName(el.pdf?.files?.[0] || null));
+  listen(el.pdf, "change", () => {
+    const file = el.pdf?.files?.[0] || null;
+    showPdfName(file);
+    if (file) parseCustom();
+  });
   listen(el.pdfDrop, "dragover", (event) => {
     event.preventDefault();
     el.pdfDrop.classList.add("drag");
@@ -1253,6 +1244,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     transfer.items.add(file);
     el.pdf.files = transfer.files;
     showPdfName(file);
+    parseCustom();
   });
   listen(el.clear, "click", () => {
     if (el.pdf) el.pdf.value = "";

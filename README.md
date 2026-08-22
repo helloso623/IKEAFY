@@ -24,4 +24,4 @@ npm run dev
 | `guides/` | Official building guides |
 | `docs/` | Short product notes |
 
-Bench and House sit beside the studio: a 3D workbench for the parts, and a house view that drops the piece into your room.
+Lab opens Bench and House in one workspace: a 3D workbench for the parts, and a house plate that drops the piece into your room. IKEAlive (upload / watch) stays the default tab.

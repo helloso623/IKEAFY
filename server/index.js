@@ -11,7 +11,7 @@ import {
   searchParts,
 } from "./lib/catalog.js";
 import { manageBundle, routeCable } from "./lib/cables.js";
-import { engineeringReport, runSuite } from "./lib/physics.js";
+import { engineeringReport, runSuite, stackSim } from "./lib/physics.js";
 import {
   attachBroken,
   colorizePlate,
@@ -26,7 +26,6 @@ import {
   reviewsForGuide,
   searchOfficialProducts,
   shoppingListAsync,
-  storyboardForStep,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
 import {
@@ -48,16 +47,18 @@ import {
   listFreeFittings,
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
-import { hasFal, renderStepVideo } from "./lib/video.js";
+import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
 import { hasTavily } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
+import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom } from "./lib/adaptation.js";
 import {
   addCable,
+  addJoint,
   addPiece,
   addTape,
   benchChrome,
@@ -66,6 +67,8 @@ import {
   isolateAsBoard,
   labelFunction,
   movePiece,
+  persistLabTool,
+  removeJoint,
   removePiece,
   resetSim,
   rescale,
@@ -82,7 +85,7 @@ const VIDEO_PARTNERS = {
     name: "ByteDance Seedance 2.5",
     model: "bytedance/seedance-2.5/text-to-video",
     status: "optional",
-    note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
+    note: "Rendered through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not play a canvas stand-in.",
   },
   fal: {
     name: "fal.ai",
@@ -110,7 +113,7 @@ app.get("/api/health", (_req, res) => {
     partners: PARTNERS,
     video: {
       partners: VIDEO_PARTNERS,
-      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "local-storyboard",
+      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "none",
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
@@ -172,7 +175,7 @@ app.post("/api/physics/run", (req, res) => {
   const tape = req.body?.tapeId ? getPart(req.body.tapeId) : getPart("tape-gaffer");
   if (!part) return res.status(404).json({ error: "Unknown part" });
   const report = runSuite(part, tape, req.body || {});
-  state.project.sim.lastReport = report;
+  persistLabTool(state.project, "sim", report);
   res.json(report);
 });
 
@@ -181,7 +184,24 @@ app.post("/api/physics/system", (req, res) => {
     .map((id) => getPart(id))
     .filter(Boolean);
   const tape = getPart(req.body?.tapeId || "tape-gaffer");
-  res.json(engineeringReport(parts, { tapePart: tape, ...req.body }));
+  const report = engineeringReport(parts, { tapePart: tape, ...req.body });
+  persistLabTool(state.project, "sim", report);
+  res.json(report);
+});
+
+/**
+ * Lab strip: one Run sim that stacks strength / weather / heat / rain / tape /
+ * force over everything on the bench and reads the function graph back
+ * (a piece labeled "light" tells the client to blink the LED).
+ */
+app.post("/api/physics/sim", (req, res) => {
+  const rows = state.project.pieces
+    .map((piece) => ({ piece, part: getPart(piece.partId) }))
+    .filter((row) => row.part);
+  const tape = getPart(req.body?.tapeId || "tape-gaffer");
+  const report = stackSim(rows, tape, req.body || {});
+  state.project.sim.lastReport = report;
+  res.json(report);
 });
 
 app.post("/api/cables/route", (req, res) => {
@@ -197,15 +217,19 @@ app.post("/api/cables/bundle", (req, res) => {
 });
 
 app.post("/api/ikeafy/parse", async (req, res) => {
+  const images = req.body?.images || [];
+  const hasPlates = images.some((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
   let raw = req.body?.guide || "";
-  if (req.body?.pdfBase64) {
+  if (!hasPlates && req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
   const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
-    images: req.body?.images || [],
+    images,
   });
   state.guide = guide;
   res.json(guide);
@@ -261,13 +285,24 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       extra: body.instructions || body.extra || "",
     });
     if (stored?.guide) state.guide = stored.guide;
+    if (!result.videoUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_REQUIRED,
+        videoUrl: null,
+        partners: VIDEO_PARTNERS,
+      });
+    }
     res.json({
       ok: true,
       stepNumber,
-      live: result.provider !== "local-storyboard",
+      live: true,
       partners: VIDEO_PARTNERS,
-      plan: result.frames.length ? result.frames : storyboardForStep(guide, stepNumber),
-      ...result,
+      videoUrl: result.videoUrl,
+      provider: result.provider,
+      prompt: result.prompt,
     });
   } catch (err) {
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
@@ -277,28 +312,49 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
+  if (!hasFal()) {
+    return res.status(503).json({
+      ok: false,
+      reel: true,
+      live: false,
+      error: FAL_REQUIRED,
+      videoUrl: null,
+      steps: [],
+      partners: VIDEO_PARTNERS,
+    });
+  }
   const steps = [];
   try {
     for (const step of guide?.steps || []) {
       const result = await renderStepVideo({
         guide,
         stepNumber: step.number,
-        imageDataUrl: body.imageDataUrl,
+        extra: body.instructions || body.extra || "",
       });
+      if (!result.videoUrl) {
+        return res.status(503).json({
+          ok: false,
+          reel: true,
+          live: false,
+          error: result.reason || FAL_REQUIRED,
+          videoUrl: null,
+          steps,
+          partners: VIDEO_PARTNERS,
+        });
+      }
       steps.push({
         number: step.number,
-        live: result.provider !== "local-storyboard",
-        plan: result.frames.length ? result.frames : storyboardForStep(guide, step.number),
-        ...result,
+        live: true,
+        videoUrl: result.videoUrl,
+        provider: result.provider,
       });
     }
-    const live = steps.find((step) => step.videoUrl);
     res.json({
       ok: true,
       reel: true,
-      live: Boolean(live),
+      live: true,
       partners: VIDEO_PARTNERS,
-      videoUrl: live?.videoUrl || null,
+      videoUrl: steps[0]?.videoUrl || null,
       steps,
     });
   } catch (err) {
@@ -467,7 +523,9 @@ app.post("/api/project/seed", (req, res) => {
 
 app.post("/api/project/add", (req, res) => {
   try {
-    const piece = addPiece(state.project, req.body?.partId, req.body?.pose || {});
+    const pose = { ...(req.body?.pose || {}) };
+    if (req.body?.functionLabel !== undefined) pose.functionLabel = req.body.functionLabel;
+    const piece = addPiece(state.project, req.body?.partId, pose);
     res.json(piece);
   } catch (err) {
     res.status(400).json({ error: String(err.message || err) });
@@ -508,8 +566,32 @@ app.post("/api/project/tape", (req, res) => {
   res.json(addTape(state.project, req.body?.tapeId || "tape-gaffer", req.body?.pieceIds || []));
 });
 
+app.post("/api/project/joint", (req, res) => {
+  try {
+    res.json(addJoint(state.project, req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+});
+
+app.post("/api/project/joint/remove", (req, res) => {
+  const removed = removeJoint(state.project, req.body?.id);
+  if (!removed) return res.status(404).json({ ok: false, error: "No joint with that id." });
+  res.json({ ok: true, removed });
+});
+
+app.get("/api/project/functions", (_req, res) => {
+  res.json({ functions: PIECE_FUNCTIONS });
+});
+
 app.post("/api/project/label", (req, res) => {
-  res.json(labelFunction(state.project, req.body?.id, req.body?.label));
+  const raw = req.body?.label;
+  if (raw != null && raw !== "" && !isPieceFunction(raw)) {
+    return res.status(400).json({ error: "Unknown function", functions: PIECE_FUNCTIONS });
+  }
+  const piece = labelFunction(state.project, req.body?.id, normalizeFunction(raw) ?? raw);
+  if (!piece) return res.status(404).json({ error: "No piece with that id." });
+  res.json(piece);
 });
 
 app.post("/api/project/isolate", (req, res) => {
@@ -524,14 +606,37 @@ app.post("/api/project/sim/reset", (_req, res) => {
   res.json(resetSim(state.project));
 });
 
+app.post("/api/project/sim/behavior", (req, res) => {
+  snapshotSim(state.project);
+  const result = simulateBehavior(state.project, req.body || {});
+  persistLabTool(state.project, "sim", result);
+  res.json(result);
+});
+
+app.get("/api/project/lab", (_req, res) => {
+  res.json(state.project.labTools);
+});
+
+app.post("/api/project/lab/:tool", (req, res) => {
+  try {
+    const value = req.body?.value ?? req.body ?? null;
+    res.json({ tool: req.params.tool, value: persistLabTool(state.project, req.params.tool, value) });
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+});
+
 app.post("/api/export/print", (_req, res) => {
   const parts = state.project.pieces.map((p) => getPart(p.partId)).filter(Boolean);
-  res.json(exportPrintJob(parts));
+  const job = exportPrintJob(parts);
+  persistLabTool(state.project, "generate", { kind: "print", job });
+  res.json(job);
 });
 
 app.post("/api/firmware/generate", (req, res) => {
   const source = sketchFromFunctions(req.body?.functions || ["light", "sense"]);
   state.project.firmware.source = source;
+  persistLabTool(state.project, "generate", { kind: "firmware", source });
   res.json({ source });
 });
 

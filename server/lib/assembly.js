@@ -94,19 +94,21 @@ export async function startAssemblyAsync({
   if (mode === "official") {
     return withShopping(startAssembly({ mode, article, instructions, availableTools }), deps);
   }
+  const plates = (images || []).filter((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
   let text = String(rawGuide || "");
-  if (pdfBase64) {
+  if (!plates.length && pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
     text = [extracted, text].filter(Boolean).join("\n\n");
   }
-  const guide = await parseGuideAsync(text, { instructions, availableTools, images });
+  const guide = await parseGuideAsync(text, { instructions, availableTools, images: plates });
   if (!guide?.steps?.length) {
-    const photoOnly = images.length && !String(text || "").trim();
     return {
       ok: false,
-      reason: photoOnly
-        ? "Could not read those photos into steps. Paste the guide as text, or check the OpenAI key."
-        : "That guide has no steps. If you dropped a drawing-only PDF, wait for the plates to be read.",
+      reason: plates.length
+        ? "Could not read those PDF plates into steps. Check the OpenAI key — IKEA manuals are drawings, not plain text."
+        : "That guide has no steps. Drop a PDF or paste a numbered guide.",
     };
   }
   return withShopping(beginRun("custom", guide), deps);

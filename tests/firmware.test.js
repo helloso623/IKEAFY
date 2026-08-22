@@ -17,3 +17,12 @@ test("button sketch lights when pressed", () => {
   const down = runSketch(src, { buttonDown: true });
   assert.ok(down.frames.every((f) => f.led));
 });
+
+test("sense without light still defines the lamp pin", () => {
+  const src = sketchFromFunctions(["sense"]);
+  assert.match(src, /LED_PIN/);
+  assert.match(src, /BTN_PIN/);
+  const info = analyzeSketch(src);
+  assert.ok(info.pins.includes(13));
+  assert.ok(info.pins.includes(2));
+});

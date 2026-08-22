@@ -189,6 +189,95 @@ export function runSuite(part, tapePart, options = {}) {
   };
 }
 
+/**
+ * Stacked behavior sim for the Lab strip. Each toggle maps onto one of the
+ * tests above, every enabled test runs over every piece on the bench, and the
+ * function graph (piece.functionLabel) is read back so the client knows
+ * whether the labeled light should blink through the run.
+ *
+ * rows: [{ piece, part }] — piece carries id + functionLabel, part the specs.
+ */
+export function stackSim(rows, tapePart, opts = {}) {
+  const stacked = [];
+  if (opts.strength) stacked.push("strength");
+  if (opts.force) stacked.push("speed");
+  if (opts.weather || opts.heat || opts.rain) stacked.push("weather");
+  if (opts.tape && tapePart) stacked.push("tape");
+  if (!stacked.length) stacked.push("strength");
+
+  const tempC = Number(opts.tempC ?? (opts.heat ? 60 : 22));
+  const rain = Boolean(opts.rain);
+  const suiteOpts = {
+    forceN: Number(opts.forceN) || 200,
+    speedForceN: Number(opts.pushN) || 12,
+    // A full wrap, not the default patch — enough for gaffer to actually hold.
+    tapeAreaMm2: Number(opts.tapeAreaMm2) || 1000,
+    tempC,
+    rain,
+  };
+
+  const functions = {};
+  const outRows = [];
+  for (const { piece, part } of rows) {
+    if (piece.functionLabel) {
+      functions[piece.functionLabel] = functions[piece.functionLabel] || [];
+      functions[piece.functionLabel].push(piece.id);
+    }
+    const suite = runSuite(part, opts.tape ? tapePart : null, suiteOpts);
+    const tests = {};
+    for (const kind of stacked) if (suite.tests[kind]) tests[kind] = suite.tests[kind];
+    outRows.push({
+      pieceId: piece.id,
+      partId: part.id,
+      name: part.name,
+      functionLabel: piece.functionLabel || null,
+      tests,
+      failed: suite.failed.filter((kind) => stacked.includes(kind)),
+    });
+  }
+
+  const lights = outRows.filter((row) => row.functionLabel === "light");
+  const shortedLight = lights.some((row) =>
+    (row.tests.weather?.issues || []).includes("rain short risk"),
+  );
+  const led = {
+    lights: lights.length,
+    blink: lights.length > 0 && !shortedLight,
+    hz: 2,
+    note: !lights.length
+      ? "No piece is labeled light — nothing to blink."
+      : shortedLight
+        ? "LED stays dark — rain shorted the bare light. Seal it or bring it inside."
+        : "LED blinks — the graph has a light.",
+  };
+
+  const failures = outRows.flatMap((row) =>
+    row.failed.map((kind) => ({
+      pieceId: row.pieceId,
+      partId: row.partId,
+      kind,
+      note: row.tests[kind]?.note,
+    })),
+  );
+
+  return {
+    stacked,
+    tapeId: opts.tape ? tapePart?.id || null : null,
+    tempC,
+    rain,
+    rows: outRows,
+    functions,
+    led,
+    failures,
+    ok: failures.length === 0,
+    note: !outRows.length
+      ? "Nothing on the bench to simulate."
+      : `${stacked.join(" + ")} over ${outRows.length} piece${outRows.length === 1 ? "" : "s"} — ${
+          failures.length ? `${failures.length} failure${failures.length === 1 ? "" : "s"}` : "all holding"
+        }.`,
+  };
+}
+
 export function engineeringReport(parts, options = {}) {
   const rows = parts.map((part) => runSuite(part, options.tapePart, options));
   const issues = rows.flatMap((row) =>

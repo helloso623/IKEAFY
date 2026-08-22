@@ -612,8 +612,57 @@ export function createWorkshop(canvas) {
   const meshes = new Map();
   let selected = null;
   let simOn = false;
+  let simOpts = {};
   let rain = [];
+  let heatGlow = null;
+  let forceArrow = null;
+  let ledBlinkOn = false;
   let onSelect = () => {};
+
+  // Blender-style viewport shading: solid and wire share one override material
+  // each; "material" restores whatever the part builders assigned.
+  let shading = "material";
+  const solidMat = new THREE.MeshStandardMaterial({
+    color: 0xcfcfcf,
+    roughness: 0.85,
+    metalness: 0.02,
+    flatShading: true,
+  });
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, wireframe: true, toneMapped: false });
+
+  function applyShading() {
+    for (const root of [group, cableGroup]) {
+      root.traverse((child) => {
+        if (!child.isMesh) return;
+        if (!child.userData.baseMaterial) child.userData.baseMaterial = child.material;
+        child.material =
+          shading === "solid" ? solidMat : shading === "wire" ? wireMat : child.userData.baseMaterial;
+      });
+    }
+  }
+
+  function setShading(mode) {
+    if (!["solid", "material", "wire"].includes(mode)) return;
+    shading = mode;
+    applyShading();
+  }
+
+  function frameSelected() {
+    const target = selected || (group.children.length ? group : null);
+    if (!target) return false;
+    const box = new THREE.Box3().setFromObject(target);
+    if (box.isEmpty()) return false;
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 0.05);
+    const dist = (radius / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.25;
+    const dir = camera.position.clone().sub(orbit.target);
+    if (dir.lengthSq() < 1e-8) dir.set(1, 0.6, 1);
+    dir.normalize();
+    orbit.target.copy(center);
+    camera.position.copy(center).addScaledVector(dir, dist);
+    orbit.update();
+    return true;
+  }
 
   function meshFor(piece, part) {
     const mat = materialFor(part, piece);
@@ -729,6 +778,7 @@ export function createWorkshop(canvas) {
       strip.position.copy(pos).add(new THREE.Vector3(0, 0.03, 0));
       group.add(strip);
     }
+    applyShading();
   }
 
   function pick(ev) {
@@ -761,9 +811,17 @@ export function createWorkshop(canvas) {
 
   function setSim(on, opts = {}) {
     simOn = on;
+    simOpts = opts;
     fx.clear();
     rain = [];
-    if (!on) return;
+    heatGlow = null;
+    forceArrow = null;
+    group.position.set(0, 0, 0);
+    if (!on) {
+      ledBlinkOn = false;
+      setLed(false);
+      return;
+    }
     if (opts.rain) {
       for (let i = 0; i < 80; i += 1) {
         const drop = new THREE.Mesh(
@@ -776,13 +834,18 @@ export function createWorkshop(canvas) {
       }
     }
     if (opts.heat) {
-      const glow = new THREE.PointLight(0xff5522, 1.4, 2);
-      glow.position.set(0.1, 0.4, 0.1);
-      fx.add(glow);
+      heatGlow = new THREE.PointLight(0xff5522, 1.4, 2);
+      heatGlow.position.set(0.1, 0.4, 0.1);
+      fx.add(heatGlow);
     }
     if (opts.force) {
-      const dir = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0.7, 0), 0.4, 0xffda1a);
-      fx.add(dir);
+      forceArrow = new THREE.ArrowHelper(
+        new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, 0.7, 0),
+        0.4,
+        0xffda1a,
+      );
+      fx.add(forceArrow);
     }
   }
 
@@ -803,6 +866,8 @@ export function createWorkshop(canvas) {
   }
 
   function setLed(on) {
+    // Emission only draws in material shading — same rule as Blender's solid view.
+    if (shading !== "material") return;
     meshes.forEach((mesh) => {
       if (mesh.userData.part?.firmwareRole !== "led") return;
       mesh.traverse((child) => {
@@ -817,9 +882,23 @@ export function createWorkshop(canvas) {
   function tick() {
     orbit.update();
     if (simOn) {
+      const t = performance.now() / 1000;
       for (const drop of rain) {
         drop.position.y -= 0.04;
         if (drop.position.y < 0) drop.position.y = 1.2;
+      }
+      if (simOpts.shake) {
+        group.position.x = Math.sin(t * 26) * 0.003;
+        group.position.z = Math.cos(t * 21) * 0.002;
+      }
+      if (heatGlow) heatGlow.intensity = 1.2 + Math.sin(t * 9) * 0.35 + Math.sin(t * 23) * 0.15;
+      if (forceArrow) forceArrow.setLength(0.34 + Math.sin(t * 4) * 0.08);
+      if (simOpts.ledHz) {
+        const blink = Math.floor(t * simOpts.ledHz * 2) % 2 === 0;
+        if (blink !== ledBlinkOn) {
+          ledBlinkOn = blink;
+          setLed(blink);
+        }
       }
     }
     renderer.render(scene, camera);
@@ -831,6 +910,9 @@ export function createWorkshop(canvas) {
     sync,
     setSim,
     setCamera,
+    setShading,
+    getShading: () => shading,
+    frameSelected,
     explode,
     setLed,
     resize,
