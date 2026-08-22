@@ -279,7 +279,7 @@ async function refreshCurrentDiy() {
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Refreshing tops, legs, boards, and connection hardware for the current model…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Refreshing construction ways and shaped pieces for the current model…</span>`;
   try {
     const packet = await api.diyCurrent();
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
@@ -323,9 +323,7 @@ function renderDiyHistory(active = null) {
   if (out && current) {
     const bom = current.bom || {};
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${bom.ways?.length || 0} construction ways · ${bom.cutList?.length || 0} board / stock lines · ${
-        bom.hardwareLines?.length || 0
-      } hardware lines · estimated $${Number(
+      <span>${bom.ways?.length || 0} construction ways · ${bom.cutList?.length || 0} shaped-piece / cut-list lines · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
         bom.live ? " · live research" : " · catalog stand-in"
@@ -333,7 +331,7 @@ function renderDiyHistory(active = null) {
       <div class="row wrap">
         ${
           current.id
-            ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print pieces + hardware</button>`
+            ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
             : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
