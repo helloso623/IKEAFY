@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { initHouse } from "./house.js";
+import { initLabStrip } from "./lab.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 
@@ -642,6 +643,7 @@ async function boot() {
 
   await loadCatalog();
   await refreshProject();
+  initLabStrip({ api, shop, hud, getProject: () => project, partsById, refreshProject });
   setMode("ikeafy");
   hud(
     health.video?.live
