@@ -379,10 +379,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ------------------------------------------------------------------- playback
 
-  function stopPlayback() {
-    state.playing += 1;
+  function hideVideo() {
+    if (!el.video) return;
+    el.video.pause();
+    el.video.removeAttribute("src");
+    el.video.load();
+    el.video.classList.add("hidden");
+    el.frame?.classList.remove("hidden");
+  }
+
+  function stopPlayback({ keepFrame = false } = {}) {
+    state.playGen += 1;
+    state.playingOn = false;
     if (state.timer) clearTimeout(state.timer);
     state.timer = null;
+    if (el.video && !el.video.classList.contains("hidden")) el.video.pause();
+    if (!keepFrame) hideVideo();
+    renderTransport();
   }
 
   function drawFrame(frame = {}) {
@@ -663,106 +676,225 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.textAlign = "left";
   }
 
-  async function loadFrames() {
-    if (!api.renderVideo || !state.run) return [];
+  function clipFromPlan(step) {
+    const frames = Array.isArray(step?.frames) ? step.frames : [];
+    return {
+      number: Number(step?.number) || 0,
+      frames,
+      videoUrl: step?.videoUrl || null,
+      provider: step?.provider || "local-storyboard",
+    };
+  }
+
+  async function loadReel() {
+    if (!state.run) return [];
+    const body = {
+      runId: state.run.id,
+      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+    };
     try {
-      const result = await api.renderVideo({
-        runId: state.run.id,
-        stepNumber: state.run.cursor,
-        guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-      });
-      setOut(
-        el.renderOut,
-        result.videoUrl
-          ? `${result.model} via fal.ai — ${result.videoUrl}`
-          : `${result.provider} · local canvas storyboard (set FAL_KEY for ${result.model})`,
-      );
-      return result.frames || result.plan || [];
+      const plan = api.video ? await api.video(body) : { steps: [] };
+      const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
+      if (clips.length) return clips;
     } catch (error) {
       fail(error);
-      return [];
+    }
+    return (state.outline || []).map((item) => ({
+      number: item.number,
+      frames: [
+        {
+          frame: 0,
+          durationMs: 1200,
+          caption: item.body || item.preview || `Step ${item.number}`,
+        },
+      ],
+      videoUrl: null,
+      provider: "local-storyboard",
+    }));
+  }
+
+  async function upgradeReel(clips) {
+    if (!api.renderVideo || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      try {
+        const result = await api.renderVideo({
+          runId: state.run.id,
+          stepNumber: clip.number,
+          guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+        });
+        if (token !== state.reelToken) return;
+        clip.frames = result.frames || result.plan || clip.frames;
+        clip.videoUrl = result.videoUrl || null;
+        clip.provider = result.provider || clip.provider;
+        if (clip.videoUrl) live += 1;
+        setOut(
+          el.renderOut,
+          live
+            ? `Veed reel · ${live}/${clips.length} clips`
+            : `${result.provider || "local-storyboard"} · canvas storyboard (set FAL_KEY for Veed)`,
+        );
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch {
+        // Keep the local storyboard clip if Veed is down.
+      }
     }
   }
 
-  async function playCurrent() {
+  async function bootReel() {
     if (!state.run) return;
     stopPlayback();
     el.film?.classList.remove("hidden");
-    state.frames = await loadFrames();
+    state.reel = await loadReel();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
     state.frameIndex = 0;
-    state.watched = false;
-    renderConfirm();
-    const token = state.playing;
-
-    const advance = () => {
-      if (state.destroyed || token !== state.playing) return;
-      const frame = state.frames[state.frameIndex];
-      if (!frame) {
-        finishFrames();
-        return;
-      }
-      drawFrame(frame);
-      setOut(el.caption, frame.caption || state.step?.body);
-      state.frameIndex += 1;
-      if (state.frameIndex >= state.frames.length) {
-        finishFrames();
-        return;
-      }
-      state.timer = setTimeout(advance, Math.max(120, Number(frame.durationMs) || 1000));
-    };
-    advance();
+    renderSteps();
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: true });
+    upgradeReel(state.reel);
   }
 
-  function finishFrames() {
-    state.watched = true;
-    renderConfirm();
-    announce(
-      state.run?.locked
-        ? "Plate finished. Tick the check, then take the next one."
-        : "Plate finished. Next when you are ready.",
-    );
+  function showVideo(url, { play = false } = {}) {
+    if (!el.video || !url) return false;
+    el.frame?.classList.add("hidden");
+    el.video.classList.remove("hidden");
+    if (el.video.src !== url) {
+      el.video.src = url;
+      el.video.currentTime = 0;
+    }
+    if (play) {
+      const playAttempt = el.video.play();
+      if (playAttempt?.catch) playAttempt.catch(() => {});
+    } else {
+      el.video.pause();
+    }
+    return true;
+  }
+
+  function playCanvasClip(clip, token) {
+    const frames = clip.frames || [];
+    const tick = () => {
+      if (state.destroyed || token !== state.playGen || !state.playingOn) return;
+      if (state.frameIndex >= frames.length) {
+        finishClip();
+        return;
+      }
+      const frame = frames[state.frameIndex];
+      drawFrame(frame);
+      setOut(el.caption, frame?.caption || state.step?.body || clipCaption(clip));
+      state.frameIndex += 1;
+      if (state.frameIndex >= frames.length) {
+        state.timer = setTimeout(finishClip, Math.max(120, Number(frame?.durationMs) || 1000));
+        return;
+      }
+      state.timer = setTimeout(tick, Math.max(120, Number(frame?.durationMs) || 1000));
+    };
+    if (!frames.length) {
+      finishClip();
+      return;
+    }
+    tick();
+  }
+
+  function showClip(index, { play = false, restart = true } = {}) {
+    if (!state.reel.length) return;
+    state.clipIndex = Math.max(0, Math.min(index, state.reel.length - 1));
+    const clip = state.reel[state.clipIndex];
+    if (restart) state.frameIndex = 0;
+    const outline = state.outline.find((item) => item.number === clip.number);
+    if (outline) {
+      state.step = {
+        ...(state.step || {}),
+        number: outline.number,
+        action: outline.action,
+        body: outline.body || clipCaption(clip),
+        toolRequired: outline.toolRequired,
+      };
+    }
+    setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
+    renderSteps();
+    renderTransport();
+
+    if (clip.videoUrl && showVideo(clip.videoUrl, { play })) {
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = null;
+      return;
+    }
+
+    hideVideo();
+    const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
+    drawFrame(frame);
+    if (play) {
+      state.playingOn = true;
+      renderTransport();
+      playCanvasClip(clip, state.playGen);
+    }
+  }
+
+  function finishClip() {
+    if (!state.playingOn) return;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return;
+    }
+    showClip(state.clipIndex + 1, { play: true, restart: true });
+  }
+
+  function togglePlay() {
+    if (!state.reel.length) return;
+    if (state.playingOn) {
+      stopPlayback({ keepFrame: true });
+      announce("Stopped.");
+      return;
+    }
+    state.playGen += 1;
+    state.playingOn = true;
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: false });
+    announce(`Playing step ${currentStepNumber()}.`);
+  }
+
+  function goToClip(index, { play = state.playingOn } = {}) {
+    if (!state.reel.length) return null;
+    const next = Math.max(0, Math.min(index, state.reel.length - 1));
+    state.playGen += 1;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    if (!play) state.playingOn = false;
+    showClip(next, { play, restart: true });
+    return state.reel[next];
   }
 
   // ------------------------------------------------------------------- controls
 
   async function nextStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runConfirm(state.run.id, {
-        step: state.run.cursor,
-        checked: Boolean(el.confirm?.checked),
-      });
-      if (result.ok === false) {
-        announce(result.reason || "That step is not confirmed yet.");
-        if (result.confirmPrompt) setOut(el.confirmLabel, result.confirmPrompt);
-        if (el.confirm) el.confirm.disabled = false;
-        return result;
-      }
-      const before = state.run.cursor;
-      applyView(result);
-      if (result.run?.done && result.run.cursor === before) {
-        announce("Every step confirmed. That is the whole build.");
-        return result;
-      }
-      await playCurrent();
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex + 1);
+    announce(`Step ${clip.number}.`);
+    return clip;
   }
 
   async function backStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runBack(state.run.id, Math.max(1, state.run.cursor - 1));
-      if (result.ok === false) return announce(result.reason);
-      applyView(result);
-      await playCurrent();
-      announce("Back a step. Everything after it is open again.");
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex <= 0) {
+      announce("Already at the first step.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex - 1);
+    announce(`Back to step ${clip.number}.`);
+    return clip;
   }
 
   /** Skip exists so the refusal is visible: official says no, your own guide says yes. */
