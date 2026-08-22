@@ -82,6 +82,7 @@ test("locked scene bible logs product seed and step on the render prefix", () =>
   assert.match(bible, /seed/);
   assert.match(bible, /step:/);
   assert.match(bible, /sku:/);
+  assert.match(bible, /tutorial:\s*true/);
   assert.doesNotMatch(bible, /process\.env\.FAL_KEY/);
   assert.match(video, /logSceneBible/);
   assert.match(image, /logSceneBible/);
