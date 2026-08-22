@@ -1,31 +1,15 @@
 /**
- * The IKEAFY studio: input, then a progress beat, then a results film.
- *
- * Two sources feed it. The official IKEA sheet is locked — the server decides
- * which step you are on, will not send a step you have not reached, and refuses
- * skips and edits out loud. A guide you paste yourself is the opposite: editable
- * inline, skippable, and stored so you can come back to it.
- *
- * Nothing here decides progress on its own. Every move is a server call, so
- * disabling a button is a courtesy rather than the lock itself.
+ * IKEAlive watch: a Veed reel of every step, driven by Back / Play-Stop / Next.
+ * Click a step in #steps or the scrub list to jump there. Upload (or Start)
+ * builds the reel; this UI plays it.
  */
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
-
-const PROGRESS_BEATS = [
-  { id: "parse", label: "Parsing the building guide into steps (Pioneer / GLiNER 2)" },
-  { id: "film", label: "Generating a tutorial film for each step (Seedance 2.5)" },
-  { id: "parts", label: "Looking up kit vs extra and retailers (Tavily)" },
-];
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
 function text(value) {
   return value == null ? "" : String(value);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function initStudio({ api, hud = () => {} } = {}) {
@@ -37,16 +21,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     officialSource: first("#official-source"),
     customSource: first("#custom-source"),
     product: first("#official-product"),
-    productSearch: first("#product-search"),
-    productHits: first("#product-hits"),
-    openOfficial: first("#open-official"),
     guide: first("#guide-in"),
     notes: first("#guide-notes"),
     parse: first("#parse-guide"),
     clear: first("#clear-custom-session"),
-    drop: first("#guide-drop"),
-    guideFile: first("#guide-file"),
-    guideFiles: first("#guide-files"),
     lockBanner: first("#lock-banner"),
     steps: first("#steps"),
     bom: first("#bom"),
@@ -54,29 +32,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
     film: first("#film"),
     frame: first("#film-frame"),
     video: first("#film-video"),
-    scheme: first("#step-scheme"),
     caption: first("#film-caption"),
-    seeGuide: first("#see-guide"),
-    confirm: first("#step-confirm"),
-    confirmLabel: first("#step-confirm-label"),
+    play: first("#film-play"),
     next: first("#film-wait"),
     back: first("#film-back"),
-    stuck: first("#film-stuck"),
+    confirm: first("#step-confirm"),
+    confirmLabel: first("#step-confirm-label"),
     skip: first("#step-skip"),
+    stuck: first("#film-stuck"),
     colorize: first("#colorize"),
     render: first("#render-video"),
+    scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
+    pdf: first("#pdf-upload"),
+    pdfName: first("#pdf-name"),
+    pdfDrop: first("#pdf-drop", ".upload-drop"),
+    uploadForm: first("#upload-form"),
     detail: first("#step-detail", "#inspect"),
-    extraContext: first("#extra-context"),
-    extraMedia: first("#extra-media"),
-    regenerate: first("#regenerate-step"),
-    tabInstructions: first("#tab-instructions"),
-    tabMaterial: first("#tab-material"),
-    studioBack: first("#studio-back"),
-    progress: first("#studio-progress"),
-    progressStatus: first("#progress-status"),
-    progressDetail: first("#progress-detail"),
-    progressBeats: first("#progress-beats"),
     broken: first("#broken-btn"),
     brokenNote: first("#broken-note"),
     brokenPhoto: first("#broken-photo"),
@@ -89,28 +61,27 @@ export function initStudio({ api, hud = () => {} } = {}) {
     chatForm: first("#ikea-chat-form", "#chat-form"),
     chatInput: first("#ikea-chat-in", "#chat-in"),
     chatLog: first("#ikea-chat-log", "#chat-log"),
-    chatFiles: first("#ikea-chat-files"),
   };
 
   const listeners = [];
   const state = {
     mode: "official",
-    view: "input",
-    resultsTab: "instructions",
-    products: [],
-    attachments: [],
-    extraMedia: [],
     run: null,
     step: null,
     outline: [],
     guide: null,
+    reel: [],
+    clipIndex: 0,
     frames: [],
     frameIndex: 0,
     playing: 0,
+    playingOn: false,
+    playGen: 0,
+    reelToken: 0,
     timer: null,
     watched: false,
     broken: null,
-    showingGuide: false,
+    submitting: false,
     destroyed: false,
   };
 
@@ -133,25 +104,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (node) node.textContent = text(value);
   }
 
-  function setStudioView(view) {
-    state.view = view;
-    const app = document.getElementById("app");
-    app?.setAttribute("data-studio-view", view);
-    el.progress?.classList.toggle("hidden", view !== "progress");
-    if (view === "results") el.film?.classList.remove("hidden");
-    if (view === "input") el.film?.classList.add("hidden");
-  }
-
-  function setResultsTab(tab) {
-    state.resultsTab = tab === "material" ? "material" : "instructions";
-    document.getElementById("app")?.setAttribute("data-results-tab", state.resultsTab);
-    el.tabInstructions?.classList.toggle("on", state.resultsTab === "instructions");
-    el.tabMaterial?.classList.toggle("on", state.resultsTab === "material");
-    el.tabInstructions?.setAttribute("aria-pressed", String(state.resultsTab === "instructions"));
-    el.tabMaterial?.setAttribute("aria-pressed", String(state.resultsTab === "material"));
-  }
-
   // ---------------------------------------------------------------- source mode
+
+  function setInterface(name) {
+    const next = name === "watch" ? "watch" : "upload";
+    if (typeof window.setIkealiveInterface === "function") {
+      window.setIkealiveInterface(next);
+      return;
+    }
+    document.getElementById("app")?.setAttribute("data-interface", next);
+  }
 
   function setMode(mode) {
     state.mode = mode === "custom" ? "custom" : "official";
@@ -160,88 +122,54 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.customMode?.classList.toggle("on", !official);
     el.officialMode?.setAttribute("aria-pressed", String(official));
     el.customMode?.setAttribute("aria-pressed", String(!official));
-    el.officialSource?.classList.toggle("hidden", !official);
-    el.customSource?.classList.toggle("hidden", official);
+    const uploading = document.getElementById("app")?.dataset.interface === "upload";
+    if (uploading) {
+      el.officialSource?.classList.remove("hidden");
+      el.customSource?.classList.remove("hidden");
+    } else {
+      el.officialSource?.classList.toggle("hidden", !official);
+      el.customSource?.classList.toggle("hidden", official);
+    }
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
   }
 
-  function productUnlocked(product) {
-    if (!product) return false;
-    if (product.unlocked === false || product.locked === true) return false;
-    return true;
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
+      reader.readAsDataURL(file);
+    });
   }
 
-  function renderProductHits(query = "") {
-    if (!el.productHits) return;
-    el.productHits.replaceChildren();
-    const needle = String(query || "").trim().toLowerCase();
-    const hits = (state.products || []).filter((product) => {
-      if (!needle) return true;
-      const hay = `${product.name} ${product.article || ""} ${product.size || ""}`.toLowerCase();
-      return hay.includes(needle);
-    });
-    if (!hits.length) {
-      const empty = document.createElement("p");
-      empty.className = "hint";
-      empty.textContent = needle ? "No IKEA product by that name in the catalog yet." : "";
-      el.productHits.append(empty);
-      return;
-    }
-    for (const product of hits) {
-      const row = document.createElement("div");
-      const unlocked = productUnlocked(product);
-      row.className = unlocked ? "item" : "item catalog-locked";
-      row.dataset.article = product.article;
-      const body = document.createElement("span");
-      body.textContent = `${product.name} ${product.size || ""} — ${product.article}`.trim();
-      const meta = document.createElement("small");
-      const tag = document.createElement("span");
-      tag.className = unlocked ? "tag included" : "tag locked";
-      tag.textContent = unlocked ? "unlocked" : "locked";
-      meta.append(tag);
-      row.append(body, meta);
-      el.productHits.append(row);
-    }
+  function showPdfName(file) {
+    if (el.pdfName) el.pdfName.textContent = file?.name || "";
   }
 
   async function fillProducts() {
-    if (!api.officialProducts) return;
+    if (!el.product || !api.officialProducts) return;
     try {
       const { products = [] } = await api.officialProducts();
-      state.products = products;
-      if (el.product) {
-        el.product.replaceChildren();
-        const unlocked = products.filter(productUnlocked);
-        for (const product of unlocked) {
-          const option = document.createElement("option");
-          option.value = product.article;
-          option.textContent = `${product.name} ${product.size || ""} — article ${product.article}`.trim();
-          el.product.append(option);
-        }
-        if (!unlocked.length) {
-          const option = document.createElement("option");
-          option.textContent = "No official sheet transcribed yet";
-          option.disabled = true;
-          el.product.append(option);
-        }
+      el.product.replaceChildren();
+      for (const product of products) {
+        const option = document.createElement("option");
+        option.value = product.article;
+        option.textContent = `${product.name} ${product.size || ""} — article ${product.article}`.trim();
+        el.product.append(option);
       }
-      renderProductHits(el.productSearch?.value || "");
+      if (!products.length) {
+        const option = document.createElement("option");
+        option.textContent = "No official sheet transcribed yet";
+        option.disabled = true;
+        el.product.append(option);
+      }
     } catch (error) {
       fail(error);
     }
-  }
-
-  function pickProduct(article) {
-    const product = (state.products || []).find((p) => p.article === article);
-    if (!product) return;
-    if (!productUnlocked(product)) {
-      announce(
-        `${product.name} is in the catalog but its official sheet is not transcribed yet.`,
-      );
-      return;
-    }
-    if (el.product) el.product.value = product.article;
-    startOfficial();
   }
 
   // ------------------------------------------------------------------ rendering
@@ -259,24 +187,35 @@ export function initStudio({ api, hud = () => {} } = {}) {
       : `Your guide · step ${cursor} of ${total} · edit or skip as you like`;
   }
 
+  function currentStepNumber() {
+    return state.reel[state.clipIndex]?.number || state.run?.cursor || 1;
+  }
+
+  function clipCaption(clip) {
+    return clip?.frames?.[1]?.caption || clip?.frames?.[0]?.caption || "";
+  }
+
   function renderSteps() {
     if (!el.steps) return;
     el.steps.replaceChildren();
     const editable = state.run ? state.run.canEdit : false;
     el.steps.dataset.editable = String(editable);
+    el.steps.dataset.jump = String(Boolean(state.reel.length));
+    const active = currentStepNumber();
 
     for (const item of state.outline) {
       const row = document.createElement("div");
       row.className = "item";
       row.dataset.step = String(item.number);
-      row.classList.toggle("active", item.number === state.run?.cursor);
-      row.classList.toggle("locked", Boolean(item.locked));
+      row.classList.toggle("active", item.number === active);
+      row.classList.toggle("locked", Boolean(item.locked) && !state.reel.length);
       row.classList.toggle("done", item.state === "done");
 
+      const clip = state.reel.find((entry) => entry.number === item.number);
       const body = document.createElement("span");
       body.textContent = item.readable
         ? `${item.number}. ${item.action ? `${item.action} — ` : ""}${item.body || ""}`
-        : `${item.number}. ${item.preview || "Locked until you get there."}`;
+        : `${item.number}. ${clipCaption(clip) || item.preview || "In the reel."}`;
       if (editable && item.readable) {
         body.contentEditable = "true";
         body.setAttribute("role", "textbox");
@@ -285,57 +224,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
       row.append(body);
 
       const meta = document.createElement("small");
-      meta.textContent = item.confirmed
-        ? "done"
-        : item.locked
-          ? "locked"
-          : `${item.toolRequired || "hands"} · film`;
+      meta.textContent = item.confirmed ? "done" : item.toolRequired || "jump";
       row.append(meta);
       el.steps.append(row);
     }
-  }
-
-  function materialCard(line, badge) {
-    const card = document.createElement("article");
-    card.className = "material-card";
-    const swatch = document.createElement("div");
-    swatch.className = "swatch";
-    swatch.style.background = line.color || line.picture?.color || "#e4d2b0";
-    swatch.title = line.name;
-    const body = document.createElement("div");
-    const title = document.createElement("h3");
-    title.textContent = `${line.qty || 1}× ${line.name}`;
-    const tag = document.createElement("span");
-    tag.className = badge === "included" ? "tag included" : "tag purchase";
-    tag.textContent = badge === "included" ? "included" : "to purchase";
-    title.append(" ", tag);
-    body.append(title);
-    if (line.ikeaArticle) {
-      const art = document.createElement("p");
-      art.className = "hint";
-      art.textContent = `Article ${line.ikeaArticle}`;
-      body.append(art);
-    }
-    const offers = line.retailers || line.offers || [];
-    if (badge !== "included" && (offers.length || line.storeUrl)) {
-      const list = document.createElement("div");
-      list.className = "offers";
-      const rows = offers.length
-        ? offers
-        : [{ store: line.store, url: line.storeUrl, price: line.cost, primary: true }];
-      for (const offer of rows) {
-        const link = document.createElement("a");
-        link.href = offer.url || "#";
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        const price = offer.price == null ? "" : ` · $${offer.price}`;
-        link.textContent = `${offer.store || "Shop"}${price}${offer.note ? ` — ${offer.note}` : ""}`;
-        list.append(link);
-      }
-      body.append(list);
-    }
-    card.append(swatch, body);
-    return card;
   }
 
   function renderBom() {
@@ -343,8 +235,27 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const bom = state.guide?.bom;
     el.bom.replaceChildren();
     if (!bom) return;
-    for (const line of bom.included || []) el.bom.append(materialCard(line, "included"));
-    for (const line of bom.extra || []) el.bom.append(materialCard(line, "to-purchase"));
+
+    const group = (label, lines) => {
+      const wrap = document.createElement("div");
+      wrap.className = "bom-group";
+      const title = document.createElement("strong");
+      title.textContent = label;
+      const body = document.createElement("p");
+      body.textContent = lines.length
+        ? lines.map((line) => `${line.qty || 1}× ${line.name}${line.store ? ` — ${line.store}` : ""}`).join("\n")
+        : "None listed.";
+      wrap.append(title, body);
+      el.bom.append(wrap);
+    };
+
+    group("Kit", bom.included || []);
+    group("Extra", bom.extra || []);
+    if (bom.total != null) {
+      const total = document.createElement("p");
+      total.textContent = `List total $${bom.total}`;
+      el.bom.append(total);
+    }
   }
 
   async function renderReviews() {
@@ -355,7 +266,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
       for (const group of groups) {
         for (const review of group.reviews || []) {
           const line = document.createElement("div");
-          line.textContent = `Step ${group.step} · ${review.stars}★ · ${review.difficulty}\n${review.text}`;
+          const title = document.createElement("strong");
+          title.textContent = `Step ${group.step} · ${review.difficulty}`;
+          const body = document.createElement("p");
+          body.textContent = review.text;
+          line.append(title, body);
           el.reviews.append(line);
         }
       }
@@ -364,19 +279,31 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  function renderConfirm() {
-    const locked = Boolean(state.run?.locked);
-    if (el.confirm) {
-      el.confirm.checked = false;
-      el.confirm.disabled = !state.watched;
+  function renderTransport() {
+    const last = Math.max(0, state.reel.length - 1);
+    if (el.back) el.back.disabled = !state.reel.length || state.clipIndex <= 0;
+    if (el.next) el.next.disabled = !state.reel.length || state.clipIndex >= last;
+    if (el.play) {
+      el.play.disabled = !state.reel.length;
+      el.play.textContent = state.playingOn ? "Stop" : "Play";
+      el.play.setAttribute("aria-pressed", String(Boolean(state.playingOn)));
     }
-    setOut(
-      el.confirmLabel,
-      state.step?.confirmPrompt ||
-        (locked ? "Confirm this step before the next plate." : "Mark this step done."),
-    );
-    if (el.next) el.next.disabled = locked ? true : !state.watched;
-    if (el.skip) el.skip.classList.toggle("refuses", locked);
+    renderScrub();
+  }
+
+  function renderScrub() {
+    if (!el.scrub) return;
+    el.scrub.replaceChildren();
+    for (const [index, clip] of state.reel.entries()) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = String(clip.number);
+      btn.dataset.step = String(clip.number);
+      btn.dataset.clip = String(index);
+      btn.title = clipCaption(clip) || `Step ${clip.number}`;
+      if (index === state.clipIndex) btn.setAttribute("aria-current", "true");
+      el.scrub.append(btn);
+    }
   }
 
   function renderFittings() {
@@ -384,77 +311,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!el.spareArticle) return;
     el.spareArticle.placeholder = fittings.length
       ? `Fitting no. — this step uses ${fittings.map((f) => f.articleNumber).join(", ")}`
-      : "Fitting no. (e.g. 100347)";
-  }
-
-  function drawScheme(step = state.step) {
-    const canvas = el.scheme;
-    if (!canvas?.getContext) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width = canvas.clientWidth || 320;
-    canvas.height = canvas.clientHeight || 200;
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.fillStyle = "#ead9b4";
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "#1b1914";
-    ctx.font = "13px Source Sans 3, sans-serif";
-    ctx.fillText(`3D scheme · step ${step?.number || "—"}`, 12, 22);
-
-    const parts = step?.partsUsed?.length ? step.partsUsed : ["lack-top", "lack-leg"];
-    const ox = w * 0.46;
-    const oy = h * 0.62;
-    const iso = (x, y, z) => ({ x: ox + (x - z) * 0.9, y: oy + (x + z) * 0.5 - y });
-
-    function box(x, y, z, dx, dy, dz, fill) {
-      const a = iso(x, y + dy, z);
-      const b = iso(x + dx, y + dy, z);
-      const c = iso(x + dx, y + dy, z + dz);
-      const d = iso(x, y + dy, z + dz);
-      const e = iso(x, y, z);
-      const f = iso(x + dx, y, z);
-      const g = iso(x + dx, y, z + dz);
-      ctx.fillStyle = fill;
-      ctx.strokeStyle = "#2a251d";
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      ctx.moveTo(b.x, b.y);
-      ctx.lineTo(f.x, f.y);
-      ctx.lineTo(g.x, g.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.closePath();
-      ctx.globalAlpha = 0.85;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(e.x, e.y);
-      ctx.lineTo(f.x, f.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.closePath();
-      ctx.globalAlpha = 0.7;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.stroke();
-    }
-
-    const lift = Number(state.frames[Math.max(0, state.frameIndex - 1)]?.explode || 0) * 40;
-    parts.forEach((id, i) => {
-      const isLeg = /leg|dowel|screw|key/.test(id);
-      const fill = isLeg ? "#d8c7a1" : "#f3efe6";
-      if (isLeg) box(-30 + i * 28, lift + i * 6, 10, 12, 54, 12, fill);
-      else box(-70, 54 + lift, -20, 140, 16, 90, fill);
-    });
+      : "Part number";
   }
 
   // -------------------------------------------------------------------- the run
@@ -465,116 +322,78 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = view.step || null;
     state.outline = view.outline || [];
     state.guide = view.guide || state.guide;
-    state.watched = false;
-    state.showingGuide = false;
     renderLockBanner();
     renderSteps();
     renderBom();
-    renderConfirm();
+    renderTransport();
     renderFittings();
-    drawScheme(state.step);
     return view;
-  }
-
-  function renderProgress(activeId) {
-    if (el.progressBeats) {
-      el.progressBeats.replaceChildren();
-      for (const beat of PROGRESS_BEATS) {
-        const item = document.createElement("li");
-        item.textContent = beat.label;
-        if (beat.id === activeId) item.className = "on";
-        const idx = PROGRESS_BEATS.findIndex((b) => b.id === beat.id);
-        const active = PROGRESS_BEATS.findIndex((b) => b.id === activeId);
-        if (idx < active) item.className = "done";
-        el.progressBeats.append(item);
-      }
-    }
-    const beat = PROGRESS_BEATS.find((b) => b.id === activeId);
-    setOut(el.progressStatus, beat ? `${beat.label}…` : "Working…");
-  }
-
-  async function runWithProgress(work) {
-    setStudioView("progress");
-    for (const beat of PROGRESS_BEATS) {
-      renderProgress(beat.id);
-      setOut(el.progressDetail, beat.id === "parse" ? "Turning plates into structured JSON." : "");
-      await sleep(260);
-    }
-    try {
-      const result = await work();
-      if (!result || result.ok === false) {
-        setStudioView("input");
-        return result;
-      }
-      setStudioView("results");
-      setResultsTab("instructions");
-      return result;
-    } catch (error) {
-      setStudioView("input");
-      throw error;
-    }
   }
 
   async function startOfficial() {
     try {
       setMode("official");
-      const article = el.product?.value || undefined;
-      const picked = (state.products || []).find((p) => p.article === article);
-      if (picked && !productUnlocked(picked)) {
-        announce(`${picked.name} is locked until its official sheet is transcribed.`);
-        return null;
-      }
       announce("Opening the official sheet…");
-      const view = await runWithProgress(() =>
-        api.runStart({ mode: "official", article }),
-      );
-      if (view?.ok === false) return fail(new Error(view.reason));
-      if (!view) return null;
+      const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
+      if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      await playCurrent();
-      announce(`${state.guide?.title || "Official guide"} — one plate at a time, in order.`);
+      await bootReel();
+      setInterface("watch");
+      announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
       return view;
     } catch (error) {
       return fail(error);
     }
   }
 
-  async function parseCustom() {
+  async function parseCustom(event) {
+    event?.preventDefault();
+    if (state.submitting) return null;
+    state.submitting = true;
     try {
       setMode("custom");
-      const raw = el.guide?.value || "";
-      const images = state.attachments
-        .filter((file) => file.dataUrl)
-        .slice(0, 4)
-        .map((file) => ({ name: file.name, type: file.type, dataUrl: file.dataUrl }));
-      if (!raw.trim() && !images.length && !state.attachments.length) {
-        announce("Paste a guide or drop a file first.");
+      const file = el.pdf?.files?.[0] || null;
+      const pasted = el.guide?.value || "";
+      let pdfBase64 = "";
+      if (file) {
+        showPdfName(file);
+        announce("Reading the PDF…");
+        pdfBase64 = await fileToBase64(file);
+      }
+      if (!pasted.trim() && !pdfBase64) {
+        announce("Drop a PDF or paste a guide first.");
         return null;
       }
-      if (!raw.trim() && !images.length) {
-        announce("Drop a photo of the guide, or paste the steps as text.");
-        return null;
+      announce("Parsing the sheet…");
+      let guideText = pasted;
+      if (pdfBase64 && api.parseGuide) {
+        const parsed = await api.parseGuide(pasted, el.notes?.value || "", { pdfBase64 });
+        if (parsed?.ok === false) return fail(new Error(parsed.reason));
+        if (parsed?.raw) {
+          guideText = parsed.raw;
+          if (el.guide) el.guide.value = parsed.raw;
+        }
       }
-      announce("Turning your guide into a film…");
-      const view = await runWithProgress(() =>
-        api.runStart({
-          mode: "custom",
-          guide: raw,
-          instructions: el.notes?.value || "",
-          images,
-        }),
-      );
-      if (view?.ok === false) return fail(new Error(view.reason));
-      if (!view) return null;
+      announce("Starting the run and building the reel…");
+      const view = await api.runStart({
+        mode: "custom",
+        guide: guideText,
+        instructions: el.notes?.value || "",
+        pdfBase64,
+      });
+      if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(raw);
+      saveCustom(guideText);
       await renderReviews();
-      await playCurrent();
-      announce("Your guide is a film now. This one you can edit and skip.");
+      await bootReel();
+      setInterface("watch");
+      announce("Reel ready. Watch the first step.");
       return view;
     } catch (error) {
       return fail(error);
+    } finally {
+      state.submitting = false;
     }
   }
 
@@ -602,60 +421,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  function renderGuideFiles() {
-    if (!el.guideFiles) return;
-    el.guideFiles.replaceChildren();
-    for (const file of state.attachments) {
-      const chip = document.createElement("span");
-      chip.textContent = file.name;
-      el.guideFiles.append(chip);
-    }
-  }
-
-  function readDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("Could not read file"));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  function isGuideImage(file) {
-    return Boolean(file?.type?.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic)$/i.test(file?.name || ""));
-  }
-
-  async function ingestFiles(fileList) {
-    const files = [...(fileList || [])];
-    if (!files.length) return;
-    const maxImages = 4;
-    const maxBytes = 800 * 1024;
-    for (const file of files) {
-      const attachment = { name: file.name, type: file.type || "", size: file.size };
-      if (isGuideImage(file)) {
-        const already = state.attachments.filter((item) => item.dataUrl).length;
-        if (already >= maxImages) {
-          announce("Up to four photos — extra images are listed but not sent.");
-        } else if (file.size > maxBytes) {
-          announce(`${file.name} is too large to send (max ~800KB).`);
-        } else {
-          try {
-            attachment.dataUrl = await readDataUrl(file);
-          } catch {
-            announce(`Could not read ${file.name}.`);
-          }
-        }
-      }
-      state.attachments.push(attachment);
-      if (file.type.startsWith("text/") || /\.(txt|md)$/i.test(file.name)) {
-        const body = await file.text();
-        if (el.guide) el.guide.value = [el.guide.value, body].filter(Boolean).join("\n\n");
-      }
-    }
-    renderGuideFiles();
-    announce(`${files.length} file${files.length === 1 ? "" : "s"} attached.`);
-  }
-
   function clearCustomSession() {
     setMode("custom");
     stopPlayback();
@@ -663,45 +428,45 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = null;
     state.outline = [];
     state.guide = null;
-    state.attachments = [];
+    state.reel = [];
+    state.clipIndex = 0;
+    state.frameIndex = 0;
     if (el.guide) el.guide.value = "";
     if (el.notes) el.notes.value = "";
-    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut]) {
+    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
     }
+    hideVideo();
     el.film?.classList.add("hidden");
-    renderGuideFiles();
+    renderTransport();
     try {
       localStorage.removeItem(CUSTOM_SESSION_KEY);
     } catch {
       // Nothing to clear when storage is unavailable.
     }
     renderLockBanner();
-    setStudioView("input");
     announce("Custom session deleted.");
-  }
-
-  function backToInput() {
-    stopPlayback();
-    setStudioView("input");
-    announce("Start another build, or pick up the last one from the results.");
   }
 
   // ------------------------------------------------------------------- playback
 
-  function stopPlayback() {
-    state.playing += 1;
+  function hideVideo() {
+    if (!el.video) return;
+    el.video.pause();
+    el.video.removeAttribute("src");
+    el.video.load();
+    el.video.classList.add("hidden");
+    el.frame?.classList.remove("hidden");
+  }
+
+  function stopPlayback({ keepFrame = false } = {}) {
+    state.playGen += 1;
+    state.playingOn = false;
     if (state.timer) clearTimeout(state.timer);
     state.timer = null;
-    if (el.video) {
-      el.video.pause();
-      el.video.removeAttribute("src");
-      el.video.load();
-      el.video.onended = null;
-      el.video.onerror = null;
-      el.video.classList.add("hidden");
-    }
-    el.frame?.classList.remove("hidden");
+    if (el.video && !el.video.classList.contains("hidden")) el.video.pause();
+    if (!keepFrame) hideVideo();
+    renderTransport();
   }
 
   function drawFrame(frame = {}) {
@@ -945,8 +710,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.fillStyle = colorized ? "rgba(255, 252, 243, .96)" : "rgba(255, 255, 252, .96)";
     ctx.fillRect(0, h - cardHeight, w, cardHeight);
     line(0, h - cardHeight, w, h - cardHeight, 1.5, ink);
-    ctx.fillStyle = "#ffda1a";
-    ctx.fillRect(0, h - cardHeight, 8, cardHeight);
+    ctx.fillStyle = ink;
+    ctx.fillRect(0, h - cardHeight, 2, cardHeight);
 
     const plate = Math.max(1, Number(frame.frame) + 1 || 1);
     ctx.fillStyle = ink;
@@ -980,172 +745,245 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.font = "700 9px ui-monospace, SFMono-Regular, monospace";
     ctx.fillText(colorized ? "CATALOG COLOUR" : "LINE PLATE", w - 18, h - 16);
     ctx.textAlign = "left";
-    drawScheme(state.step);
   }
 
-  async function loadFrames() {
-    if (!api.renderVideo || !state.run) return { frames: [], videoUrl: null };
+  function clipFromPlan(step) {
+    const frames = Array.isArray(step?.frames) ? step.frames : [];
+    return {
+      number: Number(step?.number) || 0,
+      frames,
+      videoUrl: step?.videoUrl || null,
+      provider: step?.provider || "local-storyboard",
+    };
+  }
+
+  async function loadReel() {
+    if (!state.run) return [];
+    const body = {
+      runId: state.run.id,
+      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+    };
+    if (api.renderReel) {
+      try {
+        const result = await api.renderReel(body);
+        const clips = (result.steps || [])
+          .map((step) =>
+            clipFromPlan({
+              number: step.number,
+              frames: step.frames || step.plan,
+              videoUrl: step.videoUrl,
+              provider: step.provider,
+            }),
+          )
+          .filter((clip) => clip.number);
+        if (clips.length) return clips;
+      } catch (error) {
+        fail(error);
+      }
+    }
     try {
-      const extra = el.extraContext?.value || "";
-      const media = [...(el.extraMedia?.files || [])].map((f) => f.name);
-      const result = await api.renderVideo({
-        runId: state.run.id,
-        stepNumber: state.run.cursor,
-        guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-        instructions: extra,
-        extraMedia: media,
-      });
-      setOut(
-        el.renderOut,
-        result.videoUrl
-          ? `${result.model} via fal.ai — live step film`
-          : `${result.provider} · local canvas storyboard (set FAL_KEY for ${result.model})`,
-      );
-      return {
-        frames: result.frames || result.plan || [],
-        videoUrl: result.videoUrl || null,
-        caption: state.step?.body || "",
-      };
+      const plan = api.video ? await api.video(body) : { steps: [] };
+      const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
+      if (clips.length) return clips;
     } catch (error) {
       fail(error);
-      return { frames: [], videoUrl: null };
+    }
+    return (state.outline || []).map((item) => ({
+      number: item.number,
+      frames: [
+        {
+          frame: 0,
+          durationMs: 1200,
+          caption: item.body || item.preview || `Step ${item.number}`,
+        },
+      ],
+      videoUrl: null,
+      provider: "local-storyboard",
+    }));
+  }
+
+  async function upgradeReel(clips) {
+    if (!api.renderVideo || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      try {
+        const result = await api.renderVideo({
+          runId: state.run.id,
+          stepNumber: clip.number,
+          guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+        });
+        if (token !== state.reelToken) return;
+        clip.frames = result.frames || result.plan || clip.frames;
+        clip.videoUrl = result.videoUrl || null;
+        clip.provider = result.provider || clip.provider;
+        if (clip.videoUrl) live += 1;
+        setOut(
+          el.renderOut,
+          live
+            ? `Veed reel · ${live}/${clips.length} clips`
+            : `${result.provider || "local-storyboard"} · canvas storyboard (set FAL_KEY for Veed)`,
+        );
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch {
+        // Keep the local storyboard clip if Veed is down.
+      }
     }
   }
 
-  function playLiveVideo(url, caption, token) {
-    if (!el.video) return false;
+  async function bootReel() {
+    if (!state.run) return;
+    stopPlayback();
+    el.film?.classList.remove("hidden");
+    state.reel = await loadReel();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
+    state.frameIndex = 0;
+    renderSteps();
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
+  }
+
+  function showVideo(url, { play = false } = {}) {
+    if (!el.video || !url) return false;
     el.frame?.classList.add("hidden");
     el.video.classList.remove("hidden");
-    el.video.src = url;
-    setOut(el.caption, caption || state.step?.body);
-    drawScheme(state.step);
-    const done = () => {
-      if (state.destroyed || token !== state.playing) return;
-      finishFrames();
-    };
-    el.video.onended = done;
-    el.video.onerror = () => {
-      if (state.destroyed || token !== state.playing) return;
-      el.video.classList.add("hidden");
-      el.frame?.classList.remove("hidden");
-      if (state.frames.length) playStoryboard(token);
-      else done();
-    };
-    const play = el.video.play();
-    if (play && typeof play.catch === "function") play.catch(() => {});
+    if (el.video.src !== url) {
+      el.video.src = url;
+      el.video.currentTime = 0;
+    }
+    if (play) {
+      const playAttempt = el.video.play();
+      if (playAttempt?.catch) playAttempt.catch(() => {});
+    } else {
+      el.video.pause();
+    }
     return true;
   }
 
-  function playStoryboard(token) {
-    el.video?.classList.add("hidden");
-    el.frame?.classList.remove("hidden");
-    const advance = () => {
-      if (state.destroyed || token !== state.playing) return;
-      const frame = state.frames[state.frameIndex];
-      if (!frame) {
-        finishFrames();
+  function playCanvasClip(clip, token) {
+    const frames = clip.frames || [];
+    const tick = () => {
+      if (state.destroyed || token !== state.playGen || !state.playingOn) return;
+      if (state.frameIndex >= frames.length) {
+        finishClip();
         return;
       }
+      const frame = frames[state.frameIndex];
       drawFrame(frame);
-      setOut(el.caption, frame.caption || state.step?.body);
+      setOut(el.caption, frame?.caption || state.step?.body || clipCaption(clip));
       state.frameIndex += 1;
-      if (state.frameIndex >= state.frames.length) {
-        finishFrames();
+      if (state.frameIndex >= frames.length) {
+        state.timer = setTimeout(finishClip, Math.max(120, Number(frame?.durationMs) || 1000));
         return;
       }
-      state.timer = setTimeout(advance, Math.max(120, Number(frame.durationMs) || 1000));
+      state.timer = setTimeout(tick, Math.max(120, Number(frame?.durationMs) || 1000));
     };
-    advance();
-  }
-
-  async function playCurrent() {
-    if (!state.run) return;
-    stopPlayback();
-    const token = state.playing;
-    el.film?.classList.remove("hidden");
-    const loaded = await loadFrames();
-    if (state.destroyed || token !== state.playing) return;
-    state.frames = loaded.frames || [];
-    state.frameIndex = 0;
-    state.watched = false;
-    renderConfirm();
-    if (loaded.videoUrl && playLiveVideo(loaded.videoUrl, loaded.caption, token)) return;
-    playStoryboard(token);
-  }
-
-  function finishFrames() {
-    state.watched = true;
-    renderConfirm();
-    announce(
-      state.run?.locked
-        ? "Plate finished. Tick the check, then take the next one."
-        : "Plate finished. Next when you are ready.",
-    );
-  }
-
-  function toggleActualGuide() {
-    state.showingGuide = !state.showingGuide;
-    if (!state.showingGuide) {
-      setOut(el.detail, "");
-      announce("Back to the film.");
+    if (!frames.length) {
+      finishClip();
       return;
     }
-    const step = state.step;
-    setOut(
-      el.detail,
-      [
-        "ACTUAL GUIDE",
-        step ? `Step ${step.number} — ${step.action || ""}` : "",
-        step?.body || state.guide?.raw || "No plate loaded.",
-        step?.toolRequired ? `Tool: ${step.toolRequired}` : "Hands only",
-        step?.partsUsed?.length ? `Parts: ${step.partsUsed.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-    announce("Original plate is under the film.");
+    tick();
+  }
+
+  function showClip(index, { play = false, restart = true } = {}) {
+    if (!state.reel.length) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    state.clipIndex = Math.max(0, Math.min(index, state.reel.length - 1));
+    const clip = state.reel[state.clipIndex];
+    if (restart) state.frameIndex = 0;
+    state.playingOn = Boolean(play);
+    const outline = state.outline.find((item) => item.number === clip.number);
+    if (outline) {
+      state.step = {
+        ...(state.step || {}),
+        number: outline.number,
+        action: outline.action,
+        body: outline.body || clipCaption(clip),
+        toolRequired: outline.toolRequired,
+      };
+    }
+    setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
+    renderSteps();
+    renderTransport();
+
+    if (clip.videoUrl && showVideo(clip.videoUrl, { play })) {
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = null;
+      return;
+    }
+
+    hideVideo();
+    const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
+    drawFrame(frame);
+    renderTransport();
+    if (play) playCanvasClip(clip, state.playGen);
+  }
+
+  function finishClip() {
+    if (!state.playingOn) return;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return;
+    }
+    showClip(state.clipIndex + 1, { play: true, restart: true });
+  }
+
+  function togglePlay() {
+    if (!state.reel.length) return;
+    if (state.playingOn) {
+      stopPlayback({ keepFrame: true });
+      announce("Stopped.");
+      return;
+    }
+    state.playGen += 1;
+    state.playingOn = true;
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: false });
+    announce(`Playing step ${currentStepNumber()}.`);
+  }
+
+  function goToClip(index, { play = state.playingOn } = {}) {
+    if (!state.reel.length) return null;
+    const next = Math.max(0, Math.min(index, state.reel.length - 1));
+    state.playGen += 1;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    if (!play) state.playingOn = false;
+    showClip(next, { play, restart: true });
+    return state.reel[next];
   }
 
   // ------------------------------------------------------------------- controls
 
   async function nextStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runConfirm(state.run.id, {
-        step: state.run.cursor,
-        checked: Boolean(el.confirm?.checked),
-      });
-      if (result.ok === false) {
-        announce(result.reason || "That step is not confirmed yet.");
-        if (result.confirmPrompt) setOut(el.confirmLabel, result.confirmPrompt);
-        if (el.confirm) el.confirm.disabled = false;
-        return result;
-      }
-      const before = state.run.cursor;
-      applyView(result);
-      if (result.run?.done && result.run.cursor === before) {
-        announce("Every step confirmed. That is the whole build.");
-        return result;
-      }
-      await playCurrent();
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex + 1);
+    announce(`Step ${clip.number}.`);
+    return clip;
   }
 
   async function backStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runBack(state.run.id, Math.max(1, state.run.cursor - 1));
-      if (result.ok === false) return announce(result.reason);
-      applyView(result);
-      await playCurrent();
-      announce("Back a step. Everything after it is open again.");
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex <= 0) {
+      announce("Already at the first step.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex - 1);
+    announce(`Back to step ${clip.number}.`);
+    return clip;
   }
 
   /** Skip exists so the refusal is visible: official says no, your own guide says yes. */
@@ -1159,7 +997,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
         return result;
       }
       applyView(result);
-      await playCurrent();
+      const index = state.reel.findIndex((clip) => clip.number === result.run?.cursor);
+      goToClip(index >= 0 ? index : state.clipIndex + 1);
       announce(`Skipped step ${result.skipped}. Your guide, your call.`);
       return result;
     } catch (error) {
@@ -1189,11 +1028,30 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  /** Clicking a step reads it. It never moves the cursor, and it never opens a locked plate. */
+  /** Jump the reel to a step. One click in #steps or the scrub list. */
   async function openStep(number) {
+    const target = Number(number);
+    if (!target) return null;
+    const index = state.reel.findIndex((clip) => clip.number === target);
+    if (index >= 0) {
+      const clip = goToClip(index);
+      const outline = state.outline.find((item) => item.number === target);
+      setOut(
+        el.detail,
+        [
+          `Step ${target}${outline?.action ? ` — ${outline.action}` : ""}`,
+          outline?.body || clipCaption(clip),
+          outline?.toolRequired ? `Tool: ${outline.toolRequired}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      announce(`Jumped to step ${target}.`);
+      return clip;
+    }
     if (!state.run) return null;
     try {
-      const result = await api.runPeek(state.run.id, number);
+      const result = await api.runPeek(state.run.id, target);
       if (result.ok === false) {
         setOut(el.detail, result.reason);
         announce(result.reason);
@@ -1206,16 +1064,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
           result.step.body,
           result.step.toolRequired ? `Tool: ${result.step.toolRequired}` : "Hands only",
           ...(result.step.warnings || []).map((w) => `Watch out: ${w}`),
-          result.step.fittings?.length
-            ? `Free fittings for this step: ${result.step.fittings
-                .map((f) => `${f.name} (${f.articleNumber})`)
-                .join(", ")}`
-            : "",
         ]
           .filter(Boolean)
           .join("\n"),
       );
-      drawScheme(result.step);
       return result;
     } catch (error) {
       return fail(error);
@@ -1238,27 +1090,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
           .join("\n"),
       );
       announce(`Still on step ${result.stillOnStep}. Slow version is on the right.`);
-      return result;
-    } catch (error) {
-      return fail(error);
-    }
-  }
-
-  async function colorizePlate() {
-    if (!state.run) return null;
-    try {
-      const result = await api.colorize(state.run.cursor);
-      drawFrame({
-        caption: state.frames[Math.max(0, state.frameIndex - 1)]?.caption || state.step?.body,
-        colorized: true,
-      });
-      setOut(
-        el.detail,
-        ["COLORIZED PLATE", ...(result.fills || []).map((f) => `${f.name} ${f.color} ${f.texture}`), result.note]
-          .filter(Boolean)
-          .join("\n"),
-      );
-      announce(result.note || "Plate painted with catalog materials.");
       return result;
     } catch (error) {
       return fail(error);
@@ -1297,7 +1128,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       const result = await api.spare({
         runId: state.run?.id,
-        stepNumber: state.run?.cursor,
+        stepNumber: currentStepNumber(),
         articleNumber: el.spareArticle?.value || "",
         qty: Number(el.spareQty?.value || 1),
         note: el.brokenNote?.value || "",
@@ -1305,38 +1136,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
         contact: { name: el.spareName?.value || "", email: el.spareEmail?.value || "" },
       });
       const request = result.request || {};
-      const letter = result.letter || {};
-      const goToStore = Boolean(letter.storeVisit || result.classification?.storeVisit);
       setOut(
         el.spareOut,
-        goToStore
-          ? [
-              "NO PART NUMBER — go to the store",
-              letter.message || result.classification?.reason,
-              request.channel?.name ? `Spare parts desk: ${request.channel.name}` : "IKEA spare parts desk in store",
-              request.channel?.url || "",
-            ]
-          : [
-              result.free ? "FREE OF CHARGE — assembly fitting" : "CHARGEABLE — this is a component, not a fitting",
-              result.classification?.reason,
-              ...(request.fittings || []).map((f) => `• ${f.qty}× ${f.name} — article ${f.articleNumber}`),
-              request.channel ? `Send it via: ${request.channel.name} — ${request.channel.url}` : "",
-              request.channel?.note,
-              "",
-              request.message,
-              "",
-              request.sentNote,
-            ]
-              .filter(Boolean)
-              .join("\n"),
+        [
+          result.free ? "FREE OF CHARGE — assembly fitting" : "CHARGEABLE — this is a component, not a fitting",
+          result.classification?.reason,
+          ...(request.fittings || []).map((f) => `• ${f.qty}× ${f.name} — article ${f.articleNumber}`),
+          request.channel ? `Send it via: ${request.channel.name} — ${request.channel.url}` : "",
+          request.channel?.note,
+          "",
+          request.message,
+          "",
+          request.sentNote,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       );
-      announce(
-        goToStore
-          ? "No part number — take the photo to the IKEA store."
-          : result.free
-            ? "Free fittings request drafted."
-            : "That part is chargeable — details on the right.",
-      );
+      announce(result.free ? "Free fittings request drafted." : "That part is chargeable — details on the right.");
       return result;
     } catch (error) {
       return fail(error);
@@ -1355,21 +1171,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
     event?.preventDefault();
     const message = el.chatInput?.value?.trim();
     if (!message) return null;
-    const files = [...(el.chatFiles?.files || [])].map((f) => f.name);
     el.chatInput.value = "";
-    addChatLine("you", files.length ? `${message} [${files.join(", ")}]` : message);
+    addChatLine("you", message);
     try {
-      const reply = await api.chat(
-        files.length ? `${message}\nAttached: ${files.join(", ")}` : message,
-        { step: state.run?.cursor, mode: state.mode },
-      );
-      const desk =
-        reply?.backend === "gliner-2-standin"
-          ? "GLiNER 2"
-          : reply?.escalated
-            ? `${reply.agent?.name || "shop"} (escalated)`
-            : reply?.agent?.name || "shop";
-      addChatLine(desk, reply?.text || "");
+      const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
+      addChatLine(reply?.agent?.name || "shop", reply?.text || "");
       return reply;
     } catch (error) {
       addChatLine("shop", error?.message || "Chat failed");
@@ -1377,93 +1183,79 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  async function regenerateStep() {
-    if (!state.run) {
-      announce("Parse a guide first.");
-      return null;
-    }
-    const extra = el.extraContext?.value || "";
-    const media = [...(el.extraMedia?.files || [])].map((f) => f.name);
-    announce(
-      media.length || extra
-        ? "Regenerating this step with your extra context…"
-        : "Replaying the film for this step…",
-    );
-    return playCurrent();
-  }
-
   // --------------------------------------------------------------------- wiring
 
-  listen(el.officialMode, "click", () => {
-    setMode("official");
-    announce("Search an IKEA product. LACK is unlocked; the rest of the catalog is waiting.");
-  });
-  listen(el.openOfficial, "click", startOfficial);
-  listen(el.product, "change", startOfficial);
-  listen(el.productSearch, "input", () => renderProductHits(el.productSearch.value));
-  listen(el.productHits, "click", (event) => {
-    const row = event.target.closest("[data-article]");
-    if (row) pickProduct(row.dataset.article);
-  });
+  listen(el.officialMode, "click", startOfficial);
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Paste a guide or drop a file, then parse it. This one you can edit and skip.");
+    announce("Drop a PDF or paste a guide, then build the reel.");
   });
+  listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
-  listen(el.clear, "click", clearCustomSession);
-  listen(el.studioBack, "click", backToInput);
-  listen(el.tabInstructions, "click", () => setResultsTab("instructions"));
-  listen(el.tabMaterial, "click", () => setResultsTab("material"));
-  listen(el.guideFile, "change", (event) => ingestFiles(event.target.files));
-  listen(el.drop, "dragover", (event) => {
+  listen(el.pdf, "change", () => showPdfName(el.pdf?.files?.[0] || null));
+  listen(el.pdfDrop, "dragover", (event) => {
     event.preventDefault();
-    el.drop?.classList.add("drag");
+    el.pdfDrop.classList.add("drag");
   });
-  listen(el.drop, "dragleave", () => el.drop?.classList.remove("drag"));
-  listen(el.drop, "drop", (event) => {
+  listen(el.pdfDrop, "dragleave", () => el.pdfDrop.classList.remove("drag"));
+  listen(el.pdfDrop, "drop", (event) => {
     event.preventDefault();
-    el.drop?.classList.remove("drag");
-    ingestFiles(event.dataTransfer?.files);
+    el.pdfDrop.classList.remove("drag");
+    const file = [...(event.dataTransfer?.files || [])].find(
+      (item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name),
+    );
+    if (!file || !el.pdf) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    el.pdf.files = transfer.files;
+    showPdfName(file);
+  });
+  listen(el.clear, "click", () => {
+    if (el.pdf) el.pdf.value = "";
+    showPdfName(null);
+    clearCustomSession();
+    setInterface("upload");
   });
   listen(el.steps, "click", (event) => {
     if (event.target.isContentEditable) return;
     const row = event.target.closest("[data-step]");
     if (row) openStep(Number(row.dataset.step));
   });
-  listen(el.confirm, "change", () => {
-    if (el.next) el.next.disabled = !(el.confirm.checked || !state.run?.locked) || !state.watched;
+  listen(el.scrub, "click", (event) => {
+    const tick = event.target.closest("[data-step]");
+    if (tick) openStep(Number(tick.dataset.step));
   });
+  listen(el.play, "click", togglePlay);
   listen(el.next, "click", nextStep);
   listen(el.back, "click", backStep);
-  listen(el.skip, "click", skipStep);
-  listen(el.stuck, "click", stuckOnStep);
-  listen(el.colorize, "click", colorizePlate);
-  listen(el.render, "click", () => playCurrent());
-  listen(el.seeGuide, "click", toggleActualGuide);
-  listen(el.regenerate, "click", regenerateStep);
+  listen(el.video, "ended", () => {
+    if (state.playingOn) finishClip();
+  });
   listen(el.broken, "click", attachBroken);
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);
 
-  setMode("official");
-  setStudioView("input");
+  setMode("custom");
+  setInterface("upload");
   fillProducts();
 
   return {
     state,
+    setInterface,
     startOfficial,
     parseCustom,
     nextStep,
     backStep,
     skipStep,
     openStep,
+    togglePlay,
+    jumpToStep: openStep,
     stuckOnStep,
-    colorizePlate,
     attachBroken,
     requestFittings,
     clearCustomSession,
-    replay: playCurrent,
+    replay: bootReel,
     destroy() {
       state.destroyed = true;
       stopPlayback();

@@ -15,7 +15,8 @@ test("router sends hard and easy work to the right desks", () => {
   assert.equal(routeAgent("run a rain and heat test").id, "lab");
   assert.equal(routeAgent("I am stuck on step 4").id, "assembler");
   assert.equal(routeAgent("move the camera left").id, "shop");
-  assert.equal(routeAgent("put a table in my room photo").id, "stylist");
+  assert.equal(routeAgent("place this piece in my room photo").id, "stylist");
+  assert.equal(routeAgent("find a cheap table").id, "scout");
 });
 
 test("local steward can add a catalog part", async () => {

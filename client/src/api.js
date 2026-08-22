@@ -46,11 +46,13 @@ export const api = {
   // Guides: the official sheet is read-only, a pasted guide is yours to edit.
   official: (article) => req(`/api/ikeafy/official${article ? `?article=${encodeURIComponent(article)}` : ""}`),
   officialProducts: () => req("/api/ikeafy/official/products"),
-  parseGuide: (guide, instructions) => post("/api/ikeafy/parse", { guide, instructions }),
+  parseGuide: (guide, instructions, extra = {}) =>
+    post("/api/ikeafy/parse", { guide, instructions, ...extra }),
   defaultGuide: () => req("/api/ikeafy/default"),
   expand: (step, note) => post("/api/ikeafy/expand", { step, note }),
-  video: () => post("/api/ikeafy/video"),
+  video: (body = {}) => post("/api/ikeafy/video", body),
   renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
+  renderReel: (body = {}) => post("/api/ikeafy/video/reel", body),
   colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),
   broken: (step, note, photoName = "broken.jpg") =>

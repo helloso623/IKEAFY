@@ -3,11 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>IKEAFY — build anything like it came flat-packed</title>
+    <title>IKEAlive — the booklet, as a film</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Source+Sans+3:wght@400;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600&f[]=satoshi@400,500,600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/src/styles.css" />
@@ -17,391 +21,285 @@
       id="app"
       class="mode-ikeafy"
       data-mode="ikeafy"
-      data-guide-mode="official"
-      data-studio-view="input"
-      data-results-tab="instructions"
+      data-guide-mode="custom"
+      data-interface="upload"
     >
       <header class="top">
-        <div class="brand">
-          <span class="mark">IF</span>
-          <div>
-            <strong>IKEAFY</strong>
-            <small>studio · bench · house</small>
-          </div>
-        </div>
-        <nav class="modes" id="modes" aria-label="Product tabs">
-          <button data-mode="ikeafy" class="main-idea on" title="IKEAFY — the main idea">
-            IKEAFY
-            <small class="badge">the main idea</small>
-          </button>
+        <a class="brand" href="#upload" data-go-interface="upload">
+          <strong>IKEAlive</strong>
+        </a>
+        <nav class="modes" id="modes" aria-label="Lab">
+          <button data-mode="ikeafy" class="on">IKEAlive</button>
           <button data-mode="bench">Bench</button>
           <button data-mode="house">House</button>
         </nav>
+        <form id="omnibox-form" class="omnibox-form" role="search">
+          <input
+            id="omnibox"
+            type="search"
+            placeholder="Find a part or ask…"
+            autocomplete="off"
+            aria-label="Search the catalog or ask the shop"
+          />
+          <button type="button" id="omnibox-ask">Ask</button>
+        </form>
         <div class="top-actions">
-          <label class="toggle bench-only">
+          <button type="button" class="quiet watch-only" data-go-interface="upload">New build</button>
+          <label class="toggle bench-only hidden">
             <input type="checkbox" id="sim-toggle" />
-            Sim
+            Simulate
           </label>
-          <button id="reset-sim" class="bench-only">Reset</button>
-          <button id="print-btn" class="bench-only">Print</button>
+          <button id="reset-sim" class="bench-only hidden">Reset</button>
+          <button id="print-btn" class="bench-only hidden">3D print</button>
           <button id="flash-btn" class="bench-only electronics-chrome hidden">Arduino</button>
+          <button type="button" class="lab-link" id="lab-link">Lab</button>
         </div>
       </header>
 
-      <!-- ================= IKEAFY STUDIO — input, progress, then the step list =========== -->
-      <section class="studio-in" data-pane="ikeafy" aria-label="Guide source and steps">
-        <div id="studio-input">
-          <div class="panel input-hero">
-            <h2>Start a build</h2>
-            <p class="hint">
-              Search an IKEA product, or drop a building guide and add notes about the tools you
-              have.
+      <!-- ============ UPLOAD / LANDING ============ -->
+      <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
+        <div class="landing">
+          <p class="kicker">IKEAlive</p>
+          <h1>Your manual has a next move.</h1>
+          <p class="lede">
+            Upload the IKEA instructions PDF. We parse the plates, Veed builds a reel, and you watch one step at a time.
+          </p>
+
+          <form id="upload-form" class="card upload-card">
+            <label class="upload-drop" id="pdf-drop" for="pdf-upload">
+              <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
+              <strong class="upload-drop-title">Drop the IKEA PDF</strong>
+              <span class="upload-drop-hint">or click to choose a file</span>
+              <em id="pdf-name" class="upload-file"></em>
+            </label>
+
+            <div id="custom-source" class="custom-parse">
+              <label class="picker-label" for="guide-in">Or paste the guide</label>
+              <textarea id="guide-in" rows="5" placeholder="1. Unpack the table top…"></textarea>
+              <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
+            </div>
+
+            <div class="row upload-actions">
+              <button type="submit" id="parse-guide" class="primary">Build the reel</button>
+              <button type="button" id="clear-custom-session" class="quiet">Clear</button>
+            </div>
+          </form>
+
+          <ul class="upload-process">
+            <li><strong>Upload</strong> the IKEA instructions PDF, or paste a guide</li>
+            <li><strong>Reel</strong> — Veed Fabric turns each plate into a short film</li>
+            <li><strong>Watch</strong> the steps, one plate at a time</li>
+            <li><strong>Help</strong> is on the right: inventory, troubles, identify, small parts</li>
+          </ul>
+
+          <details id="official-source" class="official-picker upload-official">
+            <summary>Use the official sheet</summary>
+            <label class="picker-label" for="official-product">Official IKEA product</label>
+            <select id="official-product" aria-label="IKEA product"></select>
+            <p class="hint lock-note" id="official-lock-note">
+              LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
             </p>
-            <div class="row source-toggle">
-              <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
-              <button id="custom-mode" aria-pressed="false">My own guide</button>
-            </div>
-            <div id="official-source" class="official-picker">
-              <label class="picker-label" for="product-search">Printed sheet</label>
-              <input
-                id="product-search"
-                type="search"
-                placeholder="Search IKEA product name…"
-                aria-label="Search IKEA products"
-              />
-              <div id="product-hits" class="list product-hits"></div>
-              <select id="official-product" aria-label="Official IKEA product"></select>
-              <button id="open-official" class="primary">Open official sheet</button>
-              <p class="hint lock-note" id="official-lock-note">
-                Only LACK is unlocked. KALLAX, BILLY and MALM sit in the catalog until their sheets
-                are transcribed. Official steps stay read-only and run in order.
-              </p>
-            </div>
-            <div id="custom-source" class="custom-parse hidden">
-              <label id="guide-drop" class="dropzone" for="guide-file">
-                <input id="guide-file" type="file" accept="image/*,video/*,.pdf,.txt,.md" multiple />
-                <strong>Drop a building guide</strong>
-                <span>Photos, PDF, text — or click to attach</span>
-                <div id="guide-files" class="file-chips"></div>
-              </label>
-              <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
-              <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
-              <div class="row">
-                <button id="parse-guide" class="primary">Parse into a film</button>
-                <button id="clear-custom-session">Delete session</button>
-              </div>
-              <p class="hint">Your own guide is editable and skippable. The official one is not.</p>
-            </div>
-          </div>
-        </div>
-
-        <div id="studio-progress" class="hidden" aria-live="polite">
-          <div class="progress-card">
-            <h2>Making the film</h2>
-            <p id="progress-status">Parsing…</p>
-            <p id="progress-detail" class="hint"></p>
-            <ol id="progress-beats" class="progress-beats"></ol>
-          </div>
-        </div>
-
-        <div id="studio-results-nav" class="hidden">
-          <div class="row">
-            <button id="studio-back">New guide</button>
-          </div>
-          <div class="panel steps-panel">
-            <h2>Steps</h2>
-            <div id="lock-banner" class="lock-banner"></div>
-            <div id="steps" class="list step-list" data-editable="false"></div>
-          </div>
+            <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
+              <span class="when-official">Start the official LACK sheet</span>
+              <span class="when-custom">Use the official LACK sheet</span>
+            </button>
+          </details>
+          <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
         </div>
       </section>
 
-      <!-- ================= STAGE — 3D bench, and the plate/film in studio mode ============ -->
+      <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
         <div id="hud"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
-            <div class="film-shot">
-              <canvas id="film-frame" aria-label="Step tutorial film"></canvas>
-              <video id="film-video" class="hidden" controls playsinline></video>
-            </div>
-            <canvas id="step-scheme" aria-label="3D scheme for this step"></canvas>
+            <canvas id="film-frame"></canvas>
+            <video id="film-video" class="hidden" playsinline></video>
           </div>
           <p id="film-caption"></p>
-          <button id="see-guide" type="button">See actual guide</button>
-          <label class="confirm" id="step-confirm-row">
-            <input type="checkbox" id="step-confirm" />
-            <span id="step-confirm-label">Confirm this step before the next plate.</span>
-          </label>
-          <div class="row wrap">
-            <button id="film-back">Back a step</button>
-            <button id="film-wait" class="primary" disabled>I did this — next</button>
-            <button id="film-stuck">Stuck</button>
-            <button id="step-skip">Skip</button>
-            <button id="colorize">Colorize plate</button>
-            <button id="render-video">Render film</button>
+          <div class="row wrap film-actions" role="group" aria-label="Watch transport">
+            <button id="film-back" type="button">Back</button>
+            <button id="film-play" type="button" class="primary" aria-pressed="false">Play</button>
+            <button id="film-wait" type="button">Next</button>
           </div>
+          <nav id="film-scrub" class="film-scrub" aria-label="Jump to a step"></nav>
           <p class="hint" id="render-video-out"></p>
           <div id="step-detail" class="copy"></div>
         </div>
+        <div class="step-transport" data-pane="ikeafy">
+          <div id="lock-banner" class="lock-banner"></div>
+          <div id="steps" class="list step-list" data-editable="false"></div>
+        </div>
       </main>
 
-      <!-- ================= RIGHT RAIL — bench/house panels, plus the studio column ======== -->
-      <aside class="rail right">
-        <div class="panel hidden" data-pane="bench">
-          <h2>Inspect</h2>
-          <div id="inspect" class="copy">Nothing selected.</div>
-          <div class="row">
-            <button id="delete-piece" disabled>Delete piece</button>
+      <!-- ============ WATCH — four Finley-style cards ============ -->
+      <aside class="rail cards" data-pane="ikeafy" aria-label="IKEAlive watch">
+        <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
+          <div class="panel watch bom">
+            <h2>Assembly inventory</h2>
+            <p class="hint">Kit in the box, then anything extra to pick up.</p>
+            <div id="bom" class="copy bom-list"></div>
           </div>
-          <details class="more-tools">
-            <summary>More bench tools</summary>
-            <div class="row wrap" id="lab-btns">
-              <button data-test="strength">Strength</button>
-              <button data-test="pressure">Pressure</button>
-              <button data-test="wave">Wave</button>
-              <button data-test="flow">Flow</button>
-              <button data-test="aero">Aero</button>
-              <button data-test="speed">Speed</button>
-              <button data-test="weather">Weather</button>
-              <button data-test="tape">Tape hold</button>
+
+          <div class="panel watch reviews">
+            <h2>Where people had troubles</h2>
+            <p class="hint">The steps other builders slowed down on.</p>
+            <div id="reviews" class="copy review-notes"></div>
+          </div>
+
+          <div class="panel watch broken">
+            <h2>Part identification desk</h2>
+            <p class="hint">A photo and a note is enough to match the part number.</p>
+            <label class="field file-field" for="broken-photo">
+              <span>Photo of the part</span>
+              <input id="broken-photo" type="file" accept="image/*" />
+            </label>
+            <label class="field" for="broken-note">
+              <span>What happened?</span>
+              <input id="broken-note" placeholder="Missing, split, bent…" />
+            </label>
+            <button id="broken-btn" class="identify-part">Find my part number</button>
+          </div>
+
+          <div class="panel watch spare">
+            <h2>Small parts service</h2>
+            <p class="hint">Screws, dowels, cam locks and Allen keys — no receipt needed.</p>
+            <div class="row part-line">
+              <label class="field" for="spare-article">
+                <span>Part number</span>
+                <input id="spare-article" placeholder="Part number" />
+              </label>
+              <label class="field qty-field" for="spare-qty">
+                <span>Qty</span>
+                <input id="spare-qty" type="number" min="1" value="1" />
+              </label>
             </div>
-            <div class="row">
-              <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
-              <label>Rain <input id="rain" type="checkbox" /></label>
+            <div class="row contact-line">
+              <label class="field" for="spare-name">
+                <span>Name</span>
+                <input id="spare-name" autocomplete="name" placeholder="Your name" />
+              </label>
+              <label class="field" for="spare-email">
+                <span>Email</span>
+                <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
+              </label>
             </div>
-            <div class="row">
-              <button id="tape-elec">Electrical tape</button>
-              <button id="tape-gaff">Gaffer</button>
-            </div>
+            <button id="spare-request" class="primary spare-go">Request spare</button>
+            <div id="spare-out" class="copy spare-response" aria-live="polite"></div>
+          </div>
+
+          <details class="studio-chat">
+            <summary>Ask us anything</summary>
+            <div id="ikea-agent-bar" class="agent-bar"></div>
+            <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
+            <form id="ikea-chat-form">
+              <input id="ikea-chat-in" autocomplete="off" aria-label="Message us" placeholder="Ask about a step, tool or part…" />
+              <button type="submit" class="primary">Send</button>
+            </form>
           </details>
-          <div id="electronics-only" class="electronics-chrome hidden">
-            <h2>Electronics</h2>
-            <div class="row">
-              <button id="isolate-btn">Isolate as board</button>
-              <button id="label-btn">Label function</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel hidden house-plate" data-pane="house">
-          <header class="house-head">
-            <span class="house-num" aria-hidden="true">1</span>
-            <div class="house-title">
-              <p class="house-kicker">Room plate</p>
-              <h2>Sit the piece on the floor</h2>
-            </div>
-            <span class="house-scale">1 : 50</span>
-          </header>
-          <p class="house-caption">
-            Photograph the empty patch. The stylist lays the table where the door still swings.
-          </p>
-          <figure class="house-frame">
-            <svg class="house-plan" viewBox="0 0 260 168" aria-hidden="true">
-              <rect x="28" y="18" width="204" height="128" fill="none" stroke="currentColor" stroke-width="2.2" />
-              <path d="M28 76 v32" stroke="#ead9b4" stroke-width="4" />
-              <path d="M28 76 A32 32 0 0 1 60 44" fill="none" stroke="currentColor" stroke-width="1.15" stroke-dasharray="3 2.4" />
-              <line x1="28" y1="76" x2="60" y2="44" stroke="currentColor" stroke-width="1.15" />
-              <line x1="100" y1="14" x2="160" y2="14" stroke="currentColor" stroke-width="1.4" />
-              <line x1="100" y1="18" x2="160" y2="18" stroke="#ead9b4" stroke-width="3.2" />
-              <rect x="90" y="64" width="88" height="54" fill="none" stroke="currentColor" stroke-width="1.05" stroke-dasharray="4 3" />
-              <text x="134" y="74" text-anchor="middle" fill="currentColor" font-size="6.2" font-family="IBM Plex Mono, ui-monospace, monospace" letter-spacing="1.1">CLEAR FLOOR</text>
-              <rect x="114" y="80" width="40" height="22" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5" />
-              <circle cx="120" cy="85" r="1.5" fill="currentColor" />
-              <circle cx="148" cy="85" r="1.5" fill="currentColor" />
-              <circle cx="120" cy="97" r="1.5" fill="currentColor" />
-              <circle cx="148" cy="97" r="1.5" fill="currentColor" />
-              <circle cx="200" cy="108" r="4.8" fill="none" stroke="currentColor" stroke-width="1.45" />
-              <path
-                d="M200 113.5 v15.5 M193 121.5 h14 M200 129 l-6 11 M200 129 l6 11"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.45"
-                stroke-linecap="round"
-              />
-              <path d="M28 156 H232 M28 153 v6 M232 153 v6" fill="none" stroke="currentColor" stroke-width="0.9" />
-            </svg>
-            <label class="house-photo">
-              <input id="room-photo" type="file" accept="image/*" />
-              <span class="house-photo-cta">Lay a room photo on this plate</span>
-            </label>
-          </figure>
-          <div class="house-dims" aria-label="Room measurements">
-            <label class="house-dim" for="room-w">
-              <span class="house-dim-label">Width</span>
-              <span class="house-dim-rule" aria-hidden="true"></span>
-              <input id="room-w" type="number" step="0.1" value="3.2" />
-              <abbr title="metres">m</abbr>
-            </label>
-            <label class="house-dim" for="room-d">
-              <span class="house-dim-label">Depth</span>
-              <span class="house-dim-rule" aria-hidden="true"></span>
-              <input id="room-d" type="number" step="0.1" value="3.8" />
-              <abbr title="metres">m</abbr>
-            </label>
-            <label class="house-budget" for="room-budget">
-              <span>Budget</span>
-              <span class="house-price">
-                <span aria-hidden="true">$</span>
-                <input id="room-budget" type="number" value="40" />
-              </span>
-            </label>
-          </div>
-          <button id="adapt-btn" class="primary house-go">Put a table in there</button>
-          <div id="adapt-out" class="copy house-notes"></div>
-        </div>
-
-        <!-- Studio column. .rail.right becomes display:contents in studio mode so this
-             sits directly in the app grid. -->
-        <section class="studio-side" data-pane="ikeafy" aria-label="Kit, reviews and spares">
-          <div class="row source-toggle results-tabs" id="results-tabs">
-            <button id="tab-instructions" class="on" aria-pressed="true">Instructions</button>
-            <button id="tab-material" aria-pressed="false">Material</button>
-          </div>
-
-          <div id="instructions-pane">
-            <div class="panel">
-              <div class="paper-kicker">
-                <span>More context</span>
-                <span aria-hidden="true">Regenerate plate</span>
-              </div>
-              <h2>Explain this step again</h2>
-              <p class="hint">Add a note, photo or clip and regenerate this step’s film.</p>
-              <textarea
-                id="extra-context"
-                rows="3"
-                placeholder="What went wrong, or what you want explained…"
-              ></textarea>
-              <input id="extra-media" type="file" accept="image/*,video/*" multiple />
-              <button id="regenerate-step">Regenerate this step</button>
-            </div>
-
-            <div class="panel reviews">
-              <div class="paper-kicker">
-                <span>Assembly notes</span>
-                <span aria-hidden="true">Customer field report</span>
-              </div>
-              <h2>Where people get stuck</h2>
-              <p class="hint">Useful warnings from other builders, grouped by step.</p>
-              <div id="reviews" class="copy review-notes"></div>
-            </div>
-
-            <div class="panel broken">
-              <div class="paper-kicker">
-                <span>Part identification desk</span>
-                <span aria-hidden="true">Before ordering</span>
-              </div>
-              <h2>Missing or broken fitting?</h2>
-              <p class="hint">
-                Show us the fitting and the step. If we cannot read a part number from the photo, go
-                to the store.
-              </p>
-              <label class="paper-field file-field" for="broken-photo">
-                <span>Photo of fitting</span>
-                <input id="broken-photo" type="file" accept="image/*" />
-              </label>
-              <label class="paper-field" for="broken-note">
-                <span>What happened?</span>
-                <input id="broken-note" placeholder="Missing, split, bent…" />
-              </label>
-              <button id="broken-btn" class="identify-part">Identify from this step</button>
-            </div>
-
-            <div class="panel spare">
-              <div class="spare-letter">
-                <div class="letter-masthead">
-                  <span class="letter-mark" aria-hidden="true">IF</span>
-                  <div>
-                    <strong>Small parts service</strong>
-                    <small>Customer fittings request</small>
-                  </div>
-                  <span class="letter-ref">FORM 100.347</span>
-                </div>
-                <h2>Request free assembly fittings</h2>
-                <p class="letter-intro">
-                  Screws, nails, dowels, cam locks, shelf pins and Allen keys are sent free of
-                  charge. Panels and larger components are not included.
-                </p>
-                <div class="letter-rule"><span>Part requested</span></div>
-                <div class="row part-line">
-                  <label class="paper-field" for="spare-article">
-                    <span>Fitting number</span>
-                    <input id="spare-article" placeholder="e.g. 100347" />
-                  </label>
-                  <label class="paper-field qty-field" for="spare-qty">
-                    <span>Qty.</span>
-                    <input id="spare-qty" type="number" min="1" value="1" />
-                  </label>
-                </div>
-                <div class="letter-rule"><span>Send to</span></div>
-                <div class="row contact-line">
-                  <label class="paper-field" for="spare-name">
-                    <span>Name</span>
-                    <input id="spare-name" autocomplete="name" placeholder="Your name" />
-                  </label>
-                  <label class="paper-field" for="spare-email">
-                    <span>Email</span>
-                    <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
-                  </label>
-                </div>
-                <div class="letter-signoff">
-                  <span>No receipt needed for small fittings.</span>
-                  <button id="spare-request" class="primary">Send free-parts request</button>
-                </div>
-                <div id="spare-out" class="copy letter-response" aria-live="polite"></div>
-              </div>
-            </div>
-
-            <div class="panel chat-panel studio-chat">
-              <div class="paper-kicker">
-                <span>Customer service</span>
-                <span class="service-open"><i aria-hidden="true"></i> Shop online</span>
-              </div>
-              <h2>Ask the shop</h2>
-              <p class="hint">
-                Quick questions stay on Pioneer / GLiNER 2. Harder ones escalate to a larger OpenAI
-                model.
-              </p>
-              <details class="more-tools">
-                <summary>Who is answering</summary>
-                <div id="ikea-agent-bar" class="agent-bar"></div>
-              </details>
-              <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
-              <form id="ikea-chat-form">
-                <input
-                  id="ikea-chat-in"
-                  autocomplete="off"
-                  aria-label="Message the shop"
-                  placeholder="Ask about this step, tool or part…"
-                />
-                <input id="ikea-chat-files" type="file" accept="image/*,video/*" multiple />
-                <button type="submit">Send</button>
-              </form>
-            </div>
-          </div>
-
-          <div id="material-pane" class="hidden">
-            <div class="panel bom">
-              <div class="paper-kicker">
-                <span>Assembly inventory</span>
-                <span aria-hidden="true">01 / KIT</span>
-              </div>
-              <h2>In the box / bring your own</h2>
-              <p class="hint kit-vs-extra">
-                Included vs to purchase. Extra items list IKEA, Amazon and local stand-ins.
-              </p>
-              <div id="bom" class="material-list bom-list"></div>
-              <div class="paper-footer" aria-hidden="true">
-                <span>Included parts</span>
-                <span>Extra purchases</span>
-              </div>
-            </div>
-          </div>
         </section>
+      </aside>
 
-        <div class="panel chat">
+      <!-- ============ LAB — left rail (Bench / House) ============ -->
+      <aside class="rail left hidden" data-pane="bench" aria-label="Parts shelf">
+        <div class="pane bench-nav">
+          <div class="panel card catalog-panel">
+            <h2>Parts shelf</h2>
+            <div class="row">
+              <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
+              <input id="search" type="search" placeholder="Find a part" />
+            </div>
+            <p class="hint" id="catalog-hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalogue.</p>
+            <div id="catalog-well" class="well scroll samples">
+              <div id="catalog" class="list samples"></div>
+            </div>
+          </div>
+          <div class="panel card">
+            <h2>On the bench</h2>
+            <div id="bench-pieces" class="list thin"></div>
+          </div>
+          <div class="panel card electronics-chrome hidden" id="cables-panel">
+            <h2>Cables</h2>
+            <p class="hint">Click two ports. Compatible ones lock.</p>
+            <div id="cables" class="list thin"></div>
+            <div class="row">
+              <button id="bundle-loose">Loose</button>
+              <button id="bundle-zip">Zip</button>
+              <button id="bundle-race">Raceway</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <aside class="rail left house-rail hidden" data-pane="house" aria-label="This room">
+        <div class="pane house-nav">
+          <div class="panel card">
+            <h2>This room</h2>
+            <p class="hint">Photo and measurements — the canvas shows the fit.</p>
+            <label class="field file-field" for="room-photo">
+              <span>Room photo</span>
+              <input id="room-photo" type="file" accept="image/*" />
+            </label>
+            <div class="row wrap">
+              <label class="field" for="room-w">
+                <span>Width (m)</span>
+                <input id="room-w" type="number" step="0.1" value="3.2" />
+              </label>
+              <label class="field" for="room-d">
+                <span>Depth (m)</span>
+                <input id="room-d" type="number" step="0.1" value="3.8" />
+              </label>
+            </div>
+            <label class="field" for="room-budget">
+              <span>Budget ($)</span>
+              <input id="room-budget" type="number" value="40" />
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ============ LAB — right rail ============ -->
+      <aside class="rail right hidden" data-pane="bench" aria-label="Inspect">
+        <div class="pane bench-ctx">
+          <div class="panel card">
+            <h2>Inspect</h2>
+            <div id="inspect" class="copy">Nothing selected.</div>
+            <div class="row">
+              <button id="delete-piece" disabled>Delete piece</button>
+            </div>
+            <details class="more-tools">
+              <summary>More bench tools</summary>
+              <div class="row wrap" id="lab-btns">
+                <button data-test="strength">Strength</button>
+                <button data-test="pressure">Pressure</button>
+                <button data-test="wave">Wave</button>
+                <button data-test="flow">Flow</button>
+                <button data-test="aero">Aero</button>
+                <button data-test="speed">Speed</button>
+                <button data-test="weather">Weather</button>
+                <button data-test="tape">Tape hold</button>
+              </div>
+              <div class="row">
+                <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
+                <label>Rain <input id="rain" type="checkbox" /></label>
+              </div>
+              <div class="row">
+                <button id="tape-elec">Electrical tape</button>
+                <button id="tape-gaff">Gaffer</button>
+              </div>
+            </details>
+            <div id="electronics-only" class="electronics-chrome hidden">
+              <h2>Electronics</h2>
+              <div class="row">
+                <button id="isolate-btn">Isolate as board</button>
+                <button id="label-btn">Label function</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel card chat shop-chat">
           <h2>Shop chat</h2>
           <details class="more-tools">
             <summary>Who is answering</summary>
@@ -410,40 +308,53 @@
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form">
             <input id="chat-in" autocomplete="off" placeholder="Ask, add a part, move the camera…" />
-            <button type="submit">Send</button>
+            <button type="submit" class="primary">Send</button>
           </form>
         </div>
       </aside>
 
-      <!-- ================= BENCH — left rail ================= -->
-      <aside class="rail left hidden" data-pane="bench">
-        <div class="panel">
-          <h2>Pieces</h2>
-          <div class="row">
-            <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
-            <input id="search" type="search" placeholder="Find a part" />
-          </div>
-          <p class="hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalog.</p>
-          <div id="catalog-well" class="well scroll samples">
-            <div id="catalog" class="list samples"></div>
-          </div>
-        </div>
-        <div class="panel">
-          <h2>On the bench</h2>
-          <div id="bench-pieces" class="list thin"></div>
-        </div>
-        <div class="panel electronics-chrome hidden" id="cables-panel">
-          <h2>Cables</h2>
-          <p class="hint">Click two ports. Compatible ones lock.</p>
-          <div id="cables" class="list thin"></div>
-          <div class="row">
-            <button id="bundle-loose">Loose</button>
-            <button id="bundle-zip">Zip</button>
-            <button id="bundle-race">Raceway</button>
+      <aside class="rail right house-rail hidden" data-pane="house" aria-label="Fit">
+        <div class="pane house-ctx">
+          <div class="panel card house-plate">
+            <header class="house-head">
+              <div class="house-title">
+                <h2>Fit the piece in the room</h2>
+              </div>
+            </header>
+            <p class="house-caption">We’ll place a table where the door still swings.</p>
+            <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+            <div id="adapt-out" class="copy house-notes"></div>
           </div>
         </div>
       </aside>
     </div>
+    <script>
+      (function () {
+        const app = document.getElementById("app");
+        if (!app) return;
+
+        function setInterface(name) {
+          if (name !== "upload" && name !== "watch") return;
+          app.setAttribute("data-interface", name);
+          if (name === "upload" || name === "watch") {
+            const tab = document.querySelector('#modes [data-mode="ikeafy"]');
+            if (app.dataset.mode !== "ikeafy") tab?.click();
+          }
+          window.dispatchEvent(new Event("resize"));
+        }
+
+        document.addEventListener("click", (ev) => {
+          const go = ev.target.closest("[data-go-interface]");
+          if (go) setInterface(go.getAttribute("data-go-interface"));
+          if (ev.target.closest("#lab-link")) {
+            ev.preventDefault();
+            app.classList.toggle("lab-open");
+          }
+        });
+
+        window.setIkealiveInterface = setInterface;
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
