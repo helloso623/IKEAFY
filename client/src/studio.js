@@ -104,6 +104,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     watched: false,
     broken: null,
     submitting: false,
+    submitController: null,
+    requestSeq: 0,
     destroyed: false,
     renderMode: null,
   };
@@ -188,8 +190,11 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     try {
       if (state.submitting) return mode;
       if (state.run) return startChosenRender();
-      if (hasGuideSource()) return parseCustom();
-      announce("Drop a PDF or type a product name, then get the reel.");
+      announce(
+        hasGuideSource()
+          ? "Instruction format selected. Press Get the Reel when ready."
+          : "Drop a PDF or type a product name, then get the reel.",
+      );
       return mode;
     } catch (error) {
       return fail(error);
@@ -327,7 +332,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     try {
       const file = await fetchNamedManual();
       if (!file) return null;
-      return parseCustom();
+      announce(`Attached ${file.name}. Choose a format, then press Get the Reel.`);
+      return file;
     } catch (error) {
       ikealiveWarn("tavily", "lookup failed", error?.message || error);
       return fail(error);
@@ -606,6 +612,10 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
   async function parseCustom(event) {
     event?.preventDefault();
     if (state.submitting) return null;
+    const requestId = `plate-${Date.now().toString(36)}-${++state.requestSeq}`;
+    state.submitController?.abort();
+    const controller = new AbortController();
+    state.submitController = controller;
     setBusy(true);
     try {
       setMode("custom");
@@ -646,6 +656,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       }
       announce("Extracting PDF text with GLiNER 2, then reading plates if needed…");
       ikealiveLog("assembly", "start", {
+        requestId,
         plates: images.length,
         extractedText: Boolean(guideText),
         notes: Boolean(el.notes?.value),
@@ -656,18 +667,28 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         instructions: el.notes?.value || "",
         images,
         renderMode: state.renderMode || undefined,
-      });
+        requestId,
+      }, { signal: controller.signal });
+      if (state.destroyed || state.submitController !== controller) return null;
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       saveCustom();
       await renderReviews();
-      ikealiveLog("assembly", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      ikealiveLog("assembly", "run ready", {
+        requestId,
+        runId: view.run?.id,
+        steps: view.outline?.length || 0,
+      });
       await afterGuideReady();
       return view;
     } catch (error) {
+      if (controller.signal.aborted) return null;
       return fail(error);
     } finally {
-      setBusy(false);
+      if (state.submitController === controller) {
+        state.submitController = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -1768,7 +1789,6 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     announce("Drop a PDF or type a product name, then get the reel.");
   });
   listen(el.uploadForm, "submit", parseCustom);
-  listen(el.parse, "click", parseCustom);
   listen(el.renderModes, "click", (event) => {
     const btn = event.target.closest("button[data-render-mode]");
     if (btn) chooseRenderMode(btn.getAttribute("data-render-mode"));
@@ -1777,7 +1797,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
   listen(el.pdf, "change", () => {
     const file = el.pdf?.files?.[0] || null;
     showPdfName(file);
-    if (file) parseCustom();
+    if (file) announce(`${file.name} attached. Choose a format, then press Get the Reel.`);
   });
   listen(el.pdfDrop, "dragover", (event) => {
     event.preventDefault();
@@ -1795,7 +1815,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     transfer.items.add(file);
     el.pdf.files = transfer.files;
     showPdfName(file);
-    parseCustom();
+    announce(`${file.name} attached. Choose a format, then press Get the Reel.`);
   });
   listen(el.clear, "click", () => {
     if (el.pdf) el.pdf.value = "";
@@ -1882,6 +1902,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     },
     destroy() {
       state.destroyed = true;
+      state.submitController?.abort();
+      state.submitController = null;
       stopPlayback();
       for (const off of listeners.splice(0)) off();
     },
