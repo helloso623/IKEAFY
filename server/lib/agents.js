@@ -14,6 +14,7 @@ import {
   AI_MESH_SHAPES,
   isMeshBuildAsk,
   localMeshAction,
+  meshPromptsFromRoom,
   sanitizeMeshAction,
 } from "./mesh-plan.js";
 
@@ -607,16 +608,26 @@ export function planCreativeActions(message, ctx = {}) {
   if (ROOM_CREATE_ASK.test(lower)) {
     const room = roomFromDescription(message, ctx);
     actions.push({ type: "room", room });
-    const wantsRoundTable = isRoundTableIntent(message, ctx);
-    if (wantsRoundTable || /\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
-      const table = wantsRoundTable ? roundTablePlan() : genericTablePlan();
-      if (table) {
-        actions.push(table.action);
+    const roomMeshes = meshPromptsFromRoom(message)
+      .map((prompt) => localMeshAction(prompt, ctx))
+      .filter(Boolean);
+    if (roomMeshes.length) {
+      actions.push(...roomMeshes);
+      const bodies = roomMeshes.reduce((sum, action) => sum + action.mesh.components.length, 0);
+      const names = roomMeshes.map((action) => action.mesh.name).join(", ");
+      return {
+        handles: true,
+        text: `Built ${names} as ${bodies} real mesh bodies and created a ${room.widthM}×${room.depthM} m ${room.kind}.`,
+        actions,
+      };
+    }
+    if (/\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
+      const mesh = localMeshAction(message, ctx);
+      if (mesh) {
+        actions.push(mesh);
         return {
           handles: true,
-          text: wantsRoundTable
-            ? `Spawned an editable ${table.specs} round table with a circular top, one central tapered pedestal, and a disc base in the ${room.widthM}×${room.depthM} m ${room.kind}.`
-            : `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
+          text: `Built ${mesh.mesh.name} as ${mesh.mesh.components.length} real mesh bodies and created a ${room.widthM}×${room.depthM} m ${room.kind}.`,
           actions,
         };
       }
@@ -628,13 +639,27 @@ export function planCreativeActions(message, ctx = {}) {
     };
   }
 
-  if (isRoundTableIntent(message, ctx)) {
-    const table = roundTablePlan();
-    if (table) {
+  if (isMeshBuildAsk(message)) {
+    const mesh = localMeshAction(message, ctx);
+    if (mesh) {
       return {
         handles: true,
-        text: `Spawned an editable ${table.specs} round table: circular cylinder top, one central tapered pedestal, and a disc base.`,
-        actions: [table.action],
+        text: `Built ${mesh.mesh.name} as ${mesh.mesh.components.length} real mesh bodies on the bench.`,
+        actions: [mesh],
+      };
+    }
+  }
+
+  if (isRoundTableIntent(message, ctx)) {
+    const prompt = /\btables?\b/i.test(message)
+      ? message
+      : `make a round table with one central leg; ${message}`;
+    const mesh = localMeshAction(prompt, ctx);
+    if (mesh) {
+      return {
+        handles: true,
+        text: `Built ${mesh.mesh.name} as ${mesh.mesh.components.length} real mesh bodies on the bench.`,
+        actions: [mesh],
       };
     }
   }
@@ -793,10 +818,15 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
+  const allowed = new Set(["add", "add_part", "mesh", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
+    if (action.type === "mesh") {
+      const mesh = sanitizeMeshAction(action);
+      if (mesh) out.push(mesh);
+      continue;
+    }
     if (action.type === "scan") {
       out.push({ type: "scan" });
       continue;
@@ -1071,7 +1101,7 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} in the IKEAFY 3D furniture workspace with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, room {type:"room", room:{kind,widthM,depthM,heightM,wallColor,floorColor}}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. A room action creates real floor and wall meshes. For a requested side table use generic-side-table as a neutral editable placeholder, never claim it is branded CAD, and state its 550×550×450 mm proportions before other copy. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
+        content: `You are ${agent.name} in the IKEAFY 3D workspace. Reply as JSON {"text": string, "actions": Action[]}. For every request to make, model, build, create, design, generate, invent, sculpt, or spawn an object, emit a real mesh action instead of catalog parts or prose: {type:"mesh",mesh:{name,prompt,components:[MeshBody]}}. A MeshBody has {id,name,shape,sizeMm:[width,height,depth],positionMm:[x,y,z],rotationDeg:[x,y,z],color,roughness,metalness,segments}. Supported shapes are ${AI_MESH_SHAPES.join(", ")}. torus may add majorRadiusMm, tubeRadiusMm, arcDeg; capsule may add radiusMm, lengthMm; lathe requires profileMm:[[radius,y],...]; extrude requires outlineMm:[[x,z],...] and may add holesMm; mesh requires verticesMm:[[x,y,z],...] and triangular faces:[[a,b,c],...]. Coordinates and sizes are millimetres with Y up. Compose as many bodies as the form needs, up to 128. A round pedestal table must have a cylinder circular top and a cylinder central leg. Never substitute a square table or a catalog item. Other action types: add {type:"add", partId, pose?} only when the user explicitly asks for a catalog or branded part; room {type:"room", room:{kind,widthM,depthM,heightM,wallColor,floorColor}}; camera {type:"camera", az, el, zoom?}; move {type:"move", id, x?, y?, z?}; scan {type:"scan"}; label {type:"label", partId, label}; isolate {type:"isolate", label}; studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. A room action creates real floor and wall meshes. Studio actions drive the IKEAlive reel. Catalog ids, only when explicitly requested: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
           electronics
             ? "Electronics were requested — nano, LED, and button are fair."
             : "Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics."
@@ -1098,12 +1128,17 @@ async function hostedReply(message, ctx, agent) {
   if (!rawText && !parsed) return null;
   let actions = sanitizeActions(parsed?.actions, { electronics });
   const deterministic = planCreativeActions(message, ctx);
+  const meshBuild = isMeshBuildAsk(message);
   const mustCreateModel =
     deterministic.handles &&
     deterministic.actions.some((action) => SHOP_CREATE_TYPES.has(action.type));
   if (mustCreateModel) {
+    const hostedMeshes = actions.filter((action) => action.type === "mesh");
     const extras = actions.filter((action) => action.type === "camera");
-    actions = [...sanitizeActions(deterministic.actions, { electronics }), ...extras];
+    actions =
+      meshBuild && hostedMeshes.length
+        ? [...hostedMeshes, ...extras]
+        : [...sanitizeActions(deterministic.actions, { electronics }), ...extras];
   } else if (!actions.length) {
     const studio = planStudioActions(message);
     if (studio.handles) actions = studio.actions.map((action) => ({ ...action }));
@@ -1344,10 +1379,10 @@ export async function chat(message, ctx = {}) {
     const escalate = shouldEscalate(message);
     const creative = isCreativeAsk(message);
 
-    // Rooms, tables, catalog drops and reel commands are local. A hosted
-    // provider must not replace those actions with prose, and must not
-    // block the steward when the key is missing or the provider fails.
-    if (stewardCanCreate(message, ctx)) {
+    // Deterministic room/catalog/reel actions stay local. Described object
+    // builds use the hosted mesh author when present and the local mesh
+    // planner only as an offline/provider-failure fallback.
+    if (stewardCanCreate(message, ctx) && !(isMeshBuildAsk(message) && hasHostedBrain())) {
       return finishLocal(message, ctx, { escalate, creative });
     }
 

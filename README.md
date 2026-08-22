@@ -71,7 +71,7 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 
 **Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
 
-When a table model is ready, **Hunt table pieces** matches dimensioned tops, legs, aprons, stretchers, boards, and generic cuts for that final shape, prepares a printable piece PDF, and creates an IKEAlive watch / plan / todo.
+When a table model is ready, **Finish & find ways** researches construction methods for that final shape, derives its dimensioned tops, legs, rails, boards, and cut list, prepares a printable PDF, and creates an IKEAlive watch / plan / todo.
 
 ## Structure
 
@@ -86,9 +86,9 @@ When a table model is ready, **Hunt table pieces** matches dimensioned tops, leg
 
 Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
-### Hunt pieces for the final table
+### Find ways to make the final table
 
-After modeling or remodeling a table, click **Hunt table pieces**. IKEAlive offers a cut-to-size top, matching legs, boards, and optional apron/stretchers by shape and millimetres, with exact IKEA articles when dimensions lock. It produces a printable piece-plan PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior piece plans remain available. Tavily is an optional one-query provider; without it, dimension catalog matches and public IKEA, home-center, and lumber links remain available. Retailer scraping and fastener catalogs are not part of this flow. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
+After modeling or remodeling a table, click **Finish & find ways**. IKEAlive offers routes such as a cut-to-size top with ready-made legs or an all-wood apron frame, then derives the current top, legs, boards, and method-specific cuts by shape and millimetres. It produces a printable ways-and-cut-list PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily is an optional one-query research provider; without it, dimension catalog matches and public search links remain available. Retailer scraping and fastener catalogs are not part of this flow. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
 
 House uses single-photo and multi-file uploads, or a ~30s walk sent from a phone. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
 
@@ -105,7 +105,7 @@ Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a
 
 `http://<lan-ip>:5173/phone-upload`
 
-(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a room walk of up to 30 seconds. The page POSTs the clip to `/api/scan/video`. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Hunt table pieces** matches pieces for that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
+(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a room walk of up to 30 seconds. The page POSTs the clip to `/api/scan/video`. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Finish & find ways** researches how to make that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
 
 
 ## Social preview
