@@ -37,7 +37,7 @@
           </label>
           <button id="reset-sim" class="bench-only">Reset</button>
           <button id="print-btn" class="bench-only">Print</button>
-          <button id="flash-btn" class="bench-only electronics-chrome">Arduino</button>
+          <button id="flash-btn" class="bench-only electronics-chrome hidden">Arduino</button>
         </div>
       </header>
 
@@ -49,14 +49,15 @@
             <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
             <button id="custom-mode" aria-pressed="false">My own guide</button>
           </div>
-          <div id="official-source">
+          <div id="official-source" class="official-picker">
+            <label class="picker-label" for="official-product">Printed sheet</label>
             <select id="official-product" aria-label="Official IKEA product"></select>
-            <p class="hint" id="official-lock-note">
+            <p class="hint lock-note" id="official-lock-note">
               The official sheet is read-only and runs in order. Steps you have not reached stay
               closed.
             </p>
           </div>
-          <div id="custom-source" class="hidden">
+          <div id="custom-source" class="custom-parse hidden">
             <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
             <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
             <div class="row">
@@ -69,7 +70,7 @@
         <div class="panel steps-panel">
           <h2>Steps</h2>
           <div id="lock-banner" class="lock-banner"></div>
-          <div id="steps" class="list"></div>
+          <div id="steps" class="list step-list" data-editable="false"></div>
         </div>
       </section>
 
@@ -102,28 +103,31 @@
       <aside class="rail right">
         <div class="panel hidden" data-pane="bench">
           <h2>Inspect</h2>
-          <div id="inspect" class="copy"></div>
+          <div id="inspect" class="copy">Nothing selected.</div>
           <div class="row">
-            <button id="delete-piece">Delete piece</button>
+            <button id="delete-piece" disabled>Delete piece</button>
           </div>
-          <div class="row wrap" id="lab-btns">
-            <button data-test="strength">Strength</button>
-            <button data-test="pressure">Pressure</button>
-            <button data-test="wave">Wave</button>
-            <button data-test="flow">Flow</button>
-            <button data-test="aero">Aero</button>
-            <button data-test="speed">Speed</button>
-            <button data-test="weather">Weather</button>
-            <button data-test="tape">Tape hold</button>
-          </div>
-          <div class="row">
-            <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
-            <label>Rain <input id="rain" type="checkbox" /></label>
-          </div>
-          <div class="row">
-            <button id="tape-elec">Electrical tape</button>
-            <button id="tape-gaff">Gaffer</button>
-          </div>
+          <details class="more-tools">
+            <summary>More bench tools</summary>
+            <div class="row wrap" id="lab-btns">
+              <button data-test="strength">Strength</button>
+              <button data-test="pressure">Pressure</button>
+              <button data-test="wave">Wave</button>
+              <button data-test="flow">Flow</button>
+              <button data-test="aero">Aero</button>
+              <button data-test="speed">Speed</button>
+              <button data-test="weather">Weather</button>
+              <button data-test="tape">Tape hold</button>
+            </div>
+            <div class="row">
+              <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
+              <label>Rain <input id="rain" type="checkbox" /></label>
+            </div>
+            <div class="row">
+              <button id="tape-elec">Electrical tape</button>
+              <button id="tape-gaff">Gaffer</button>
+            </div>
+          </details>
           <div id="electronics-only" class="electronics-chrome hidden">
             <h2>Electronics</h2>
             <div class="row">
@@ -133,59 +137,181 @@
           </div>
         </div>
 
-        <div class="panel hidden" data-pane="house">
-          <h2>Adaptation plan</h2>
-          <p class="hint">Photo + room size. The stylist lays the table in.</p>
-          <div class="row">
-            <input id="room-w" type="number" step="0.1" value="3.2" />
-            <input id="room-d" type="number" step="0.1" value="3.8" />
-            <input id="room-budget" type="number" value="40" />
+        <div class="panel hidden house-plate" data-pane="house">
+          <header class="house-head">
+            <span class="house-num" aria-hidden="true">1</span>
+            <div class="house-title">
+              <p class="house-kicker">Room plate</p>
+              <h2>Sit the piece on the floor</h2>
+            </div>
+            <span class="house-scale">1 : 50</span>
+          </header>
+          <p class="house-caption">
+            Photograph the empty patch. The stylist lays the table where the door still swings.
+          </p>
+          <figure class="house-frame">
+            <svg class="house-plan" viewBox="0 0 260 168" aria-hidden="true">
+              <rect x="28" y="18" width="204" height="128" fill="none" stroke="currentColor" stroke-width="2.2" />
+              <path d="M28 76 v32" stroke="#ead9b4" stroke-width="4" />
+              <path d="M28 76 A32 32 0 0 1 60 44" fill="none" stroke="currentColor" stroke-width="1.15" stroke-dasharray="3 2.4" />
+              <line x1="28" y1="76" x2="60" y2="44" stroke="currentColor" stroke-width="1.15" />
+              <line x1="100" y1="14" x2="160" y2="14" stroke="currentColor" stroke-width="1.4" />
+              <line x1="100" y1="18" x2="160" y2="18" stroke="#ead9b4" stroke-width="3.2" />
+              <rect x="90" y="64" width="88" height="54" fill="none" stroke="currentColor" stroke-width="1.05" stroke-dasharray="4 3" />
+              <text x="134" y="74" text-anchor="middle" fill="currentColor" font-size="6.2" font-family="IBM Plex Mono, ui-monospace, monospace" letter-spacing="1.1">CLEAR FLOOR</text>
+              <rect x="114" y="80" width="40" height="22" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5" />
+              <circle cx="120" cy="85" r="1.5" fill="currentColor" />
+              <circle cx="148" cy="85" r="1.5" fill="currentColor" />
+              <circle cx="120" cy="97" r="1.5" fill="currentColor" />
+              <circle cx="148" cy="97" r="1.5" fill="currentColor" />
+              <circle cx="200" cy="108" r="4.8" fill="none" stroke="currentColor" stroke-width="1.45" />
+              <path
+                d="M200 113.5 v15.5 M193 121.5 h14 M200 129 l-6 11 M200 129 l6 11"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.45"
+                stroke-linecap="round"
+              />
+              <path d="M28 156 H232 M28 153 v6 M232 153 v6" fill="none" stroke="currentColor" stroke-width="0.9" />
+            </svg>
+            <label class="house-photo">
+              <input id="room-photo" type="file" accept="image/*" />
+              <span class="house-photo-cta">Lay a room photo on this plate</span>
+            </label>
+          </figure>
+          <div class="house-dims" aria-label="Room measurements">
+            <label class="house-dim" for="room-w">
+              <span class="house-dim-label">Width</span>
+              <span class="house-dim-rule" aria-hidden="true"></span>
+              <input id="room-w" type="number" step="0.1" value="3.2" />
+              <abbr title="metres">m</abbr>
+            </label>
+            <label class="house-dim" for="room-d">
+              <span class="house-dim-label">Depth</span>
+              <span class="house-dim-rule" aria-hidden="true"></span>
+              <input id="room-d" type="number" step="0.1" value="3.8" />
+              <abbr title="metres">m</abbr>
+            </label>
+            <label class="house-budget" for="room-budget">
+              <span>Budget</span>
+              <span class="house-price">
+                <span aria-hidden="true">$</span>
+                <input id="room-budget" type="number" value="40" />
+              </span>
+            </label>
           </div>
-          <input id="room-photo" type="file" accept="image/*" />
-          <button id="adapt-btn" class="primary">Put a table in there</button>
-          <div id="adapt-out" class="copy"></div>
+          <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+          <div id="adapt-out" class="copy house-notes"></div>
         </div>
 
         <!-- Studio column. .rail.right becomes display:contents in studio mode so this
              sits directly in the app grid. -->
         <section class="studio-side" data-pane="ikeafy" aria-label="Kit, reviews and spares">
-          <div class="panel">
-            <h2>Kit vs extra</h2>
-            <p class="hint">What ships in the box against what you have to buy.</p>
-            <div id="bom" class="copy"></div>
-          </div>
-          <div class="panel">
-            <h2>Reviews &amp; difficulties</h2>
-            <div id="reviews" class="copy"></div>
-          </div>
-          <div class="panel">
-            <h2>Missing or broken fitting</h2>
-            <p class="hint">
-              IKEA replaces assembly fittings — screws, nails, dowels, cam locks, shelf pins, Allen
-              keys — free of charge. Whole panels are a paid part.
+          <div class="panel bom">
+            <div class="paper-kicker">
+              <span>Assembly inventory</span>
+              <span aria-hidden="true">01 / KIT</span>
+            </div>
+            <h2>In the box / bring your own</h2>
+            <p class="hint kit-vs-extra">
+              Checked against the flat-pack contents before you begin.
             </p>
-            <input id="broken-photo" type="file" accept="image/*" aria-label="Photo of the broken fitting" />
-            <input id="broken-note" placeholder="What broke, and how…" />
-            <div class="row">
-              <input id="spare-article" placeholder="Fitting no. (e.g. 100347)" />
-              <input id="spare-qty" type="number" min="1" value="1" aria-label="Quantity" />
+            <div id="bom" class="copy bom-list"></div>
+            <div class="paper-footer" aria-hidden="true">
+              <span>Included parts</span>
+              <span>Extra purchases</span>
             </div>
-            <div class="row">
-              <input id="spare-name" placeholder="Your name" />
-              <input id="spare-email" type="email" placeholder="Your email" />
-            </div>
-            <div class="row">
-              <button id="broken-btn">Identify from the step</button>
-              <button id="spare-request" class="primary">Request free fittings</button>
-            </div>
-            <div id="spare-out" class="copy"></div>
           </div>
-          <div class="panel chat-panel">
+
+          <div class="panel reviews">
+            <div class="paper-kicker">
+              <span>Assembly notes</span>
+              <span aria-hidden="true">Customer field report</span>
+            </div>
+            <h2>Where people get stuck</h2>
+            <p class="hint">Useful warnings from other builders, grouped by step.</p>
+            <div id="reviews" class="copy review-notes"></div>
+          </div>
+
+          <div class="panel broken">
+            <div class="paper-kicker">
+              <span>Part identification desk</span>
+              <span aria-hidden="true">Before ordering</span>
+            </div>
+            <h2>Missing or broken fitting?</h2>
+            <p class="hint">
+              Show us the fitting and the step. We’ll identify the small part number for your
+              request.
+            </p>
+            <label class="paper-field file-field" for="broken-photo">
+              <span>Photo of fitting</span>
+              <input id="broken-photo" type="file" accept="image/*" />
+            </label>
+            <label class="paper-field" for="broken-note">
+              <span>What happened?</span>
+              <input id="broken-note" placeholder="Missing, split, bent…" />
+            </label>
+            <button id="broken-btn" class="identify-part">Identify from this step</button>
+          </div>
+
+          <div class="panel spare">
+            <div class="spare-letter">
+              <div class="letter-masthead">
+                <span class="letter-mark" aria-hidden="true">IF</span>
+                <div>
+                  <strong>Small parts service</strong>
+                  <small>Customer fittings request</small>
+                </div>
+                <span class="letter-ref">FORM 100.347</span>
+              </div>
+              <h2>Request free assembly fittings</h2>
+              <p class="letter-intro">
+                Screws, nails, dowels, cam locks, shelf pins and Allen keys are sent free of
+                charge. Panels and larger components are not included.
+              </p>
+              <div class="letter-rule"><span>Part requested</span></div>
+              <div class="row part-line">
+                <label class="paper-field" for="spare-article">
+                  <span>Fitting number</span>
+                  <input id="spare-article" placeholder="e.g. 100347" />
+                </label>
+                <label class="paper-field qty-field" for="spare-qty">
+                  <span>Qty.</span>
+                  <input id="spare-qty" type="number" min="1" value="1" />
+                </label>
+              </div>
+              <div class="letter-rule"><span>Send to</span></div>
+              <div class="row contact-line">
+                <label class="paper-field" for="spare-name">
+                  <span>Name</span>
+                  <input id="spare-name" autocomplete="name" placeholder="Your name" />
+                </label>
+                <label class="paper-field" for="spare-email">
+                  <span>Email</span>
+                  <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
+                </label>
+              </div>
+              <div class="letter-signoff">
+                <span>No receipt needed for small fittings.</span>
+                <button id="spare-request" class="primary">Send free-parts request</button>
+              </div>
+              <div id="spare-out" class="copy letter-response" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div class="panel chat-panel studio-chat">
+            <div class="paper-kicker">
+              <span>Customer service</span>
+              <span class="service-open"><i aria-hidden="true"></i> Shop online</span>
+            </div>
             <h2>Ask the shop</h2>
-            <div id="ikea-agent-bar" class="agent-bar"></div>
-            <div id="ikea-chat-log" class="chat-log"></div>
+            <details class="more-tools">
+              <summary>Who is answering</summary>
+              <div id="ikea-agent-bar" class="agent-bar"></div>
+            </details>
+            <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
             <form id="ikea-chat-form">
-              <input id="ikea-chat-in" autocomplete="off" placeholder="Ask about this step, a tool, a part…" />
+              <input id="ikea-chat-in" autocomplete="off" aria-label="Message the shop" placeholder="Ask about this step, tool or part…" />
               <button type="submit">Send</button>
             </form>
           </div>
@@ -193,7 +319,10 @@
 
         <div class="panel chat">
           <h2>Shop chat</h2>
-          <div id="agent-bar" class="agent-bar"></div>
+          <details class="more-tools">
+            <summary>Who is answering</summary>
+            <div id="agent-bar" class="agent-bar"></div>
+          </details>
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form">
             <input id="chat-in" autocomplete="off" placeholder="Ask, add a part, move the camera…" />
@@ -207,12 +336,12 @@
         <div class="panel">
           <h2>Pieces</h2>
           <div class="row">
-            <input id="cost" type="number" min="0" step="1" placeholder="Cost barrier $" />
+            <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
             <input id="search" type="search" placeholder="Find a part" />
           </div>
           <p class="hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalog.</p>
-          <div id="catalog-well" class="well scroll">
-            <div id="catalog" class="list"></div>
+          <div id="catalog-well" class="well scroll samples">
+            <div id="catalog" class="list samples"></div>
           </div>
         </div>
         <div class="panel">

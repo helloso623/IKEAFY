@@ -3,48 +3,115 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 
 const MM = 0.001;
+const BIRCH = "#f3efe6";
+
+function birchMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#e9d7b4";
+  ctx.fillRect(0, 0, width, height);
+  const plankH = height / planks;
+  for (let i = 0; i < planks; i += 1) {
+    const y = i * plankH;
+    const warm = (i * 47 + seed * 13) % 18;
+    ctx.fillStyle = `rgb(${228 - warm}, ${208 - warm * 0.6}, ${168 - warm * 0.35})`;
+    ctx.fillRect(0, y, width, plankH);
+    for (let x = 0; x < width; x += 2) {
+      const wobble = Math.sin((x + seed * 20) * 0.035 + i * 1.7) * 7 + Math.sin(x * 0.12) * 2;
+      const alpha = 0.035 + ((x + i * 11 + seed) % 23) * 0.004;
+      ctx.fillStyle = `rgba(148, 112, 64, ${alpha})`;
+      ctx.fillRect(x, y + 3 + wobble * 0.15, 1.4, plankH - 6);
+    }
+    if ((i + seed) % 3 === 0) {
+      ctx.fillStyle = "rgba(176, 132, 78, 0.16)";
+      ctx.beginPath();
+      ctx.ellipse(80 + ((i * 97 + seed * 30) % (width - 160)), y + plankH * 0.5, 18, 3.2, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(120, 88, 50, 0.2)";
+    ctx.fillRect(0, y, width, 1);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
 
 export function createWorkshop(canvas) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1814);
-  scene.fog = new THREE.Fog(0x1a1814, 4, 14);
+  scene.background = new THREE.Color(0x2c261c);
+  scene.fog = new THREE.Fog(0x2c261c, 4, 14);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.02, 40);
   camera.position.set(1.2, 0.9, 1.4);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
   renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const orbit = new OrbitControls(camera, canvas);
   orbit.target.set(0, 0.2, 0);
   orbit.enableDamping = true;
 
-  const hemi = new THREE.HemisphereLight(0xf4efe4, 0x2a261f, 1.1);
+  const hemi = new THREE.HemisphereLight(0xfff6e8, 0xc4a06a, 0.95);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xfff1c8, 1.3);
+  const key = new THREE.DirectionalLight(0xfff3dc, 1.45);
   key.position.set(2, 3, 1);
   key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.bias = -0.00035;
+  key.shadow.normalBias = 0.02;
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffda1a, 0.15);
+  const fill = new THREE.DirectionalLight(0xe8c99a, 0.38);
   fill.position.set(-2, 1, -1);
   scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffe7b0, 0.22);
+  rim.position.set(0.2, 1.4, -2.2);
+  scene.add(rim);
 
+  const floorMap = birchMap({ planks: 12, seed: 2 });
+  floorMap.repeat.set(3, 3);
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
-    new THREE.MeshStandardMaterial({ color: 0x3a3228, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({
+      color: 0xf3ead6,
+      map: floorMap,
+      roughness: 0.82,
+      metalness: 0.02,
+    }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  const grid = new THREE.GridHelper(4, 20, 0xffda1a, 0x4a4236);
+  const grid = new THREE.GridHelper(4, 20, 0xc9a24a, 0xd2c0a0);
   grid.position.y = 0.002;
+  const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
+  for (const mat of gridMats) {
+    mat.transparent = true;
+    mat.opacity = 0.38;
+    mat.toneMapped = false;
+  }
   scene.add(grid);
 
+  const benchMap = birchMap({ planks: 6, seed: 7 });
+  benchMap.repeat.set(2, 1.2);
   const bench = new THREE.Mesh(
     new THREE.BoxGeometry(1.6, 0.06, 1.0),
-    new THREE.MeshStandardMaterial({ color: 0x6b4b2a, roughness: 0.7 }),
+    new THREE.MeshStandardMaterial({
+      color: 0xf0e2c4,
+      map: benchMap,
+      roughness: 0.62,
+      metalness: 0.03,
+    }),
   );
   bench.position.set(0, -0.03, 0);
   bench.receiveShadow = true;
@@ -79,11 +146,12 @@ export function createWorkshop(canvas) {
       geo = new THREE.BoxGeometry(x * MM, z * MM, y * MM);
     else if (part.firmwareRole === "led") geo = new THREE.SphereGeometry(Math.max(x, y) * MM * 0.6, 12, 12);
     else geo = new THREE.BoxGeometry(x * MM, z * MM, y * MM);
-    const color = new THREE.Color(part.color || piece.color || "#cccccc");
+    const color = new THREE.Color(part.color || piece.color || BIRCH);
+    const birch = part.texture === "birch-foil";
     const mat = new THREE.MeshStandardMaterial({
       color,
-      roughness: part.texture === "metal" ? 0.25 : 0.7,
-      metalness: part.material === "steel" ? 0.6 : 0.05,
+      roughness: part.texture === "metal" ? 0.25 : birch ? 0.55 : 0.7,
+      metalness: part.material === "steel" ? 0.6 : birch ? 0.02 : 0.04,
       emissive: part.firmwareRole === "led" ? new THREE.Color(0x223344) : 0x000000,
     });
     const mesh = new THREE.Mesh(geo, mat);

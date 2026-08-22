@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -81,4 +81,36 @@ test("bench chrome is driven by one class the server can switch off", () => {
   assert.match(html, /class="[^"]*electronics-chrome/, "electronics controls need the shared class");
   assert.match(main, /electronics-chrome/, "main.js must toggle the electronics chrome");
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js must read the server's chrome flag");
+});
+
+test("the bench catalog scrolls in one well of sample cards", () => {
+  assert.match(html, /id="catalog-well"/);
+  assert.match(html, /id="catalog"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /#catalog-well[^}]*overflow-y: auto/);
+});
+
+test("lab tests stay behind a details fold", () => {
+  const start = html.indexOf('id="lab-btns"');
+  assert.ok(start > 0, "lab buttons must exist");
+  assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
+});
+
+test("the workshop is the app — no leftover Next store", () => {
+  const pkg = JSON.parse(read("package.json"));
+  assert.equal(pkg.dependencies?.next, undefined);
+  assert.equal(pkg.devDependencies?.next, undefined);
+  assert.equal(existsSync(path.join(root, "src/app")), false, "src/app is the old Next store");
+  assert.equal(existsSync(path.join(root, "next.config.mjs")), false);
+  assert.equal(existsSync(path.join(root, "tsconfig.json")), false);
+});
+
+test("empty inspect is quiet — no ports, no Arduino", () => {
+  const start = html.indexOf('id="inspect"');
+  const block = html.slice(start, html.indexOf("</div>", start) + 6);
+  assert.match(block, /Nothing selected/, "inspect needs a quiet empty-state line");
+  assert.doesNotMatch(block, /ports?:/i);
+  assert.doesNotMatch(block, /Arduino/i);
+  assert.match(main, /EMPTY_INSPECT|showEmptyInspect/, "main.js must restore the empty inspect");
+  assert.match(main, /syncDeleteButton/, "delete should track whether a piece is selected");
 });

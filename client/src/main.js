@@ -15,8 +15,47 @@ function hud(text) {
   $("hud").textContent = text;
 }
 
+const EMPTY_INSPECT = "Nothing selected.";
+
 function inspect(text) {
   $("inspect").textContent = text;
+}
+
+function showEmptyInspect() {
+  inspect(EMPTY_INSPECT);
+}
+
+function selectedPieceId() {
+  const id = selectedIds[0] || shop.getSelected()?.piece?.id;
+  if (id && project.pieces.some((p) => p.id === id)) return id;
+  return "";
+}
+
+function syncDeleteButton() {
+  const btn = $("delete-piece");
+  if (!btn) return;
+  const available = Boolean(selectedPieceId());
+  btn.disabled = !available;
+  btn.classList.toggle("refuses", !available);
+  btn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
+}
+
+function money(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return "";
+  return `$${value % 1 ? value.toFixed(2) : value}`;
+}
+
+function sizePlain(part) {
+  const d = part?.dimsMm;
+  if (!d) return "";
+  const sides = [d.x, d.y, d.z]
+    .map(Number)
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => b - a);
+  if (!sides.length) return "";
+  const cm = (mm) => Math.max(1, Math.round(mm / 10));
+  return `About ${cm(sides[0])} × ${cm(sides[1] || sides[0])} cm`;
 }
 
 /**
@@ -33,16 +72,26 @@ function applyChrome(chrome) {
   if (!electronics && chrome) hudChromeNote(chrome);
 }
 
+applyChrome(project.chrome);
+showEmptyInspect();
+syncDeleteButton();
+
 let lastChromeNote = "";
 function hudChromeNote(chrome) {
-  if (chrome.note === lastChromeNote) return;
-  lastChromeNote = chrome.note;
+  // Server chrome notes talk about ports and firmware. Keep them off the HUD.
+  if (!chrome || chrome.electronics) return;
+  lastChromeNote = chrome.note || lastChromeNote;
 }
 
 async function refreshProject() {
   project = await api.project();
   shop.sync(project, partsById);
   applyChrome(project.chrome);
+  const still = selectedIds.filter((id) => project.pieces.some((p) => p.id === id));
+  const lostSelection = selectedIds.length > 0 && still.length === 0;
+  selectedIds = still;
+  if (lostSelection) showEmptyInspect();
+  syncDeleteButton();
   $("cables").innerHTML = project.cables
     .map(
       (c) =>
@@ -62,7 +111,7 @@ function renderBenchPieces() {
   list.innerHTML = project.pieces
     .map((piece) => {
       const part = partsById[piece.partId];
-      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}</span><small data-drop="${piece.id}">remove</small></div>`;
+      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -77,7 +126,7 @@ async function loadCatalog() {
   $("catalog").innerHTML = parts
     .map(
       (p) =>
-        `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>$${p.cost} · ${p.dimsMm.x}×${p.dimsMm.z} mm · ${p.store}</small></div>`,
+        `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>${money(p.cost)}${p.store ? ` · ${p.store}` : ""}</small></div>`,
     )
     .join("");
 }
@@ -86,9 +135,15 @@ $("catalog").addEventListener("click", async (ev) => {
   const item = ev.target.closest("[data-add]");
   const id = item?.dataset.add;
   if (!id) return;
-  await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
+  const added = await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
   await refreshProject();
-  hud(`Added ${partsById[id]?.name || id}`);
+  const piece = added?.id ? project.pieces.find((p) => p.id === added.id) : project.pieces.at(-1);
+  const part = partsById[id];
+  if (piece && part) {
+    selectedIds = [piece.id];
+    showPart(part, piece);
+  }
+  hud(`Added ${part?.name || id}.`);
   (item.nextElementSibling || item)?.scrollIntoView({ block: "nearest" });
 });
 
@@ -104,6 +159,7 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
     const piece = project.pieces.find((p) => p.id === id);
     const part = partsById[piece?.partId];
     if (part) showPart(part, piece);
+    else syncDeleteButton();
   }
 });
 
@@ -118,22 +174,28 @@ function isElectronics(part) {
 }
 
 function showPart(part, piece) {
-  const lines = [
-    part.name,
-    part.sku,
-    `${part.dimsMm.x}×${part.dimsMm.y}×${part.dimsMm.z} mm · ${part.massG} g`,
-    `$${part.cost} at ${part.store}`,
-  ];
+  const lines = [part.name];
+  const size = sizePlain(part);
+  const price = money(part.cost);
+  const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
+  if (shopLine) lines.push(shopLine);
   if (isElectronics(part)) {
-    lines.push(piece?.functionLabel ? `function: ${piece.functionLabel}` : "unlabeled");
-    lines.push(`ports: ${(part.ports || []).map((x) => `${x.id}/${x.lock}`).join(", ") || "none"}`);
-    if (part.firmwareRole) lines.push(`firmware: ${part.firmwareRole}`);
+    if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
+    const plugs = (part.ports || []).map((x) => x.id);
+    if (plugs.length) lines.push(`Plugs: ${plugs.join(", ")}`);
   }
+  lines.push("Delete takes this off the bench.");
   inspect(lines.join("\n"));
+  syncDeleteButton();
 }
 
 shop.onSelect((data) => {
-  if (!data?.piece) return;
+  if (!data?.piece) {
+    selectedIds = [];
+    showEmptyInspect();
+    syncDeleteButton();
+    return;
+  }
   selectedIds = [data.piece.id];
   showPart(data.part, data.piece);
 });
@@ -153,7 +215,10 @@ $("lab-btns").addEventListener("click", async (ev) => {
     flowMs: 2,
   });
   const row = report.tests[test] || report.tests.strength;
-  inspect(`${test.toUpperCase()}\n${row.note}\nfailed: ${report.failed.join(", ") || "none"}`);
+  const testName = ev.target.textContent.trim() || test;
+  inspect(
+    `${testName}\n${row.note}\n${report.failed?.length ? "That one did not hold." : "Still in one piece."}`,
+  );
   shop.setSim(true, {
     rain: test === "weather" && $("rain").checked,
     heat: Number($("temp").value) > 40,
@@ -167,7 +232,7 @@ $("sim-toggle").addEventListener("change", async (ev) => {
   if (ev.target.checked) {
     await api.simStart();
     shop.setSim(true, { force: true });
-    hud("Simulation on — drag pieces, then Reset to restore.");
+    hud("Play is on. Drag things around. Reset puts them back.");
   } else {
     shop.setSim(false);
   }
@@ -178,14 +243,14 @@ $("reset-sim").addEventListener("click", async () => {
   await refreshProject();
   shop.setSim(false);
   $("sim-toggle").checked = false;
-  hud("Bench restored.");
+  hud("Back as it was.");
 });
 
 async function applyTape(id) {
   const ids = selectedIds.length ? selectedIds : project.pieces.slice(0, 2).map((p) => p.id);
   await api.tape(id, ids);
   await refreshProject();
-  hud(`Wrapped ${id} on the joint.`);
+  hud(id === "tape-electrical" ? "Wrapped electrical tape on the join." : "Wrapped gaffer tape on the join.");
 }
 $("tape-elec").addEventListener("click", () => applyTape("tape-electrical"));
 $("tape-gaff").addEventListener("click", () => applyTape("tape-gaffer"));
@@ -194,9 +259,9 @@ $("isolate-btn").addEventListener("click", async () => {
   const ids = project.pieces
     .filter((p) => isElectronics(partsById[p.partId]))
     .map((p) => p.id);
-  if (!ids.length) return hud("Nothing electronic to isolate.");
+  if (!ids.length) return hud("No lights or boards to group.");
   await api.isolate(ids, "lamp-board");
-  hud("Electronics isolated as lamp-board.");
+  hud("Grouped the electrics as one board.");
 });
 
 $("label-btn").addEventListener("click", async () => {
@@ -205,7 +270,7 @@ $("label-btn").addEventListener("click", async () => {
   const label =
     sel.part.firmwareRole === "led" ? "light" : sel.part.firmwareRole === "button" ? "sense" : "control";
   await api.label(sel.piece.id, label);
-  inspect(`Labeled ${sel.part.name} as ${label}`);
+  inspect(`${sel.part.name} is now the ${label}.`);
 });
 
 $("bundle-loose").addEventListener("click", async () => hud((await api.bundle("loose")).note));
@@ -214,14 +279,23 @@ $("bundle-race").addEventListener("click", async () => hud((await api.bundle("ch
 
 $("print-btn").addEventListener("click", async () => {
   const job = await api.print();
-  inspect(job.note + "\n" + job.jobs.map((j) => `${j.name} · ${j.minutes} min · ${j.material}`).join("\n"));
-  hud(job.note);
+  const jobs = job.jobs || [];
+  inspect(
+    jobs.length
+      ? ["Ready to print.", ...jobs.map((j) => `${j.name} · about ${j.minutes} min`)].join("\n")
+      : "Nothing here is ready to print.",
+  );
+  hud(jobs.length ? "Ready to print." : "Nothing here is ready to print.");
 });
 
 $("flash-btn").addEventListener("click", async () => {
-  const sketch = await api.flash(["light", "sense"]);
+  await api.flash(["light", "sense"]);
   const run = await api.runFw(false);
-  inspect(sketch.source + "\n\nLED frames: " + run.frames.map((f) => (f.led ? "■" : "□")).join(" "));
+  const sel = shop.getSelected();
+  if (isElectronics(sel?.part)) {
+    inspect(`The light blinks.\n${run.frames.map((f) => (f.led ? "■" : "□")).join(" ")}`);
+  }
+  hud("The light blinks.");
   let i = 0;
   const timer = setInterval(() => {
     shop.setLed(run.frames[i % run.frames.length].led);
@@ -234,18 +308,20 @@ async function removePiece(id) {
   if (!id) return;
   const result = await api.remove(id);
   if (result?.ok === false) {
-    hud(result.error || "Could not remove that piece.");
+    hud(result.error || "Could not delete that piece.");
     return;
   }
+  const wasSelected = selectedIds.includes(id);
   selectedIds = selectedIds.filter((x) => x !== id);
-  inspect("");
+  if (wasSelected) showEmptyInspect();
+  syncDeleteButton();
   await refreshProject();
-  hud(`Removed ${partsById[result.removed?.partId]?.name || "piece"}.`);
+  hud(`Deleted ${partsById[result.removed?.partId]?.name || "that piece"}.`);
 }
 
 $("delete-piece").addEventListener("click", () => {
-  const id = selectedIds[0] || shop.getSelected()?.piece?.id;
-  if (!id) return hud("Pick a piece on the bench first.");
+  const id = selectedPieceId();
+  if (!id) return hud("Pick a piece, then Delete.");
   removePiece(id);
 });
 
@@ -265,7 +341,10 @@ function setMode(mode) {
   }
   $("film").classList.toggle("hidden", mode !== "ikeafy");
   $("ar-photo").classList.toggle("hidden", mode !== "house");
-  if (mode === "bench") applyChrome(project.chrome);
+  if (mode === "bench") {
+    applyChrome(project.chrome);
+    hud(project.pieces.length ? "Pick a piece, move it, or Delete it." : "Add a piece from the shelf.");
+  }
   shop.resize();
 }
 
@@ -350,7 +429,9 @@ $("chat-form").addEventListener("submit", async (ev) => {
   for (const action of reply.actions || []) {
     if (action.type === "camera") shop.setCamera(action);
     if (action.type === "adaptation") $("adapt-out").textContent = action.plan.note;
-    if (action.type === "firmware") inspect(action.source);
+    if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
+      inspect("The board is programmed.");
+    }
   }
   await refreshProject();
 });
@@ -363,7 +444,9 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "s" && ev.shiftKey) shop.setMode("scale");
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
-    removePiece(selectedIds[0] || shop.getSelected()?.piece?.id);
+    const id = selectedPieceId();
+    if (!id) return hud("Pick a piece, then Delete.");
+    removePiece(id);
   }
 });
 
