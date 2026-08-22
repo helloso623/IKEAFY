@@ -96,6 +96,9 @@ export const api = {
   video: (body = {}) => post("/api/ikeafy/video", body),
   renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
   renderReel: (body = {}) => post("/api/ikeafy/video/reel", body),
+  renderImage: (body = {}) => post("/api/ikeafy/image/render", body),
+  renderScene: (body = {}) => post("/api/ikeafy/scene/render", body),
+  render: (body = {}) => post("/api/ikeafy/render", body),
   colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),
   broken: (step, note, photoName = "broken.jpg") =>

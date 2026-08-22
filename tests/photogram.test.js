@@ -129,6 +129,7 @@ test("the default table footprint is the neutral 550 × 550 × 450 mm placeholde
   assert.equal(GENERIC_SIDE_TABLE.heightMm, 450);
   assert.equal(GENERIC_SIDE_TABLE_M.w, 0.55);
   assert.equal(GENERIC_SIDE_TABLE.id, "generic-side-table");
+  assert.match(GENERIC_SIDE_TABLE.note, /specs needed for an exact IKEA article/i);
 });
 
 test("the camera frames the interior so orbit and walk can see the room", () => {

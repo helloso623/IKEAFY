@@ -556,13 +556,13 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         mode: "custom",
         guide: raw,
         instructions,
+        renderMode: state.renderMode || undefined,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      setInterface("watch");
-      announce("Rendering Seedance 2.5…");
-      await bootReel();
+      ikealiveLog("assembly", "scan plan ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      await afterGuideReady();
       return view;
     } catch (error) {
       return fail(error);

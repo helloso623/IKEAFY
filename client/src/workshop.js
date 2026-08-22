@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -325,8 +326,10 @@ function openWoodMaterial(part, hex) {
 }
 
 function materialFor(part, piece) {
-  const hex = part.color || piece.color || PALE;
-  const texture = part.texture || piece.texture;
+  // Piece values win: the Materials panel retints and refinishes per piece,
+  // and the server copies part defaults onto every new piece anyway.
+  const hex = piece.color || part.color || PALE;
+  const texture = piece.texture || part.texture;
   if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
   if (texture === "white-foil") return foilMaterial(part, hex, "white");
   if (texture === "oak-open") return openWoodMaterial(part, hex);
@@ -1188,6 +1191,9 @@ export function createWorkshop(canvas) {
   scene.add(cableGroup);
   const fx = new THREE.Group();
   scene.add(fx);
+  const gltfLoader = new GLTFLoader();
+  let instructionRoot = null;
+  let instructionUrl = null;
 
   const transform = new TransformControls(camera, canvas);
   const ray = new THREE.Raycaster();
@@ -1441,6 +1447,78 @@ export function createWorkshop(canvas) {
     }
   });
   scene.add(transform.getHelper());
+
+  /* ---- Materials panel: per-piece color + roughness, applied live --------
+     Color and texture persist through the project API (the server keeps
+     them on the piece); roughness is a client-side dressing kept in a map
+     so sync() can re-apply it after every rebuild. */
+  const matOverrides = new Map(); // pieceId -> { roughness }
+
+  function eachTintableMaterial(root, fn) {
+    root.traverse((child) => {
+      if (!child.isMesh || child.userData.keepColor) return;
+      // Shading overrides may be live on child.material; edit the real one.
+      const base = child.userData.baseMaterial || child.material;
+      const mats = Array.isArray(base) ? base : base ? [base] : [];
+      for (const mat of mats) {
+        if (!mat || mat.userData?.keepColor) continue;
+        fn(mat, child);
+      }
+    });
+  }
+
+  function setPieceMaterial(id, { color, roughness } = {}) {
+    const mesh = meshes.get(id);
+    if (!mesh) return false;
+    if (roughness != null && Number.isFinite(Number(roughness))) {
+      const value = THREE.MathUtils.clamp(Number(roughness), 0, 1);
+      matOverrides.set(id, { ...(matOverrides.get(id) || {}), roughness: value });
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.roughness !== undefined) mat.roughness = value;
+      });
+    }
+    if (color) {
+      const piece = mesh.userData.piece;
+      if (piece) piece.color = color;
+      const record = reconstructed.get(id);
+      if (record) record.piece.color = color;
+      eachTintableMaterial(mesh, (mat, child) => {
+        if (!mat.color) return;
+        mat.color.set(color);
+        const mul = mat.userData?.tintMul ?? child.userData.tintMul;
+        if (mul) mat.color.multiplyScalar(mul);
+      });
+    }
+    return true;
+  }
+
+  function getPieceMaterial(id) {
+    const mesh = meshes.get(id);
+    if (!mesh) return null;
+    const piece = mesh.userData.piece || {};
+    const part = mesh.userData.part || {};
+    let roughness = matOverrides.get(id)?.roughness;
+    if (roughness == null) {
+      eachTintableMaterial(mesh, (mat) => {
+        if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
+      });
+    }
+    return {
+      color: `#${new THREE.Color(piece.color || part.color || PALE).getHexString()}`,
+      texture: piece.texture || part.texture || null,
+      roughness: roughness ?? 0.6,
+    };
+  }
+
+  function applyMatOverrides() {
+    for (const [id, override] of matOverrides) {
+      const mesh = meshes.get(id);
+      if (!mesh || override.roughness == null) continue;
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.roughness !== undefined) mat.roughness = override.roughness;
+      });
+    }
+  }
 
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
@@ -2065,7 +2143,7 @@ export function createWorkshop(canvas) {
   }
 
   timelineEl?.addEventListener("click", (ev) => {
-    if (ev.target.closest(".cad-tl-undo")) document.getElementById("undo-edit")?.click();
+    if (ev.target.closest(".cad-tl-undo")) document.querySelector("[data-undo]")?.click();
   });
 
   // Place / delete chips fall out of the piece-list diff between syncs, so
@@ -2258,6 +2336,10 @@ export function createWorkshop(canvas) {
       group.add(mesh);
       meshes.set(record.piece.id, mesh);
     }
+    for (const id of [...matOverrides.keys()]) {
+      if (!meshes.has(id)) matOverrides.delete(id);
+    }
+    applyMatOverrides();
     cableGroup.clear();
     const cableNets = project.netlist?.cableNets || {};
     const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
@@ -2433,11 +2515,68 @@ export function createWorkshop(canvas) {
   }
 
   function explode(amount) {
+    const target = instructionRoot || group;
     let i = 0;
-    meshes.forEach((mesh) => {
+    target.traverse((mesh) => {
+      if (!mesh.isMesh) return;
       mesh.position.y += amount * (0.02 + (i % 4) * 0.03);
       i += 1;
     });
+  }
+
+  function disposeObject(root) {
+    root.traverse((child) => {
+      child.geometry?.dispose?.();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        material?.map?.dispose?.();
+        material?.dispose?.();
+      }
+    });
+  }
+
+  function clearInstructionMesh() {
+    if (instructionRoot) {
+      scene.remove(instructionRoot);
+      disposeObject(instructionRoot);
+      instructionRoot = null;
+    }
+    instructionUrl = null;
+    group.visible = true;
+    cableGroup.visible = true;
+  }
+
+  function frameInstruction(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    root.scale.multiplyScalar(0.9 / maxDim);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    root.position.sub(fittedCenter);
+    root.position.y -= fitted.min.y;
+  }
+
+  async function loadInstructionMesh(url, { camera: nextCamera } = {}) {
+    const meshUrl = String(url || "").trim();
+    if (!meshUrl) throw new Error("No mesh URL");
+    if (instructionUrl === meshUrl && instructionRoot) {
+      if (nextCamera) setCamera(nextCamera);
+      resize();
+      return { meshUrl, reused: true };
+    }
+    clearInstructionMesh();
+    group.visible = false;
+    cableGroup.visible = false;
+    const gltf = await gltfLoader.loadAsync(meshUrl);
+    instructionRoot = gltf.scene || gltf.scenes?.[0];
+    if (!instructionRoot) throw new Error("GLB had no scene");
+    frameInstruction(instructionRoot);
+    scene.add(instructionRoot);
+    instructionUrl = meshUrl;
+    if (nextCamera) setCamera(nextCamera);
+    resize();
+    return { meshUrl };
   }
 
   function setLed(on) {
@@ -2587,6 +2726,8 @@ export function createWorkshop(canvas) {
     sync,
     setSim,
     setCamera,
+    loadInstructionMesh,
+    clearInstructionMesh,
     setShading,
     getShading: () => shading,
     setLook,
@@ -2600,6 +2741,8 @@ export function createWorkshop(canvas) {
     select: (id) => selectById(id),
     clearSelect: () => attach(null),
     applyPose,
+    setPieceMaterial,
+    getPieceMaterial,
     setEda,
     highlightNet,
     setPendingPort,

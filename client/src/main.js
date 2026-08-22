@@ -318,7 +318,7 @@ function isElectronicsQuery(query) {
 }
 
 function showElectronicsOn() {
-  return Boolean($("show-electronics")?.checked);
+  return false;
 }
 
 function filterLabCatalog(parts, typed) {
@@ -660,10 +660,6 @@ $("cost")?.addEventListener("change", () => {
   loadCatalog(activeQuery());
 });
 
-$("show-electronics")?.addEventListener("change", () => {
-  loadCatalog(activeQuery());
-});
-
 for (const box of searchBoxes()) {
   box.addEventListener("input", () => loadCatalog(box.value));
 }
@@ -678,26 +674,89 @@ function selectedPiece() {
   return { piece, part: partsById[piece.partId] };
 }
 
-function syncFunctionStrip() {
+/* ---- Materials: color, roughness, finish presets on the selected piece ---- */
+
+const MAT_FINISH_TEXTURES = { foil: "birch-foil", wood: "oak-open", metal: "metal" };
+
+function syncMaterialPanel() {
   const picked = selectedPiece();
-  const hint = $("fn-hint");
-  if (hint) {
-    hint.textContent = picked?.piece.reconstructed
-      ? "Scanned meshes can be moved, scaled, duplicated, or deleted locally."
-      : picked
-        ? picked.piece.functionLabel
-        ? `${picked.part?.name || "This piece"} is ${picked.piece.functionLabel}.`
-        : `Assign a job to ${picked.part?.name || "this piece"}.`
-        : "Pick a piece, then assign a job.";
+  const current = picked ? shop.getPieceMaterial?.(picked.piece.id) : null;
+  const disabled = !picked;
+  const colorInput = $("mat-color");
+  if (colorInput) {
+    colorInput.disabled = disabled;
+    if (current?.color) colorInput.value = current.color;
   }
-  const row = $("fn-btns");
-  if (!row) return;
-  for (const btn of row.querySelectorAll("[data-fn]")) {
-    const fn = btn.dataset.fn;
-    btn.disabled = !picked || Boolean(picked.piece.reconstructed);
-    btn.classList.toggle("on", Boolean(picked && picked.piece.functionLabel === fn));
+  const rough = $("mat-rough");
+  if (rough) {
+    rough.disabled = disabled;
+    if (current) rough.value = String(Math.round((current.roughness ?? 0.6) * 100));
+  }
+  const roughOut = $("mat-rough-out");
+  if (roughOut) roughOut.textContent = ((Number(rough?.value) || 0) / 100).toFixed(2);
+  for (const btn of document.querySelectorAll("[data-mat-color]")) btn.disabled = disabled;
+  for (const btn of document.querySelectorAll("[data-mat-finish]")) {
+    btn.disabled = disabled || Boolean(picked?.piece.reconstructed);
+    btn.classList.toggle(
+      "on",
+      Boolean(picked) && MAT_FINISH_TEXTURES[btn.dataset.matFinish] === current?.texture,
+    );
+  }
+  const hint = $("mat-hint");
+  if (hint) {
+    hint.textContent = picked
+      ? picked.piece.reconstructed
+        ? `Scanned mesh — color and roughness apply, finishes need a flat surface.`
+        : `Material on ${picked.part?.name || "this piece"}.`
+      : "Pick a piece, then set its material.";
   }
 }
+
+async function applyMaterial(patch) {
+  const picked = selectedPiece();
+  if (!picked?.piece) return hud("Pick a piece, then set its material.");
+  const id = picked.piece.id;
+  if (patch.roughness != null || patch.color) {
+    shop.setPieceMaterial?.(id, { roughness: patch.roughness, color: patch.color });
+  }
+  if (!picked.piece.reconstructed && (patch.color || patch.texture) && patch.persist !== false) {
+    const result = await api.move({ id, color: patch.color, texture: patch.texture, snap: false });
+    if (result?.ok === false) return hud(result.error || "Could not change that material.");
+    await refreshProject();
+  }
+  syncMaterialPanel();
+  if (patch.texture) {
+    const finish = Object.entries(MAT_FINISH_TEXTURES).find(([, tex]) => tex === patch.texture)?.[0];
+    hud(`${picked.part?.name || "Piece"} refinished as ${finish || patch.texture}.`);
+  } else if (patch.color) {
+    hud(`Painted ${picked.part?.name || "the piece"} ${patch.color}.`);
+  }
+}
+
+$("mat-color")?.addEventListener("input", (ev) => {
+  applyMaterial({ color: ev.target.value, persist: false });
+});
+$("mat-color")?.addEventListener("change", (ev) => {
+  applyMaterial({ color: ev.target.value });
+});
+$("mat-rough")?.addEventListener("input", (ev) => {
+  const roughness = Math.min(1, Math.max(0, Number(ev.target.value) / 100));
+  const out = $("mat-rough-out");
+  if (out) out.textContent = roughness.toFixed(2);
+  applyMaterial({ roughness });
+});
+$("mat-swatches")?.addEventListener("click", (ev) => {
+  const hex = ev.target.closest("[data-mat-color]")?.dataset.matColor;
+  if (!hex) return;
+  const colorInput = $("mat-color");
+  if (colorInput) colorInput.value = hex;
+  applyMaterial({ color: hex });
+});
+$("mat-finish")?.addEventListener("click", (ev) => {
+  const finish = ev.target.closest("[data-mat-finish]")?.dataset.matFinish;
+  const texture = MAT_FINISH_TEXTURES[finish];
+  if (texture) applyMaterial({ texture });
+});
 
 function showPart(part, piece) {
   const lines = [part.name];
@@ -709,10 +768,9 @@ function showPart(part, piece) {
 
   if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
 
-  lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
   syncEditButtons();
-  syncFunctionStrip();
+  syncMaterialPanel();
   aiDock?.refreshScene();
 }
 
@@ -762,108 +820,6 @@ shop.onJoint?.(async ({ moves, joint, label }) => {
   }
 });
 
-$("lab-btns").addEventListener("click", async (ev) => {
-  const test = ev.target.dataset.test;
-  if (!test) return;
-  const piece = shop.getSelected();
-  const partId = piece?.part?.id || "lack-top";
-  const report = await api.physics({
-    partId,
-    tapeId: "tape-gaffer",
-    forceN: test === "speed" ? 12 : 180,
-    rain: $("rain").checked,
-    tempC: Number($("temp").value),
-    aeroMs: 8,
-    flowMs: 2,
-  });
-  const row = report.tests[test] || report.tests.strength;
-  const testName = ev.target.textContent.trim() || test;
-  inspect(
-    `${testName}\n${row.note}\n${report.failed?.length ? "That one did not hold." : "Still in one piece."}`,
-  );
-  shop.setSim(true, {
-    rain: test === "weather" && $("rain").checked,
-    heat: Number($("temp").value) > 40,
-    force: ["strength", "pressure", "speed", "aero"].includes(test),
-  });
-  $("sim-toggle").checked = true;
-  hud(row.note);
-});
-
-$("sim-toggle").addEventListener("change", async (ev) => {
-  if (ev.target.checked) {
-    await api.simStart();
-    shop.setSim(true, { force: true });
-    hud("Play is on. Drag things around. Reset puts them back.");
-  } else {
-    shop.setSim(false);
-  }
-});
-
-$("reset-sim").addEventListener("click", async () => {
-  await api.simReset();
-  await refreshProject();
-  shop.setSim(false);
-  $("sim-toggle").checked = false;
-  hud("Back as it was.");
-});
-
-async function applyTape(id) {
-  const ids = selectedIds.length ? selectedIds : project.pieces.slice(0, 2).map((p) => p.id);
-  await api.tape(id, ids);
-  await refreshProject();
-  hud(id === "tape-electrical" ? "Wrapped electrical tape on the join." : "Wrapped gaffer tape on the join.");
-}
-$("tape-elec").addEventListener("click", () => applyTape("tape-electrical"));
-$("tape-gaff").addEventListener("click", () => applyTape("tape-gaffer"));
-
-$("fn-btns").addEventListener("click", async (ev) => {
-  const fn = ev.target.closest("[data-fn]")?.dataset.fn;
-  if (!fn || !PIECE_FUNCTIONS.includes(fn)) return;
-  const picked = selectedPiece() || shop.getSelected();
-  if (!picked?.piece) return hud("Pick a piece, then assign a job.");
-  await api.label(picked.piece.id, fn);
-  await refreshProject();
-  const piece = project.pieces.find((p) => p.id === picked.piece.id);
-  const part = partsById[piece?.partId] || picked.part;
-  if (part && piece) showPart(part, piece);
-  hud(`${part?.name || "Piece"} is now ${fn}.`);
-});
-
-$("sim-behavior").addEventListener("click", async () => {
-  const rain = Boolean($("rain")?.checked);
-  const tempC = Number($("temp")?.value || 22);
-  hud("Running the behavior suite…");
-  const result = await api.simBehavior({
-    rain,
-    tempC,
-    tapeId: "tape-gaffer",
-    forceN: 180,
-    aeroMs: 8,
-    flowMs: 2,
-  });
-  const notes = (result.notes || []).filter((n) => !/firmware|arduino|sketch/i.test(n));
-  inspect((notes.length ? notes : ["Behavior suite finished."]).join("\n"));
-  hud(notes[0] || "Behavior suite finished.");
-  shop.setSim(true, {
-    rain,
-    heat: tempC > 40,
-    force: true,
-  });
-  $("sim-toggle").checked = true;
-});
-
-$("print-btn").addEventListener("click", async () => {
-  const job = await api.print();
-  const jobs = job.jobs || [];
-  inspect(
-    jobs.length
-      ? ["Ready to print.", ...jobs.map((j) => `${j.name} · about ${j.minutes} min`)].join("\n")
-      : "Nothing here is ready to print.",
-  );
-  hud(jobs.length ? "Ready to print." : "Nothing here is ready to print.");
-});
-
 async function commitPose(pose) {
   if (!pose?.id) return;
 
@@ -889,7 +845,6 @@ async function commitPose(pose) {
 function setEditMode(mode) {
   shop.setMode(mode);
   syncEditButtons();
-  hud(mode === "rotate" ? "Rotate the piece." : mode === "scale" ? "Scale the piece." : "Move the piece.");
 }
 
 function setSnap(on) {
@@ -964,25 +919,18 @@ async function removePiece(id) {
   hud(`Deleted ${partsById[result.removed?.partId]?.name || "that piece"}.`);
 }
 
-$("delete-piece").addEventListener("click", () => {
+function deleteSelected() {
   const id = selectedPieceId();
   if (!id) return hud("Pick a piece, then Delete.");
   removePiece(id);
-});
+}
 
-$("duplicate-piece")?.addEventListener("click", () => duplicateSelected());
-$("undo-edit")?.addEventListener("click", () => undoLastEdit());
-$("redo-edit")?.addEventListener("click", () => redoLastEdit());
-$("edit-snap")?.addEventListener("click", () => setSnap(!shop.getSnap()));
-$("edit-bar")?.addEventListener("click", (ev) => {
-  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
-  if (mode) setEditMode(mode);
-});
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
+  if (ev.target.closest("[data-delete]")) deleteSelected();
   if (ev.target.closest("[data-undo]")) undoLastEdit();
   if (ev.target.closest("[data-redo]")) redoLastEdit();
 });

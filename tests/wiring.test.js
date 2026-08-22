@@ -285,7 +285,7 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
-test("Lab loadCatalog hides electronics unless you search or toggle them", () => {
+test("Lab loadCatalog hides electronics unless the search asks for them", () => {
   assert.match(main, /function isLabShelfPart/);
   assert.match(main, /function isElectronicsQuery/);
   assert.match(main, /function filterLabCatalog/);
@@ -297,10 +297,9 @@ test("Lab loadCatalog hides electronics unless you search or toggle them", () =>
   assert.match(main, /arduino-nano/);
   assert.match(main, /\.filter\(isLabShelfPart\)/);
   assert.match(main, /arduino\|leds\?\|nano\|esp\(\?:32\)\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
-  assert.match(html, /id="show-electronics"/);
-  assert.match(html, /Show electronics/);
-  assert.doesNotMatch(html, /id="show-electronics"[^>]*checked/);
-  assert.match(main, /\$\("show-electronics"\)/);
+  assert.doesNotMatch(html, /id="show-electronics"/);
+  assert.doesNotMatch(html, /Show electronics/);
+  assert.doesNotMatch(main, /\$\("show-electronics"\)/);
   const server = read("server/index.js");
   assert.match(server, /state\.project = emptyProject\(\)/);
   assert.match(server, /filterLabCatalog/);

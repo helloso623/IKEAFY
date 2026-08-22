@@ -36,7 +36,10 @@ import {
   editStep,
   getAssembly,
   goBack,
+  normalizeRenderMode,
   peekStep,
+  sceneLockFor,
+  setAssemblyRenderMode,
   skipStep,
   startAssemblyAsync,
   stuckOn,
@@ -50,6 +53,8 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
+import { FAL_IMAGE_REQUIRED, renderStepImage } from "./lib/image.js";
+import { FAL_SCENE_REQUIRED, MODEL as TRIPO_MODEL, QUEUE as TRIPO_QUEUE, renderStepScene } from "./lib/scene.js";
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
@@ -106,6 +111,36 @@ const VIDEO_PARTNERS = {
   },
 };
 
+const IMAGE_PARTNERS = {
+  nanoBanana: {
+    name: "Nano Banana 2",
+    model: "fal-ai/nano-banana-2",
+    status: "optional",
+    note: "Instruction stills through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a LACK table.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/image.js call Nano Banana 2. Nothing leaves the machine without it.",
+  },
+};
+
+const SCENE_PARTNERS = {
+  tripo: {
+    name: "Tripo H3.1",
+    model: TRIPO_MODEL,
+    status: "optional",
+    note: "Text-to-3D meshes through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a catalog LACK table.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/scene.js call Tripo H3.1. Nothing leaves the machine without it.",
+  },
+};
+
 const app = express();
 app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
@@ -142,6 +177,23 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
+    },
+    image: {
+      partners: IMAGE_PARTNERS,
+      renderer: hasFal() ? "fal-ai/nano-banana-2 via fal.ai" : "none",
+      live: hasFal(),
+      route: "/api/ikeafy/image/render",
+    },
+    scene: {
+      partners: SCENE_PARTNERS,
+      renderer: hasFal() ? "tripo3d/h3.1/text-to-3d via fal.ai" : "none",
+      live: hasFal(),
+      route: "/api/ikeafy/scene/render",
+      queue: TRIPO_QUEUE,
+    },
+    render: {
+      route: "/api/ikeafy/render",
+      modes: ["video", "images", "scene"],
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -330,21 +382,91 @@ function guideForVideo(body = {}) {
   return state.guide;
 }
 
+function rememberRenderMode(body = {}) {
+  const stored = body.runId ? getAssembly(body.runId) : null;
+  const mode = normalizeRenderMode(body.renderMode || body.mode) || stored?.renderMode || null;
+  if (stored && mode) stored.renderMode = mode;
+  return { stored, mode };
+}
+
+function renderLock(body = {}) {
+  const { stored, mode } = rememberRenderMode(body);
+  const guide = guideForVideo(body);
+  const { bible, seed } = sceneLockFor(body.runId, guide);
+  return { stored, mode, guide, bible, seed };
+}
+
+app.post("/api/ikeafy/render", (req, res) => {
+  const body = req.body || {};
+  const mode = normalizeRenderMode(body.mode || body.renderMode);
+  const runId = body.runId || null;
+  if (!mode) {
+    return res.status(400).json({ ok: false, reason: "Pick video, images, or 3D instructions." });
+  }
+  ikealiveLog("render", "mode chosen", { mode, runId });
+  if (runId) {
+    const updated = setAssemblyRenderMode(runId, mode);
+    if (!updated.ok) ikealiveWarn("render", "run missing", { runId, mode });
+  }
+  if (mode === "scene") {
+    ikealiveLog("3d", "model", { model: TRIPO_MODEL, queue: TRIPO_QUEUE, runId });
+    return res.json({
+      ok: true,
+      mode,
+      renderMode: mode,
+      implemented: true,
+      engine: "workshop",
+      renderer: TRIPO_MODEL,
+      queue: TRIPO_QUEUE,
+      reason: null,
+    });
+  }
+  if (mode === "video" || mode === "images") {
+    return res.json({ ok: true, mode, renderMode: mode, implemented: true, reason: null });
+  }
+  const reason = "Unknown instruction render mode.";
+  ikealiveLog("render", "unimplemented", { mode, reason });
+  res.json({ ok: true, mode, renderMode: mode, implemented: false, reason });
+});
+
 app.post("/api/ikeafy/video", (req, res) => {
   res.json(makeVideoPlan(guideForVideo(req.body || {})));
 });
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
-  const stored = body.runId ? getAssembly(body.runId) : null;
-  const guide = guideForVideo(body);
+  const { stored, mode, guide, bible, seed } = renderLock(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
-  ikealiveLog("video", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
+  const renderMode = mode || "video";
+  ikealiveLog("video", "POST /api/ikeafy/video/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "video") {
+    const reason =
+      renderMode === "images"
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
+        : "3D instructions use Tripo H3.1, not Seedance.";
+    ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      videoUrl: null,
+      reason,
+    });
+  }
   try {
     const result = await renderStepVideo({
       guide,
       stepNumber,
       extra: body.instructions || body.extra || "",
+      bible,
+      seed,
     });
     if (stored?.guide) state.guide = stored.guide;
     if (!result.videoUrl) {
@@ -374,8 +496,30 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
-  const guide = guideForVideo(body);
-  ikealiveLog("video", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
+  const { mode, guide, bible, seed } = renderLock(body);
+  const renderMode = mode || "video";
+  ikealiveLog("video", "POST /api/ikeafy/video/reel", {
+    steps: guide?.steps?.length || 0,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "video") {
+    const reason =
+      renderMode === "images"
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
+        : "3D instructions use Tripo H3.1, not Seedance.";
+    ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      reel: true,
+      videoUrl: null,
+      steps: [],
+      reason,
+    });
+  }
   if (!hasFal()) {
     ikealiveWarn("video", "missing FAL_KEY — reel skipped");
     return res.status(503).json({
@@ -395,6 +539,8 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
         guide,
         stepNumber: step.number,
         extra: body.instructions || body.extra || "",
+        bible,
+        seed,
       });
       if (!result.videoUrl) {
         return res.status(503).json({
@@ -425,6 +571,132 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   } catch (err) {
     ikealiveWarn("video", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/image/render", async (req, res) => {
+  const body = req.body || {};
+  const { stored, mode, guide, bible, seed } = renderLock(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  const renderMode = mode || "images";
+  ikealiveLog("image", "POST /api/ikeafy/image/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "images") {
+    const reason =
+      renderMode === "video"
+        ? "Video mode uses Seedance films, not Nano Banana stills."
+        : "3D instructions use Tripo H3.1, not Nano Banana stills.";
+    ikealiveLog("image", "image route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      imageUrl: null,
+      reason,
+    });
+  }
+  try {
+    const result = await renderStepImage({
+      guide,
+      stepNumber,
+      extra: body.instructions || body.extra || "",
+      bible,
+      seed,
+    });
+    if (stored?.guide) state.guide = stored.guide;
+    if (!result.imageUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_IMAGE_REQUIRED,
+        imageUrl: null,
+        partners: IMAGE_PARTNERS,
+      });
+    }
+    res.json({
+      ok: true,
+      stepNumber,
+      live: true,
+      partners: IMAGE_PARTNERS,
+      imageUrl: result.imageUrl,
+      provider: result.provider,
+      prompt: result.prompt,
+    });
+  } catch (err) {
+    ikealiveWarn("image", "render error", { stepNumber, error: String(err.message || err) });
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/scene/render", async (req, res) => {
+  const body = req.body || {};
+  const { stored, mode, guide, bible, seed } = renderLock(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  const renderMode = mode || "scene";
+  ikealiveLog("3d", "POST /api/ikeafy/scene/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+    model: TRIPO_MODEL,
+  });
+  if (renderMode !== "scene") {
+    const reason =
+      renderMode === "video"
+        ? "Video mode uses Seedance films, not Tripo meshes."
+        : "Image mode uses Nano Banana 2 stills, not Tripo meshes.";
+    ikealiveLog("3d", "scene route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      meshUrl: null,
+      reason,
+    });
+  }
+  try {
+    const result = await renderStepScene({
+      guide,
+      stepNumber,
+      extra: body.instructions || body.extra || "",
+      bible,
+      seed,
+    });
+    if (stored?.guide) state.guide = stored.guide;
+    if (!result.meshUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_SCENE_REQUIRED,
+        meshUrl: null,
+        model: TRIPO_MODEL,
+        partners: SCENE_PARTNERS,
+      });
+    }
+    res.json({
+      ok: true,
+      stepNumber,
+      live: true,
+      partners: SCENE_PARTNERS,
+      meshUrl: result.meshUrl,
+      provider: result.provider,
+      model: result.model,
+      prompt: result.prompt,
+      engine: "workshop",
+    });
+  } catch (err) {
+    ikealiveWarn("3d", "render error", { stepNumber, error: String(err.message || err) });
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
 
@@ -497,6 +769,7 @@ app.post("/api/assembly/start", async (req, res) => {
     article: body.article || null,
     plates: Array.isArray(body.images) ? body.images.length : 0,
     hasGuideText: Boolean(body.guide),
+    renderMode: normalizeRenderMode(body.renderMode) || null,
   });
   const result = await startAssemblyAsync(req.body || {});
   if (result.ok && getAssembly(result.run?.id)?.guide) {
@@ -622,8 +895,6 @@ app.post(["/api/chat", "/api/agents/chat"], async (req, res) => {
     });
     res.json({ ok: true, ...reply });
   } catch (error) {
-    // Chat must remain available when a hosted provider is unavailable. The
-    // hosted path already falls back normally; this is the final local guard.
     ikealiveWarn("agents", "chat error", String(error?.message || error));
     res.json({
       ok: true,

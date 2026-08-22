@@ -1,7 +1,6 @@
 /**
- * Neutral side-table placeholder shared by the Lab and House scenes.
- * Its editable 550 × 550 × 450 mm envelope comes from the catalog; it is not
- * branded CAD or a claim of product equivalence.
+ * IKEA-vibe test table used in the Lab seed, AR/house scene and tests.
+ * 550 × 550 mm top, ~450 mm high. Specs needed for an exact IKEA article.
  */
 
 export const GENERIC_SIDE_TABLE = Object.freeze({
@@ -11,7 +10,8 @@ export const GENERIC_SIDE_TABLE = Object.freeze({
   heightMm: 450,
   topMm: 36,
   legMm: 50,
-  color: "#d8c6a3",
+  color: "#ecdfc6",
+  note: "Generic 550 × 550 mm top, ~450 mm high. Specs needed for an exact IKEA article.",
 });
 
 export const GENERIC_SIDE_TABLE_M = Object.freeze({
