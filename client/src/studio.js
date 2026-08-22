@@ -614,6 +614,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         file = await fetchNamedManual();
       }
       let images = [];
+      let guideText = "";
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
@@ -624,6 +625,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         try {
           const plates = await pagesFromPdf(file);
           images = plates.images || [];
+          guideText = plates.text || "";
           ikealiveLog("parse", "plates", {
             name: file.name,
             pageCount: plates.pageCount,
@@ -642,10 +644,15 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         announce("Drop a PDF or type an IKEA product name first.");
         return null;
       }
-      announce("Reading the plates with vision…");
-      ikealiveLog("assembly", "start", { plates: images.length, notes: Boolean(el.notes?.value) });
+      announce("Extracting PDF text with GLiNER 2, then reading plates if needed…");
+      ikealiveLog("assembly", "start", {
+        plates: images.length,
+        extractedText: Boolean(guideText),
+        notes: Boolean(el.notes?.value),
+      });
       const view = await api.runStart({
         mode: "custom",
+        guide: guideText,
         instructions: el.notes?.value || "",
         images,
         renderMode: state.renderMode || undefined,

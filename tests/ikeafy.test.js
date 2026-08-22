@@ -247,7 +247,7 @@ test("parseGuideAsync visibly uses the local parser when GLiNER 2 is unavailable
   }
 });
 
-test("parseGuideAsync maps mocked GLiNER 2 structured extraction into a custom guide", async () => {
+test("text-rich PDF uses mocked GLiNER 2 without OpenAI plate vision", async () => {
   let request;
   const guide = await parseGuideAsync(
     "shelf.pdf: 1 page.\nPage 1: Wall shelf. Step 1. Hang the rail with two wall plugs and check the wall type.",
@@ -269,6 +269,7 @@ test("parseGuideAsync maps mocked GLiNER 2 structured extraction into a custom g
           ],
         };
       },
+      fetchFn: async () => assert.fail("OpenAI must not run when GLiNER 2 has grounded PDF steps"),
     },
   );
   assert.equal(request.operation, "extract_json");
@@ -341,8 +342,100 @@ test("PDF plates are not parsed as plain text without vision", async () => {
       { glinerInfer: async () => ({}) },
     );
     assert.equal(guide.steps.length, 0);
+    assert.equal(
+      guide.parseError,
+      "GLiNER 2 found no readable text in this drawing-only manual. Set OPENAI_API_KEY for plate vision.",
+    );
     assert.doesNotMatch(guide.title, /LACK/i);
     assert.doesNotMatch(String(guide.raw || ""), /stream junk/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
+test("PDF plate vision surfaces a safe OpenAI API failure", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test";
+  try {
+    const guide = await parseGuideAsync(
+      "BILLY.pdf: 16 pages; the first 8 plates were read.",
+      { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+      {
+        glinerInfer: async () => ({}),
+        fetchFn: async () => ({
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              error: {
+                type: "invalid_request_error",
+                code: "unsupported_model",
+                message: "The configured model cannot process images.",
+              },
+            }),
+        }),
+      },
+    );
+    assert.equal(guide.steps.length, 0);
+    assert.match(guide.parseError, /HTTP 400/);
+    assert.match(guide.parseError, /cannot process images/);
+    assert.doesNotMatch(guide.parseError, /sk-test|base64/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
+test("PDF plate vision returns the mocked BILLY guide without substituting LACK", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test";
+  let request;
+  let glinerCalled = false;
+  try {
+    const guide = await parseGuideAsync(
+      "BILLY.pdf: 16 pages; the first 8 plates were read.",
+      { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+      {
+        glinerInfer: async () => {
+          glinerCalled = true;
+          return {};
+        },
+        fetchFn: async (url, init) => {
+          request = { url, body: JSON.parse(init.body) };
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      title: "BILLY bookcase",
+                      steps: [
+                        {
+                          action: "fasten",
+                          body: "Fasten the BILLY side panel to the base.",
+                          partsUsed: [],
+                          warnings: [],
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+            }),
+          };
+        },
+      },
+    );
+    assert.equal(guide.title, "BILLY bookcase");
+    assert.equal(guide.steps.length, 1);
+    assert.equal(glinerCalled, true);
+    assert.doesNotMatch(guide.title, /LACK/i);
+    assert.equal(request.url, "https://api.openai.com/v1/chat/completions");
+    assert.equal(request.body.model, process.env.OPENAI_MODEL_HARD || process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini");
+    assert.equal(request.body.messages[1].content[1].type, "image_url");
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;

@@ -12,6 +12,7 @@ import {
   setAssemblyRenderMode,
   skipStep,
   startAssembly,
+  startAssemblyAsync,
   stuckOn,
 } from "../server/lib/assembly.js";
 
@@ -163,6 +164,25 @@ test("unknown runs and steps fail loudly", () => {
   const { run } = startAssembly({ mode: "official" });
   assert.equal(peekStep(run.id, 99).ok, false);
   assert.equal(startAssembly({ mode: "official", article: "000.000.00" }).ok, false);
+});
+
+test("drawing-only PDF plates tell the user to configure OpenAI", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const result = await startAssemblyAsync({
+      mode: "custom",
+      images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }],
+    });
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.reason,
+      "GLiNER 2 found no readable text in this drawing-only manual. Set OPENAI_API_KEY for plate vision.",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
 });
 
 test("an assembly run stores the chosen instruction render mode", () => {

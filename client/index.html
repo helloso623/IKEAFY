@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
+    />
     <title>IKEAlive — the booklet, as a film</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -26,134 +30,166 @@
       data-interface="upload"
     >
       <header class="top">
-        <a class="brand" href="#upload" data-go-interface="upload">
-          <strong>IKEAlive</strong>
-        </a>
-        <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
-          <button data-mode="ikeafy" class="on">IKEAlive</button>
-          <button data-mode="lab">Lab</button>
-        </nav>
-        <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
-          <button type="button" data-lab="desk" class="on">Bench</button>
-          <button type="button" data-lab="house">House</button>
-          <button type="button" id="scan-btn">Scan</button>
-        </nav>
-        <div class="top-actions">
-          <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
-          <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
+        <div class="top-left">
+          <a class="brand" href="#upload" data-go-interface="upload">
+            <strong>IKEAlive</strong>
+          </a>
+          <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
+            <button data-mode="ikeafy" class="on">IKEAlive</button>
+            <button data-mode="lab">Lab</button>
+          </nav>
+          <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
+            <button type="button" data-lab="desk" class="on">Bench</button>
+            <button type="button" data-lab="house">House</button>
+            <button type="button" id="scan-btn">Scan</button>
+          </nav>
+        </div>
+        <form id="omnibox-form" class="omnibox-form" role="search">
+          <input
+            id="omnibox"
+            type="search"
+            placeholder="Add a table, generate a lamp, or ask…"
+            autocomplete="off"
+            aria-label="Search the catalog or ask the shop"
+          />
+        </form>
+        <div class="top-right">
+          <button type="button" id="omnibox-ask">Ask</button>
+          <div class="top-actions">
+            <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
+            <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
+          </div>
         </div>
       </header>
 
       <!-- ============ UPLOAD / LANDING ============ -->
       <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
-        <div class="landing">
-          <p class="kicker">IKEAlive</p>
-          <h1>Your manual has a next move.</h1>
-          <p class="lede">
-            Upload the IKEA instructions PDF. We read the plates, you choose video, image, or 3D instructions, and you watch one step at a time.
-          </p>
+        <div class="landing landing-split">
+          <div class="landing-copy">
+            <p class="kicker"><span class="kicker-spark" aria-hidden="true">✨</span> IKEAlive engine</p>
+            <h1>Watch the manual<br />instead of <span class="hl">reading it.</span></h1>
 
-          <form id="upload-form" class="card upload-card">
-            <label class="upload-drop" id="pdf-drop" for="pdf-upload">
-              <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
-              <strong class="upload-drop-title">Drop the IKEA PDF</strong>
-              <span class="upload-drop-hint">or click to choose a file</span>
-              <em id="pdf-name" class="upload-file"></em>
-            </label>
+            <ul class="upload-feature-grid">
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <path d="M16 6v14M10 12l6-6 6 6M8 24h16" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+                <strong>Upload</strong>
+                <p>Drop in the IKEA PDF, or just type the exact product name.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.8" />
+                    <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.8" stroke-linejoin="round" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Generate</strong>
+                <p>Every page becomes a sequential short film you can play.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.8" />
+                    <circle cx="16" cy="16" r="2.4" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Watch</strong>
+                <p>One step at a time, at your own pace. Rewind if needed.</p>
+              </li>
+              <li class="feature-item">
+                <span class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none">
+                    <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.8" stroke-linecap="round" />
+                    <circle cx="13.2" cy="14" r="1.4" fill="#111" />
+                    <circle cx="18.8" cy="14" r="1.4" fill="#111" />
+                  </svg>
+                </span>
+                <strong>Ask</strong>
+                <p>Find a part, identify hardware, or get unstuck without leaving.</p>
+              </li>
+            </ul>
+          </div>
 
-            <p class="upload-or">or type the product name</p>
-            <div class="product-lookup">
-              <label class="picker-label" for="product-name">IKEA product name</label>
-              <div class="row product-lookup-row">
-                <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
-                <button type="button" id="product-lookup">Find the PDF</button>
+          <div class="landing-panel">
+            <div class="landing-animation" aria-hidden="true">
+              <svg viewBox="0 0 400 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="18" y="20" width="140" height="180" rx="10" fill="#fff" stroke="#111" stroke-width="1.6" />
+                <g class="anim-page-lines">
+                  <rect x="34" y="42" width="108" height="8" rx="4" fill="#111" opacity="0.85" />
+                  <rect x="34" y="64" width="90" height="8" rx="4" fill="#111" opacity="0.55" />
+                  <rect x="34" y="86" width="100" height="8" rx="4" fill="#111" opacity="0.35" />
+                  <rect x="34" y="108" width="70" height="8" rx="4" fill="#111" opacity="0.2" />
+                </g>
+                <g class="anim-arrow">
+                  <path d="M172 110h56m0 0-16-16m16 16-16 16" stroke="#111" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                </g>
+                <rect x="248" y="20" width="140" height="180" rx="10" fill="#ffda1a" stroke="#111" stroke-width="1.6" />
+                <circle class="anim-play-ring" cx="318" cy="110" r="34" fill="none" stroke="#111" stroke-width="1.4" opacity="0.5" />
+                <circle cx="318" cy="110" r="24" fill="#111" />
+                <path class="anim-play-icon" d="M312 98v24l20-12-20-12z" fill="#ffda1a" />
+              </svg>
+            </div>
+
+            <form id="upload-form" class="card upload-card">
+              <label class="upload-drop" id="pdf-drop" for="pdf-upload">
+                <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
+                <span class="upload-drop-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="#666" stroke-width="1.4" stroke-linejoin="round" /><path d="M14 2v6h6" stroke="#666" stroke-width="1.4" stroke-linejoin="round" /><path d="M12 12v6m0-6-2.4 2.4M12 12l2.4 2.4" stroke="#666" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </span>
+                <strong class="upload-drop-title">Drop the IKEA PDF</strong>
+                <span class="upload-drop-hint">or click to choose a file</span>
+                <em id="pdf-name" class="upload-file"></em>
+              </label>
+
+              <p class="upload-or"><span>or type it</span></p>
+              <div class="product-lookup">
+                <label class="picker-label" for="product-name">Product name</label>
+                <div class="row product-lookup-row">
+                  <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8a8378" stroke-width="1.5" /><path d="m20 20-3.5-3.5" stroke="#8a8378" stroke-width="1.5" stroke-linecap="round" /></svg>
+                  </span>
+                  <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
+                  <button type="button" id="product-lookup">Find PDF</button>
+                </div>
               </div>
-              <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
-            </div>
 
-            <div id="custom-source" class="custom-parse">
-              <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
-              <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
-            </div>
-
-            <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
-              <p class="render-modes-label">How should we show the steps?</p>
-              <div class="row render-mode-picks">
-                <button type="button" id="render-mode-video" class="render-mode" data-render-mode="video" aria-pressed="false">
-                  Video instructions
-                </button>
-                <button type="button" id="render-mode-images" class="render-mode" data-render-mode="images" aria-pressed="false">
-                  Image instructions
-                </button>
-                <button type="button" id="render-mode-scene" class="render-mode" data-render-mode="scene" aria-pressed="false">
-                  3D instructions
-                </button>
+              <div id="custom-source" class="custom-parse">
+                <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
+                <div class="row product-lookup-row">
+                  <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-7.4 7.4a2 2 0 0 1-1 .55l-3 .65.65-3a2 2 0 0 1 .55-1l7.2-7.6Z" stroke="#8a8378" stroke-width="1.4" stroke-linejoin="round" /></svg>
+                  </span>
+                  <input id="guide-notes" placeholder="Allen key, screwdriver…" />
+                </div>
               </div>
-            </div>
 
-            <div class="row upload-actions">
-              <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
-              <button type="button" id="clear-custom-session" class="quiet">Clear</button>
-            </div>
-            <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
-          </form>
+              <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
+                <p class="render-modes-label">How should we show the steps?</p>
+                <div class="row render-mode-picks">
+                  <button type="button" id="render-mode-video" class="render-mode" data-render-mode="video" aria-pressed="false">
+                    Video instructions
+                  </button>
+                  <button type="button" id="render-mode-images" class="render-mode" data-render-mode="images" aria-pressed="false">
+                    Image instructions
+                  </button>
+                  <button type="button" id="render-mode-scene" class="render-mode" data-render-mode="scene" aria-pressed="false">
+                    3D instructions
+                  </button>
+                </div>
+              </div>
 
-          <ul class="upload-process">
-            <li>
-              <span class="process-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
-                  <path d="M16 9v10M11 14l5 5 5-5M10 23h12" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </span>
-              <span><strong>Upload</strong> the IKEA instructions PDF, or type the product name</span>
-            </li>
-            <li>
-              <span class="process-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
-                  <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.7" />
-                  <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
-                </svg>
-              </span>
-              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
-            </li>
-            <li>
-              <span class="process-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
-                  <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.7" />
-                  <circle cx="16" cy="16" r="2.4" fill="#111" />
-                </svg>
-              </span>
-              <span><strong>Watch</strong> the steps, one film at a time</span>
-            </li>
-            <li>
-              <span class="process-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none">
-                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
-                  <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.7" stroke-linecap="round" />
-                  <circle cx="13.2" cy="14" r="1.4" fill="#111" />
-                  <circle cx="18.8" cy="14" r="1.4" fill="#111" />
-                </svg>
-              </span>
-              <span><strong>Help</strong> is on the right: inventory, troubles, identify, small parts, and chat</span>
-            </li>
-          </ul>
-
-          <details id="official-source" class="official-picker upload-official">
-            <summary>Use the official sheet</summary>
-            <label class="picker-label" for="official-product">Official IKEA product</label>
-            <select id="official-product" aria-label="IKEA product"></select>
-            <p class="hint lock-note" id="official-lock-note">
-              LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
-            </p>
-            <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
-              <span class="when-official">Start the official LACK sheet</span>
-              <span class="when-custom">Use the official LACK sheet</span>
-            </button>
-          </details>
-          <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
+              <div class="row upload-actions">
+                <button type="submit" id="parse-guide" class="primary">
+                  <span class="btn-spark" aria-hidden="true">✦</span> Get the Reel
+                </button>
+                <button type="button" id="clear-custom-session" class="quiet">Clear</button>
+              </div>
+              <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
+            </form>
+          </div>
         </div>
       </section>
 
@@ -384,16 +420,6 @@
           </details>
           <!-- Wiring hooks stay hidden. Catalog cards, shop labels, and electronics dumps stay off the Lab. -->
           <div class="hidden" aria-hidden="true">
-            <form id="omnibox-form" class="omnibox-form" role="search" hidden>
-              <input
-                id="omnibox"
-                type="search"
-                placeholder="Add a table, generate a lamp, or ask…"
-                autocomplete="off"
-                aria-label="Search the catalog or ask AI"
-              />
-              <button type="button" id="omnibox-ask">Ask</button>
-            </form>
             <input id="cost" type="number" min="0" step="1" />
             <input id="search" type="search" />
             <p id="catalog-hint"><span id="catalog-count">0</span></p>
@@ -649,44 +675,7 @@
         </details>
       </aside>
     </div>
-    <script>
-      (function () {
-        const app = document.getElementById("app");
-        if (!app) return;
-
-        function setInterface(name) {
-          if (name !== "upload" && name !== "watch") return;
-          app.setAttribute("data-interface", name);
-          if (name === "upload" || name === "watch") {
-            const tab = document.querySelector('#modes [data-mode="ikeafy"]');
-            if (app.dataset.mode !== "ikeafy") tab?.click();
-          }
-          window.dispatchEvent(new Event("resize"));
-        }
-
-        function setWatchCard(name) {
-          const allowed = new Set(["bom", "reviews", "broken", "spare"]);
-          const next = allowed.has(name) ? name : "bom";
-          const rail = document.querySelector(".rail.cards");
-          if (rail) rail.setAttribute("data-watch-card", next);
-          for (const btn of document.querySelectorAll(".watch-pick")) {
-            const on = btn.getAttribute("data-watch-card") === next;
-            btn.classList.toggle("on", on);
-            btn.setAttribute("aria-pressed", String(on));
-          }
-        }
-
-        document.addEventListener("click", (ev) => {
-          const go = ev.target.closest("[data-go-interface]");
-          if (go) setInterface(go.getAttribute("data-go-interface"));
-          const pick = ev.target.closest(".watch-pick");
-          if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
-        });
-
-        window.setIkealiveInterface = setInterface;
-        window.setIkealiveWatchCard = setWatchCard;
-      })();
-    </script>
+    <script type="module" src="/src/interface-nav.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

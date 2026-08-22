@@ -1418,6 +1418,7 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
   const link = phoneUploadUrls({ apiPort: port });
   ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
+  ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
   console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });

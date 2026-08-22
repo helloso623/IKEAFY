@@ -14,6 +14,7 @@ const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const entry = path.join(root, "electron/main.js");
 const main = readFileSync(entry, "utf8");
 const vite = readFileSync(path.join(root, "client/vite.config.js"), "utf8");
+const html = readFileSync(path.join(root, "client/index.html"), "utf8");
 
 function startsStack(script) {
   return /dev:server/.test(script) && /dev:client|vite/.test(script) && /electron/.test(script);
@@ -55,6 +56,17 @@ test("Electron pipes BrowserWindow console-message events to process.stdout", ()
   assert.match(main, /process\.stdout\.write/);
   assert.match(main, /attachRendererLogs/);
   assert.match(main, /from "\.\/log\.js"/);
+  assert.match(main, /"console-message",\s*\(event\)\s*=>/);
+  assert.doesNotMatch(main, /"console-message",\s*\(event,\s*level,\s*message\)/);
+});
+
+test("renderer has a restrictive CSP compatible with local Vite development", () => {
+  assert.match(html, /http-equiv="Content-Security-Policy"/);
+  assert.match(html, /default-src 'self'/);
+  assert.match(html, /object-src 'none'/);
+  assert.match(html, /ws:\/\/127\.0\.0\.1:\*/);
+  assert.doesNotMatch(html, /script-src[^;]*'unsafe-eval'/);
+  assert.doesNotMatch(html, /<script>(?!\s*<\/script>)/);
 });
 
 test("Electron grants video-only media access to its local renderer", () => {
