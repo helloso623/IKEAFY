@@ -18,6 +18,7 @@ test("described builds route to meshes while explicit catalog drops stay catalog
   assert.equal(isMeshBuildAsk("render a video camera"), true);
   assert.equal(isMeshBuildAsk("add a lack table"), false);
   assert.equal(isMeshBuildAsk("add zip ties"), false);
+  assert.equal(isMeshBuildAsk("put four legs"), false);
   assert.equal(isMeshBuildAsk("find a cheap table"), false);
 });
 

@@ -9,6 +9,10 @@ const NON_MODEL_ASK =
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
 const CATALOG_DROP_NOUN =
   /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
+const EDIT_EXISTING =
+  /\b(?:make|scale|resize)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b|\b(?:make|scale|resize)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b/i;
+const COUNTED_PART_PLACEMENT =
+  /\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:table\s+)?legs?\b/i;
 const MODEL_NOUN =
   /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture)\b/i;
 const SPAWN_FOLLOW_UP =
@@ -144,8 +148,12 @@ export function sanitizeMeshAction(raw = {}) {
 
 export function isMeshBuildAsk(message) {
   const source = String(message || "").trim();
+  if (EDIT_EXISTING.test(source)) return false;
   const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
-  const placesObject = PLACE_VERB.test(source) && !CATALOG_DROP_NOUN.test(source);
+  const placesObject =
+    PLACE_VERB.test(source) &&
+    !CATALOG_DROP_NOUN.test(source) &&
+    !COUNTED_PART_PLACEMENT.test(source);
   const createsMesh = GENERATE_VERB.test(source) || REQUEST_OBJECT.test(source) || placesObject;
   if (!createsMesh && !directNoun) return false;
   if (NON_MODEL_ASK.test(source)) return false;
