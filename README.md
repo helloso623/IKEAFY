@@ -1,78 +1,52 @@
 # IKEAFY
 
-A tiny IKEA-style flat-pack furniture store, built as a full-stack
-[Next.js](https://nextjs.org) (App Router) demo with TypeScript, Tailwind CSS,
-and a SQLite database.
+A workshop for building things you can actually put in a room.
 
-## Features
+The first system is **not** an AI product. It is a bench: parts with real sizes, cables that lock, tape that holds or peels, weather and load tests, Arduino as one abstraction and physics as another, a 3D printer queue, and an IKEA-style film of the plan. Ten shop agents sit on top of that bench. If no hosted key is present they still run, as a local steward.
 
-- Browse a catalog of furniture products (`/`)
-- Add items to a cart and check out
-- Orders are persisted to a local SQLite database (`data/ikeafy.db`)
-- View placed orders (`/orders`)
-
-## Tech stack
-
-- **Next.js 15** (App Router) + **React 19**
-- **TypeScript**
-- **Tailwind CSS v4**
-- **better-sqlite3** for persistence
-- **ESLint** (`next/core-web-vitals`)
-
-## Getting started
-
-Requirements: Node.js 22+.
+## Run
 
 ```bash
-npm ci            # install dependencies
-npm run dev       # start the dev server on http://localhost:3000
+cp .env.example .env   # optional. Leave OPENAI_API_KEY empty to stay local.
+npm install
+npm test
+npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+- Bench UI: `http://localhost:5173`
+- API: `http://localhost:8787`
 
-## Available scripts
+Do not put keys in the repo. `.env` is gitignored. Rotate any key that was pasted in chat.
 
-| Command            | Description                                  |
-| ------------------ | -------------------------------------------- |
-| `npm run dev`      | Start the development server (port 3000)     |
-| `npm run build`    | Create a production build                    |
-| `npm run start`    | Serve the production build                   |
-| `npm run lint`     | Run ESLint                                   |
-| `npm run typecheck`| Type-check with the TypeScript compiler      |
+## What the bench does
 
-## API
+- **Sandbox** — drop furniture and electronics, rescale, retexture, move, rotate (`G` / `R` / `Shift+S`).
+- **Cables** — ports mate or refuse. JST / header / screw lock in. Loose / zip / raceway disposition.
+- **Lab** — strength, pressure, wave, flow, aero, speed+force, heat/cold, rain. Tape changes hold and IP. **Reset** after a run.
+- **Electronics** — cost barrier, min specs, isolate a cluster as a named board, label functions, flash a Nano sketch and see the LED.
+- **Print** — printable bodies become ASCII STL jobs.
+- **Ikeafy** — paste a guide + optional tool notes → structured steps → birch-workshop film per step → wait on you → expand if you are stuck → kit vs extra (IKEA / Amazon / hardware links, catalog list only) → reviews and difficulties → attach a broken-part note to a step → spare + fix.
+- **House** — photo + room measurements + budget → adaptation plan that places the piece and lists cheaper stand-ins. Overlay is the same render as the bench.
 
-| Method | Route           | Description                          |
-| ------ | --------------- | ------------------------------------ |
-| `GET`  | `/api/products` | List available products             |
-| `GET`  | `/api/orders`   | List placed orders                  |
-| `POST` | `/api/orders`   | Create an order from cart items     |
+Online research is a **list**, not a live scrape. Partner hooks (Veed, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and left uncalled.
 
-Example checkout request:
+## Ten agents
 
-```bash
-curl -X POST http://localhost:3000/api/orders \
-  -H "Content-Type: application/json" \
-  -d '{"customerName":"Ada","items":[{"id":"bjorko-table","quantity":2}]}'
-```
+| Desk | Model seat | Job |
+| --- | --- | --- |
+| Foreman | Fable | Orchestration |
+| Architect | Opus | Keep the build IKEA-simple |
+| Stress analyst | GPT 5.6 | Breaking points |
+| Circuit lead | GPT 5.6 | Nets, boards, pins |
+| Physics lab | GPT 5.6 | Weather / flow / aero |
+| Shop grok | Grok | Camera, move, texture |
+| Parts scout | Grok | Catalog + cost barrier |
+| Assembler | Grok | Ikeafy steps |
+| Firmware tech | GPT 5.6 | Arduino abstraction |
+| AR stylist | Grok | Room photo plan |
 
-## Project layout
+Hosted calls use `OPENAI_API_KEY` when set. Failures fall back to the steward. The steward is the default.
 
-```
-src/
-  app/
-    layout.tsx           # shared header/nav layout
-    page.tsx             # shop + cart + checkout (client component)
-    orders/page.tsx      # orders list (server component)
-    api/
-      products/route.ts  # GET products
-      orders/route.ts    # GET/POST orders
-  lib/
-    products.ts          # product catalog
-    db.ts                # SQLite access layer
-```
+## Later
 
-## Cloud Agent environment
-
-`.cursor/environment.json` configures the Cursor Cloud Agent environment:
-`npm ci` installs dependencies and a `dev` terminal runs `npm run dev`.
+Anything you want to build, not only IKEA: a photo, a clip, or a description of a broken car part. Same parse → film → spare path.

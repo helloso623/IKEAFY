@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IKEAFY — workshop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <div class="brand">
+          <span class="mark">IF</span>
+          <div>
+            <strong>IKEAFY</strong>
+            <small>bench · film · house</small>
+          </div>
+        </div>
+        <nav class="modes" id="modes">
+          <button data-mode="bench" class="on">Bench</button>
+          <button data-mode="ikeafy">Ikeafy</button>
+          <button data-mode="house">House</button>
+        </nav>
+        <div class="top-actions">
+          <label class="toggle">
+            <input type="checkbox" id="sim-toggle" />
+            Sim
+          </label>
+          <button id="reset-sim">Reset</button>
+          <button id="print-btn">Print</button>
+          <button id="flash-btn">Arduino</button>
+        </div>
+      </header>
+
+      <aside class="rail left">
+        <div class="panel">
+          <h2>Pieces</h2>
+          <div class="row">
+            <input id="cost" type="number" min="0" step="1" placeholder="Cost barrier $" />
+            <input id="search" type="search" placeholder="Find a part" />
+          </div>
+          <div id="catalog" class="list"></div>
+        </div>
+        <div class="panel">
+          <h2>Cables</h2>
+          <p class="hint">Click two ports. Compatible ones lock.</p>
+          <div id="cables" class="list thin"></div>
+          <div class="row">
+            <button id="bundle-loose">Loose</button>
+            <button id="bundle-zip">Zip</button>
+            <button id="bundle-race">Raceway</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <canvas id="view"></canvas>
+        <canvas id="ar-photo" class="hidden"></canvas>
+        <div id="hud"></div>
+        <div id="film" class="film hidden">
+          <canvas id="film-frame"></canvas>
+          <p id="film-caption"></p>
+          <div class="row">
+            <button id="film-back">Back</button>
+            <button id="film-wait" class="primary">I did this — next</button>
+            <button id="film-stuck">Stuck</button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="rail right">
+        <div class="panel" data-pane="bench">
+          <h2>Inspect</h2>
+          <div id="inspect" class="copy"></div>
+          <div class="row wrap" id="lab-btns">
+            <button data-test="strength">Strength</button>
+            <button data-test="pressure">Pressure</button>
+            <button data-test="wave">Wave</button>
+            <button data-test="flow">Flow</button>
+            <button data-test="aero">Aero</button>
+            <button data-test="speed">Speed</button>
+            <button data-test="weather">Weather</button>
+            <button data-test="tape">Tape hold</button>
+          </div>
+          <div class="row">
+            <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
+            <label>Rain <input id="rain" type="checkbox" /></label>
+          </div>
+          <div class="row">
+            <button id="tape-elec">Electrical tape</button>
+            <button id="tape-gaff">Gaffer</button>
+          </div>
+          <div class="row">
+            <button id="isolate-btn">Isolate as board</button>
+            <button id="label-btn">Label function</button>
+          </div>
+        </div>
+
+        <div class="panel hidden" data-pane="ikeafy">
+          <h2>Building guide</h2>
+          <textarea id="guide-in" rows="7" placeholder="Paste a building guide…"></textarea>
+          <input id="guide-notes" placeholder="Tools you have, extra comments…" />
+          <div class="row">
+            <button id="parse-guide" class="primary">Parse into steps</button>
+            <button id="colorize">Colorize plate</button>
+          </div>
+          <div id="steps" class="list"></div>
+          <h2>Kit vs extra</h2>
+          <div id="bom" class="copy"></div>
+          <h2>Reviews</h2>
+          <div id="reviews" class="copy"></div>
+          <div class="row">
+            <input id="broken-note" placeholder="Broken part on this step…" />
+            <button id="broken-btn">Attach break</button>
+          </div>
+        </div>
+
+        <div class="panel hidden" data-pane="house">
+          <h2>Adaptation plan</h2>
+          <p class="hint">Photo + room size. The stylist lays the table in.</p>
+          <div class="row">
+            <input id="room-w" type="number" step="0.1" value="3.2" />
+            <input id="room-d" type="number" step="0.1" value="3.8" />
+            <input id="room-budget" type="number" value="40" />
+          </div>
+          <input id="room-photo" type="file" accept="image/*" />
+          <button id="adapt-btn" class="primary">Put a table in there</button>
+          <div id="adapt-out" class="copy"></div>
+        </div>
+
+        <div class="panel chat">
+          <h2>Shop chat</h2>
+          <div id="agent-bar" class="agent-bar"></div>
+          <div id="chat-log" class="chat-log"></div>
+          <form id="chat-form">
+            <input id="chat-in" autocomplete="off" placeholder="Ask, add a part, move the camera…" />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

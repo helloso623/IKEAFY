@@ -1,31 +1,13 @@
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# data (local SQLite database)
-/data/*.db
-/data/*.db-*
-
-# misc
+node_modules/
+dist/
 .DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+*.log
+.env
+.env.local
+.env.*.local
+.vite/
+coverage/
+tmp/
+*.stl
+uploads/
+client/public/generated/

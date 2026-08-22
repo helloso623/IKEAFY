@@ -2,6 +2,27 @@
   "name": "ikeafy",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "description": "IKEAFY workshop: Fusion/KiCad-style sandbox, physics lab, and IKEA-like assembly guides.",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "vite --config client/vite.config.js --host 0.0.0.0 --port 5173",
+    "start": "node server/index.js",
+    "build": "vite build --config client/vite.config.js",
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check server/index.js && node --check server/lib/physics.js && node --check server/lib/catalog.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.2.0"
   "scripts": {
     "dev": "next dev",
     "build": "next build",
