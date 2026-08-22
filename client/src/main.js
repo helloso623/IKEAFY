@@ -313,7 +313,7 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Ways PDF</button>
+              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Piece PDF</button>
             </li>`,
           )
           .join("")
@@ -332,7 +332,7 @@ function renderDiyHistory(active = null) {
         ${
           current.id
             ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
-            : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
+            : `<span class="hint">Live current design · Hunt table pieces to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
           current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
@@ -347,7 +347,7 @@ function openWaysPrint(build) {
   try {
     openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
   } catch (error) {
-    hud(error?.message || "Could not open that saved ways-to-make PDF.");
+    hud(error?.message || "Could not open that saved table-piece PDF.");
   }
 }
 
@@ -817,7 +817,7 @@ function syncMaterialPanel() {
   if (hint) {
     hint.textContent = picked
       ? picked.piece.reconstructed
-        ? `Scanned mesh — color and roughness apply, finishes need a flat surface.`
+        ? `${picked.piece.generated ? "AI mesh" : "Scanned mesh"} — color and roughness apply, finishes need a flat surface.`
         : `Material on ${picked.part?.name || "this piece"}.`
       : "Pick a piece, then set its material.";
   }
@@ -905,6 +905,11 @@ shop.onSculpt?.(({ mode, name }) => {
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
+shop.onMeshEdit?.(({ tool, name, label }) => {
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  hud(`${label || tool} on ${name}. Undo takes it back.`);
+});
+
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
 // a joint mate lands as api.move (plus a joint record) so undo covers both.
 shop.onSketch?.(async ({ partId, pose, label }) => {
@@ -938,10 +943,11 @@ async function commitPose(pose) {
   if (!pose?.id) return;
 
   if (shop.updateReconstructedPose?.(pose)) {
+    const record = shop.getReconstructed?.().find((entry) => entry.piece.id === pose.id);
     renderBenchPieces();
     if (house?.hasScene?.()) house.rebuildHouse3d?.();
     void refreshCurrentDiy();
-    hud(pose.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
+    hud(record?.piece.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
     return;
   }
 
@@ -1163,12 +1169,12 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Finding build ways…";
+  button.textContent = "Hunting pieces…";
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Finding build ways…</title><p>Researching construction routes and shaped pieces for this model…</p>");
+    printWindow.document.write("<!doctype html><title>Finding table pieces…</title><p>Matching tops, legs, rails, and boards to this model…</p>");
   }
-  hud("Finding ways to make this exact final table…");
+  hud("Hunting furniture pieces in this model's shapes and millimetres…");
   try {
     const packet = await api.finishProject();
     openBuildPacketPrint(packet, printWindow);
@@ -1177,12 +1183,12 @@ $("finish-model")?.addEventListener("click", async () => {
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "ways-to-make plan" });
+    await studio?.openAssemblyView?.(packet.assembly, { label: "table-piece plan" });
     const match = packet.bom?.ikeaMatch;
     hud(
       match
-        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
-        : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
+        ? `Piece PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
+        : `Piece PDF ready · ${packet.bom?.ways?.length || 0} candidate routes · ${
             packet.bom?.lines?.length || 0
           } cut-list lines · IKEAlive todo created.`,
     );
@@ -1193,7 +1199,7 @@ $("finish-model")?.addEventListener("click", async () => {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Finish & find ways";
+    button.textContent = "Hunt table pieces";
   }
 });
 
@@ -1204,10 +1210,8 @@ function isLab() {
 function labHud(space) {
   if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
-
-    ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask AI, or measure the room below.";
-
+    ? "Bench — pick a body, then model it with the left-bar tools."
+    : "Bench — sketch or scan a body, then model it with the left-bar tools.";
 }
 
 function setLabSpace(space) {
@@ -1799,6 +1803,13 @@ window.addEventListener("keydown", (ev) => {
   if (key === "s") setEditMode("scale");
   if (key === "n") setSnap(!shop.getSnap());
   if (key === "f") shop.frameSelected?.();
+  if (key === "h" && ev.altKey) {
+    ev.preventDefault();
+    unhideAllBodies();
+    return;
+  }
+  if (key === "h") hideSelectedBody();
+  if (key === "m") document.getElementById("side-measure")?.click();
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     const id = selectedPieceId();

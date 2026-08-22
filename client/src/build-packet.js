@@ -29,10 +29,12 @@ function sourceLinks(line) {
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
   const lines = bom.lines || [];
+  const cutLines = bom.cutList || lines.filter((line) => line.category !== "connection-hardware");
+  const hardwareLines = bom.hardwareLines || lines.filter((line) => line.category === "connection-hardware");
   const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || bom.researchResults || [];
-  const rows = lines
+  const rowsFor = (source) => source
     .map(
       (line) => `<tr>
         <td>${escapeHtml(line.qty)}</td>
@@ -44,6 +46,8 @@ export function buildPacketHtml(packet = {}) {
       </tr>`,
     )
     .join("");
+  const cutRows = rowsFor(cutLines);
+  const hardwareRows = rowsFor(hardwareLines);
   const wayRows = ways
     .map(
       (way, index) => `<article class="way">
@@ -68,7 +72,7 @@ export function buildPacketHtml(packet = {}) {
     .map((source) => {
       const url = safeUrl(source.url);
       return url
-        ? `<li><a href="${escapeHtml(url)}">${escapeHtml(source.title || source.store || url)}</a>${
+        ? `<li>${source.group ? `<strong>${escapeHtml(source.group)}:</strong> ` : ""}<a href="${escapeHtml(url)}">${escapeHtml(source.title || source.store || url)}</a>${
             source.note ? ` — ${escapeHtml(source.note)}` : ""
           }</li>`
         : "";
@@ -86,7 +90,7 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} piece plan`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -110,19 +114,24 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive build packet · ways to make this model</p>
+  <p class="kicker">IKEAlive build packet · tops, legs, rails &amp; boards</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
   <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
-  <h2>Ways to make the final model</h2>
+  <h2>Candidate piece routes</h2>
   ${wayRows}
-  <h2>Cut list and shaped pieces</h2>
+  <h2>Pieces for this table</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${cutRows}</tbody>
   </table>
+  ${hardwareRows ? `<h2>Connection hardware</h2>
+  <table>
+    <thead><tr><th>Qty</th><th>Hardware</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
+    <tbody>${hardwareRows}</tbody>
+  </table>` : ""}
   ${liveRows ? `<h2>Live build research</h2><ul>${liveRows}</ul>` : ""}
   <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
@@ -133,7 +142,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the table-piece PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();
