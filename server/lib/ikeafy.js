@@ -201,7 +201,7 @@ export function parseGuide(
   if (!partIds.includes("allen-key")) partIds.push("allen-key");
   const bom = bomFromIds(partIds);
   return {
-    title: /lack|table|linmon|eket/i.test(title) ? title : `${title} (IKEAFY)`,
+    title: /lack|table|linmon|eket/i.test(title) ? title : `${title} (IKEAlive)`,
     official: locked,
     locked,
     editable: !locked,
@@ -357,7 +357,7 @@ export function storyboardForStep(guide, stepNumber) {
 
 export function makeVideoPlan(guide) {
   return {
-    title: `${guide.title} — IKEAFY film`,
+    title: `${guide.title} — IKEAlive reel`,
     theme: guide.theme,
     partner: { name: "Veed", status: "proposed", fallback: "local canvas storyboard" },
     continuous: true,

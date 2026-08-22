@@ -10,6 +10,7 @@
 
 import { expandStep, officialGuide, parseGuide } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
+import { extractPdfText } from "./pdf-text.js";
 
 const CONFIRM_BY_ACTION = {
   unpack: "The kit matches the parts list.",
@@ -49,13 +50,22 @@ export function startAssembly({
   guide: rawGuide = "",
   instructions = "",
   availableTools = [],
+  pdfBase64 = "",
 } = {}) {
   let guide;
   if (mode === "official") {
     guide = officialGuide({ article, availableTools, instructions });
     if (guide?.ok === false) return { ok: false, reason: guide.reason, products: guide.products };
   } else {
-    guide = parseGuide(rawGuide, { instructions, availableTools });
+    let text = String(rawGuide || "");
+    if (pdfBase64) {
+      const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
+      text = [extracted, text].filter(Boolean).join("\n\n");
+    }
+    if (!text.trim()) {
+      return { ok: false, reason: "Drop a PDF or paste a guide first." };
+    }
+    guide = parseGuide(text, { instructions, availableTools });
   }
   if (!guide?.steps?.length) return { ok: false, reason: "That guide has no steps." };
 

@@ -47,6 +47,7 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { hasVeed, renderStepVideo } from "./lib/video.js";
+import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
@@ -89,7 +90,7 @@ const VIDEO_PARTNERS = {
 };
 
 const app = express();
-app.use(express.json({ limit: "8mb" }));
+app.use(express.json({ limit: "16mb" }));
 
 const state = {
   project: seedLampTable(),
@@ -101,7 +102,7 @@ app.get("/api/health", (_req, res) => {
   const official = officialGuide();
   res.json({
     ok: true,
-    name: "IKEAFY",
+    name: "IKEAlive",
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
     video: {
@@ -109,6 +110,7 @@ app.get("/api/health", (_req, res) => {
       renderer: hasVeed() ? "veed/fabric-1.0 via fal.ai" : "local-storyboard",
       live: hasVeed(),
       route: "/api/ikeafy/video/render",
+      reel: "/api/ikeafy/video/reel",
     },
     official: {
       route: "/api/ikeafy/official",
@@ -184,7 +186,18 @@ app.post("/api/cables/bundle", (req, res) => {
 });
 
 app.post("/api/ikeafy/parse", (req, res) => {
-  const guide = parseGuide(req.body?.guide, {
+  let raw = req.body?.guide || "";
+  if (req.body?.pdfBase64) {
+    const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
+    raw = [extracted, raw].filter(Boolean).join("\n\n");
+    if (!String(raw).trim()) {
+      return res.status(400).json({
+        ok: false,
+        reason: "No readable steps in that PDF. Paste the instructions instead.",
+      });
+    }
+  }
+  const guide = parseGuide(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
   });
@@ -246,6 +259,38 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
     });
   } catch (err) {
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/video/reel", async (req, res) => {
+  const body = req.body || {};
+  const guide = guideForVideo(body);
+  const steps = [];
+  try {
+    for (const step of guide?.steps || []) {
+      const result = await renderStepVideo({
+        guide,
+        stepNumber: step.number,
+        imageDataUrl: body.imageDataUrl,
+      });
+      steps.push({
+        number: step.number,
+        live: result.provider !== "local-storyboard",
+        plan: result.frames.length ? result.frames : storyboardForStep(guide, step.number),
+        ...result,
+      });
+    }
+    const live = steps.find((step) => step.videoUrl);
+    res.json({
+      ok: true,
+      reel: true,
+      live: Boolean(live),
+      partners: VIDEO_PARTNERS,
+      videoUrl: live?.videoUrl || null,
+      steps,
+    });
+  } catch (err) {
+    res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });
 

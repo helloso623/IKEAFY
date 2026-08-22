@@ -1,6 +1,6 @@
-# IKEAFY
+# IKEAlive
 
-A black-and-white consumer app for assembling IKEA furniture. Pick an official product (LACK is unlocked) or paste a guide. The studio plays one instruction plate at a time, shows what is in the box vs what to buy, and can place the finished piece in a room photo.
+A consumer app for assembling IKEA furniture. Upload an instructions PDF (or paste a guide). The studio turns the plates into a Veed reel you watch one step at a time. Official LACK is a secondary locked sheet. The right rail holds inventory, troubles, identify, and small parts.
 
 ## Run
 

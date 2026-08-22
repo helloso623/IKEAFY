@@ -763,6 +763,24 @@ export function initStudio({ api, hud = () => {} } = {}) {
       runId: state.run.id,
       guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
     };
+    if (api.renderReel) {
+      try {
+        const result = await api.renderReel(body);
+        const clips = (result.steps || [])
+          .map((step) =>
+            clipFromPlan({
+              number: step.number,
+              frames: step.frames || step.plan,
+              videoUrl: step.videoUrl,
+              provider: step.provider,
+            }),
+          )
+          .filter((clip) => clip.number);
+        if (clips.length) return clips;
+      } catch (error) {
+        fail(error);
+      }
+    }
     try {
       const plan = api.video ? await api.video(body) : { steps: [] };
       const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
@@ -828,7 +846,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     renderSteps();
     renderTransport();
     showClip(state.clipIndex, { play: true, restart: true });
-    upgradeReel(state.reel);
+    if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
 
   function showVideo(url, { play = false } = {}) {
