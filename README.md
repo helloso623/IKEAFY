@@ -67,20 +67,46 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 
 **Watch** keeps the manual primary and reveals official steps in order. Use it to compare the current plate with the parts and trouble notes attached to that step.
 
-**Bench** adapts existing pieces in 3D. **House** places those pieces against room photos and measurements. **AR** overlays them through the browser or Electron camera. These spaces support the build; they do not replace the instructions.
+**Bench** adapts existing pieces in 3D. **House** places those pieces against room photos and measurements. Camera capture stays inside **Scan**, where it supplies reconstruction views instead of becoming a separate Lab mode. These spaces support the build; they do not replace the instructions.
 
 **Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
+
+When a table model is ready, **Finish & find ways** researches construction methods for that final shape, derives its dimensioned tops, legs, rails, boards, and cut list, prepares a printable PDF, and creates an IKEAlive watch / plan / todo.
 
 ## Structure
 
 | Path | What lives here |
 | --- | --- |
-| `client/` | Vite, guide ingestion, Watch, Bench, House, AR, and Scan |
+| `client/` | Vite, guide ingestion, Watch, Lab Bench/House, and Scan |
 | `electron/` | Desktop shell for the client and API |
 | `server/` | Express routes and service adapters |
 | `guides/` | Existing official building guides |
 | `docs/` | Product and implementation notes |
 | `tests/` | Node tests for guides, agents, rendering inputs, and reconstruction |
+
+Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+
+### Find ways to make the final table
+
+After modeling or remodeling a table, click **Finish & find ways**. IKEAlive offers routes such as a cut-to-size top with ready-made legs or an all-wood apron frame, then derives the current top, legs, boards, and method-specific cuts by shape and millimetres. It produces a printable ways-and-cut-list PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily is an optional one-query research provider; without it, dimension catalog matches and public search links remain available. Retailer scraping and fastener catalogs are not part of this flow. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
+
+House uses single-photo and multi-file uploads, or a ~30s walk sent from a phone. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
+
+---
+
+Lab → **Scan** accepts aligned front, side, and top photos, the live browser/Electron camera, extra stills, or a walk-around video. Video and camera stills populate the same three-view inputs and reconstruct into a mesh on the Bench. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`).
+
+Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
+
+
+### Phone upload (LAN)
+
+Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
+
+`http://<lan-ip>:5173/phone-upload`
+
+(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a room walk of up to 30 seconds. The page POSTs the clip to `/api/scan/video`. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Finish & find ways** researches how to make that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
+
 
 ## Social preview
 

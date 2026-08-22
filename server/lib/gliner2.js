@@ -175,4 +175,3 @@ export async function answerGuideQuestionWithGliner2(message, guide, { currentSt
   }
   return { text, stepNumbers: [number] };
 }
-

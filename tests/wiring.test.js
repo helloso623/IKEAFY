@@ -328,8 +328,8 @@ test("dead simulation controls stay out of the Lab", () => {
   assert.doesNotMatch(lab, /Run sim|data-sim|simRun/);
 });
 
-test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["ar-camera", "ar-toggle", "ar-status", "room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out"]) {
+test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
+  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -364,16 +364,18 @@ test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", ()
   assert.doesNotMatch(html, /id="print-btn"/);
 });
 
-test("Lab spaces are Bench, House, AR, then Scan", () => {
+test("Lab spaces are Bench and House; camera/video live under Scan", () => {
   const spacesAt = html.indexOf('id="lab-spaces"');
   assert.ok(spacesAt > 0, "Lab space switcher must exist");
   const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
   assert.match(spaces, /data-lab="desk"/);
   assert.match(spaces, />Bench</);
   assert.match(spaces, /data-lab="house"/);
-  assert.match(spaces, /data-lab="ar"/);
+  assert.doesNotMatch(spaces, /data-lab="ar"/);
   assert.match(spaces, /id="scan-btn"/);
-  assert.ok(spaces.indexOf('data-lab="ar"') < spaces.indexOf('id="scan-btn"'), "Scan sits after AR/House");
+  assert.ok(spaces.indexOf('data-lab="house"') < spaces.indexOf('id="scan-btn"'), "Scan sits after House");
+  assert.match(html, /id="scan-camera-preview"/);
+  assert.match(html, /id="scan-video"/);
   assert.match(html, /id="view"/);
   assert.match(html, /id="ar-photo"/);
   assert.match(html, /id="catalog-well"/);
@@ -387,7 +389,7 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
   assert.match(main, /dataset\.mode === "lab" && isLab\(\)/);
   assert.match(main, /ikealiveLog\("lab"/);
   const css = read("client/src/styles.css");
-  assert.match(css, /data-lab="ar"/);
+  assert.doesNotMatch(css, /data-lab="ar"/);
   assert.match(css, /#app\.mode-lab \.modes \[data-mode="ikeafy"\]/);
   assert.match(css.replace(/\s+/g, " "), /\.upload-actions button[^}]*flex: 1 1 0/);
   assert.doesNotMatch(css, /\.house-drawer/);
@@ -415,6 +417,11 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.equal(existsSync(path.join(root, ".next")), false, ".next is leftover Next build output");
   assert.equal(existsSync(path.join(root, "next-env.d.ts")), false);
   assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
+});
+
+test("retail links never fall back to a bare Shop label", () => {
+  assert.doesNotMatch(studio, /\|\|\s*"Shop"/, "unnamed retailers read as View, not Shop");
+  assert.doesNotMatch(html, />\s*Shop\s*</);
 });
 
 test("askShop applies creative-desk add, camera, label, and isolate", () => {
@@ -471,6 +478,34 @@ test("bench editing controls are wired for furniture first", () => {
   assert.match(apiSource, /^\s{2}duplicate:/m);
   assert.match(apiSource, /^\s{2}undo:/m);
   assert.match(apiSource, /^\s{2}redo:/m);
+});
+
+test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body", () => {
+  const tools = html.slice(html.indexOf('id="edit-tools"'), html.indexOf("lab-view-meta"));
+  assert.match(tools, /data-sculpt="grab"/);
+  assert.match(tools, /data-sculpt="smooth"/);
+  assert.match(tools, /data-sculpt="inflate"/);
+  assert.match(tools, /data-subdivide/);
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /setSculptMode/);
+  assert.match(workshop, /subdivideSelected/);
+  assert.match(workshop, /applySculptStore\(\)/, "sync() must re-apply sculpted geometry");
+  assert.match(workshop, /weldGroups/, "split corner verts must move together");
+  assert.match(main, /shop\.setSculptMode/);
+  assert.match(main, /shop\.subdivideSelected/);
+  assert.match(main, /data-sculpt/);
+});
+
+test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
+  assert.match(html, /id="finish-model"/);
+  assert.match(html, /Hunt table pieces/);
+  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
+  assert.match(html, /Piece-plan history/);
+  assert.match(apiSource, /^\s{2}finishProject:/m);
+  assert.match(main, /api\.finishProject\(\)/);
+  assert.match(main, /openBuildPacketPrint/);
+  assert.match(main, /openAssemblyView/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
@@ -532,6 +567,8 @@ test("the shop is a bottom-right AI circle with chat, voice, history, and scene"
   assert.match(html, /id="ai-history"/);
   assert.match(html, /id="chat-form"/);
   assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="many-agents-note"/);
+  assert.match(html, /build this furniture/);
   const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
   assert.doesNotMatch(inspector, /id="chat-form"/);
   const css = read("client/src/styles.css");

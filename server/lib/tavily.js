@@ -111,6 +111,40 @@ export async function searchToolOffers(name, { fetchFn = fetch } = {}) {
   return offersFromResults(json.results || json.data || []);
 }
 
+/**
+ * One legal search for construction methods around the current model. Results
+ * may be plans, cut stock, tops, or legs; loose fasteners are excluded.
+ */
+export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
+  const items = [...(build.lines || []), ...methodCuts]
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
+  const res = await fetchFn(SEARCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: "basic",
+      max_results: 8,
+      include_answer: false,
+    }),
+  });
+  if (!res.ok) return [];
+  const json = await res.json();
+  return offersFromResults(json.results || json.data || []);
+}
+
 function extraLineFromId(id) {
   const part = getPart(id);
   if (part) {

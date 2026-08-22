@@ -61,8 +61,23 @@ import { extractPdfText } from "./lib/pdf-text.js";
 import {
   SCAN_VIDEO_MAX_BYTES,
   SCAN_VIDEO_TIMEOUT_MS,
+  ROOM_VIDEO_MAX_SECONDS,
+  advertisedPhoneLink,
+  classifyScanParts,
+  getScanInboxMeta,
+  inboxGetPayload,
   isAllowedOrigin,
+  isPrivateLanHost,
+  parseMultipartParts,
   parseVideoUrl,
+  phoneUploadUrls,
+  readLimitedBody,
+  roomVideoFile,
+  roomVideoMeta,
+  storeRoomVideo,
+  storeScanFrames,
+  storeScanVideo,
+  decodeBase64Payload,
 } from "./lib/scan-video.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
@@ -70,11 +85,13 @@ import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
+import { finishFurnitureBuild } from "./lib/build-plan.js";
 import {
   addCable,
   addJoint,
   addPiece,
   addTape,
+  appendDiyBuild,
   benchChrome,
   catalogPreview,
   discardLastEdit,
@@ -205,7 +222,7 @@ app.get("/api/health", (_req, res) => {
       route: "/api/ikeafy/shopping",
       note: hasTavily()
         ? "Tavily looks up IKEA / Amazon / hardware shops for tools you still need."
-        : "Set TAVILY_API_KEY to scrape live shop links for missing tools.",
+        : "Set TAVILY_API_KEY to search for live shop links. IKEAlive does not scrape retailer catalogs.",
     },
     official: {
       route: "/api/ikeafy/official",
@@ -914,6 +931,56 @@ app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
 });
 
+app.get("/api/project/diy", async (_req, res) => {
+  const packet = await finishFurnitureBuild(state.project);
+  res.status(packet.ok ? 200 : 400).json(packet);
+});
+
+app.post("/api/project/finish", async (_req, res) => {
+  const packet = await finishFurnitureBuild(state.project);
+  if (!packet.ok) return res.status(400).json(packet);
+  const assembly = await startAssemblyAsync({
+    mode: "custom",
+    guide: packet.planSource,
+    instructions: "Follow the selected construction way and its dimensioned cut list for this saved model revision.",
+  });
+  if (!assembly.ok) {
+    return res.status(500).json({ ok: false, reason: assembly.reason || "Could not parse the custom build plan." });
+  }
+  const stored = getAssembly(assembly.run?.id);
+  if (stored?.guide) state.guide = stored.guide;
+  const dims = packet.bom.modelDimensionsMm;
+  const build = appendDiyBuild(state.project, {
+    id: `diy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: Date.now(),
+    name: packet.bom.name,
+    signature: packet.bom.modelSignature,
+    dimensions: `${dims.x} × ${dims.y} × ${dims.z} mm`,
+    bom: packet.bom,
+    pdf: packet.pdf,
+    runId: assembly.run?.id || null,
+    planSteps: assembly.outline?.length || assembly.run?.total || 0,
+    outline: assembly.outline || [],
+    planSource: packet.planSource,
+  });
+  persistLabTool(state.project, "generate", {
+    kind: "build-ways",
+    bom: packet.bom,
+    runId: assembly.run?.id || null,
+    pdf: packet.pdf,
+    buildId: build.id,
+  });
+  ikealiveLog("build", "furniture finished", {
+    pieces: state.project.pieces.length,
+    ways: packet.bom.ways.length,
+    cutLines: packet.bom.lines.length,
+    ikeaArticle: packet.bom.ikeaMatch?.article || null,
+    live: packet.bom.live,
+    runId: assembly.run?.id || null,
+  });
+  res.json({ ...packet, assembly, build });
+});
+
 app.post("/api/project/seed", (_req, res) => {
   state.project = emptyProject();
   res.json(projectPayload(state.project));
@@ -1105,18 +1172,18 @@ app.post("/api/firmware/run", (req, res) => {
   res.json({ analysis: analyzeSketch(source), ...result });
 });
 
-app.get("/api/scan/video", async (req, res) => {
-  let target;
-  try {
-    target = parseVideoUrl(req.query?.url);
-  } catch (error) {
-    return res.status(400).json({ ok: false, reason: error.message || "Paste a video URL." });
-  }
+async function proxyScanVideo(target, res) {
   let host = "";
+  let hostname = "";
   try {
-    host = new URL(target).host;
+    const parsed = new URL(target);
+    host = parsed.host;
+    hostname = parsed.hostname;
   } catch {
     host = "";
+  }
+  if (!isPrivateLanHost(hostname)) {
+    return { error: { status: 400, reason: "Use a phone on the same Wi-Fi, or a local video file." } };
   }
   ikealiveLog("scan", "video proxy", { host });
   const controller = new AbortController();
@@ -1128,25 +1195,196 @@ app.get("/api/scan/video", async (req, res) => {
       redirect: "follow",
     });
     if (!upstream.ok) {
-      return res.status(upstream.status === 404 ? 404 : 502).json({
-        ok: false,
-        reason: "Could not fetch that video.",
-      });
+      return {
+        error: {
+          status: upstream.status === 404 ? 404 : 502,
+          reason: "Could not fetch that video.",
+        },
+      };
     }
     const buf = Buffer.from(await upstream.arrayBuffer());
     if (buf.length > SCAN_VIDEO_MAX_BYTES) {
-      return res.status(413).json({ ok: false, reason: "Video is too large for a local scan (80 MB)." });
+      return { error: { status: 413, reason: "Video is too large for a local scan (80 MB)." } };
     }
-    res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
-    res.setHeader("Cache-Control", "no-store");
-    return res.send(buf);
+    const contentType = upstream.headers.get("content-type") || "video/mp4";
+    return { buffer: buf, contentType, host };
   } catch (error) {
     ikealiveWarn("scan", "video proxy failed", { host, reason: error?.message || "fetch" });
-    return res.status(502).json({ ok: false, reason: "Could not reach that video URL." });
+    return { error: { status: 502, reason: "Could not reach that video URL." } };
   } finally {
     clearTimeout(timer);
   }
+}
+
+function sendScanInbox(res) {
+  const payload = inboxGetPayload();
+  if (!payload) {
+    return res.status(404).json({
+      ok: false,
+      reason: "No scan video or frames posted yet. POST to /api/scan/video or pass ?url=.",
+    });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  if (payload.kind === "frames") return res.json(payload.json);
+  res.setHeader("Content-Type", payload.contentType || "video/mp4");
+  res.setHeader("Content-Disposition", `inline; filename="${payload.name || "scan.mp4"}"`);
+  return res.send(payload.buffer);
+}
+
+app.get("/api/scan/video", async (req, res) => {
+  const rawUrl = String(req.query?.url || "").trim();
+  if (!rawUrl) return sendScanInbox(res);
+  let target;
+  try {
+    target = parseVideoUrl(rawUrl);
+  } catch (error) {
+    return res.status(400).json({ ok: false, reason: error.message || "Paste a video URL." });
+  }
+  const proxied = await proxyScanVideo(target, res);
+  if (proxied.error) {
+    return res.status(proxied.error.status).json({ ok: false, reason: proxied.error.reason });
+  }
+  res.setHeader("Content-Type", proxied.contentType);
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(proxied.buffer);
 });
+
+app.post("/api/scan/video", handleScanVideoPost);
+app.put("/api/scan/video", handleScanVideoPost);
+
+async function handleScanVideoPost(req, res) {
+  const type = String(req.headers["content-type"] || "");
+  try {
+    if (type.includes("application/json")) {
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      if (Array.isArray(body.frames) && body.frames.length) {
+        return res.json(storeScanFrames(body.frames));
+      }
+      if (body.video?.data || body.data) {
+        const payload = body.video || body;
+        return res.json(
+          storeScanVideo({
+            buffer: decodeBase64Payload(payload.data),
+            contentType: payload.mime || payload.contentType || "video/mp4",
+            name: payload.name || "scan.mp4",
+          }),
+        );
+      }
+      if (body.url) {
+        const target = parseVideoUrl(body.url);
+        const proxied = await proxyScanVideo(target, res);
+        if (proxied.error) {
+          return res.status(proxied.error.status).json({ ok: false, reason: proxied.error.reason });
+        }
+        return res.json(
+          storeScanVideo({
+            buffer: proxied.buffer,
+            contentType: proxied.contentType,
+            name: "scan.mp4",
+          }),
+        );
+      }
+      return res.status(400).json({ ok: false, reason: "POST a video file, frames, or a video URL." });
+    }
+
+    const buf = await readLimitedBody(req);
+    if (type.includes("multipart/form-data")) {
+      const classified = classifyScanParts(parseMultipartParts(buf, type));
+      let stored = null;
+      if (classified.video) {
+        stored = storeScanVideo({
+          buffer: classified.video.buffer,
+          contentType: classified.video.mime,
+          name: classified.video.name,
+        });
+      }
+      if (classified.frames.length) {
+        stored = storeScanFrames(classified.frames);
+      }
+      if (!stored) {
+        return res.status(400).json({ ok: false, reason: "POST a video file or frames." });
+      }
+      return res.json(stored);
+    }
+
+    if (!buf.length) {
+      return res.status(400).json({ ok: false, reason: "POST a video file or frames." });
+    }
+    return res.json(
+      storeScanVideo({
+        buffer: buf,
+        contentType: type.split(";")[0].trim() || "video/mp4",
+        name: "scan.mp4",
+      }),
+    );
+  } catch (error) {
+    const status = Number(error.status) || (String(error.message || "").includes("too large") ? 413 : 400);
+    return res.status(status).json({ ok: false, reason: error.message || "Could not store that scan." });
+  }
+}
+
+app.get("/api/scan/inbox", (_req, res) => {
+  res.json(getScanInboxMeta());
+});
+
+app.get("/api/scan/phone-link", (req, res) => {
+  res.json(advertisedPhoneLink(req));
+});
+
+app.get("/api/lan", (req, res) => {
+  res.json(advertisedPhoneLink(req));
+});
+
+app.get("/api/phone/room-video", (_req, res) => {
+  res.json(roomVideoMeta());
+});
+
+app.get("/api/phone/room-video/file", (_req, res) => {
+  const file = roomVideoFile();
+  if (!file) return res.status(404).json({ ok: false, ready: false, reason: "No room video yet. POST to /api/scan/video." });
+  res.setHeader("Content-Type", file.contentType || "video/mp4");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", `inline; filename="${file.name || "room.mp4"}"`);
+  return res.send(file.buffer);
+});
+
+app.post("/api/phone/room-video", async (req, res) => {
+  const type = String(req.headers["content-type"] || "");
+  try {
+    const buf = await readLimitedBody(req);
+    if (type.includes("multipart/form-data")) {
+      const classified = classifyScanParts(parseMultipartParts(buf, type));
+      if (!classified.video?.buffer?.length) {
+        return res.status(400).json({ ok: false, reason: "POST a ~30s room video to /api/scan/video." });
+      }
+      return res.json(
+        storeRoomVideo({
+          buffer: classified.video.buffer,
+          contentType: classified.video.mime,
+          name: classified.video.name,
+        }),
+      );
+    }
+    if (!buf.length) {
+      return res.status(400).json({ ok: false, reason: "POST a ~30s room video to /api/scan/video." });
+    }
+    return res.json(
+      storeRoomVideo({
+        buffer: buf,
+        contentType: type.split(";")[0].trim() || "video/mp4",
+        name: "room.mp4",
+      }),
+    );
+  } catch (error) {
+    const status = Number(error.status) || (String(error.message || "").includes("too large") ? 413 : 400);
+    return res.status(status).json({ ok: false, reason: error.message || "Could not store that room video." });
+  }
+});
+
+const phonePage = path.join(__dirname, "phone-upload.html");
+app.get("/phone-upload", (_req, res) => res.sendFile(phonePage));
+app.get("/phone", (_req, res) => res.redirect(302, "/phone-upload"));
+app.get("/phone.html", (_req, res) => res.redirect(302, "/phone-upload"));
 
 app.post("/api/adaptation/plan", (req, res) => {
   state.adaptation = planRoom(req.body || {});
@@ -1186,9 +1424,11 @@ if (existsSync(dist)) {
 
 const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
-  ikealiveLog("video", "ready", { port, keyed: hasFal() });
+  const link = phoneUploadUrls({ apiPort: port });
+  ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
   ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
+  console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });
 
 function loadDotEnv(file) {

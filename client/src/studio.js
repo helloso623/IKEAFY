@@ -453,7 +453,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
             link.href = offer.url || "#";
             link.target = "_blank";
             link.rel = "noreferrer";
-            link.textContent = offer.store || "Shop";
+            // Retailer links read as the store's own name — never a bare "Shop" label.
+            link.textContent = offer.store || offer.title || "View";
             list.append(link);
           }
           wrap.append(list);
@@ -541,6 +542,16 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     renderBom();
     renderTransport();
     renderFittings();
+    return view;
+  }
+
+  async function openAssemblyView(view, { label = "custom IKEAlive plan" } = {}) {
+    if (!view || view.ok === false) return fail(new Error(view?.reason || "Could not open the custom plan."));
+    setMode("custom");
+    announce(`Opening ${label}…`);
+    applyView(view);
+    await renderReviews();
+    await afterGuideReady();
     return view;
   }
 
@@ -1848,6 +1859,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     setInterface,
     startOfficial,
     startFromGuide,
+    openAssemblyView,
     parseCustom,
     chooseRenderMode,
     lookupProductManual,
