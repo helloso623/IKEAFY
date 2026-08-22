@@ -11,6 +11,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const video = readFileSync(path.join(root, "server/lib/video.js"), "utf8");
 const image = readFileSync(path.join(root, "server/lib/image.js"), "utf8");
 const scene = readFileSync(path.join(root, "server/lib/scene.js"), "utf8");
+const bible = readFileSync(path.join(root, "server/lib/bible.js"), "utf8");
 const index = readFileSync(path.join(root, "server/index.js"), "utf8");
 const electronMain = readFileSync(path.join(root, "electron/main.js"), "utf8");
 
@@ -73,6 +74,21 @@ test("Tripo H3.1 scene logs model, submit, poll, and mesh URL without interpolat
   assert.doesNotMatch(scene, /ikealiveLog\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(scene, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(scene, /base64/);
+});
+
+test("locked scene bible logs product seed and step on the render prefix", () => {
+  assert.match(bible, /ikealiveLog\("render"/);
+  assert.match(bible, /"bible"/);
+  assert.match(bible, /seed/);
+  assert.match(bible, /step:/);
+  assert.match(bible, /sku:/);
+  assert.doesNotMatch(bible, /process\.env\.FAL_KEY/);
+  assert.match(video, /logSceneBible/);
+  assert.match(image, /logSceneBible/);
+  assert.match(scene, /logSceneBible/);
+  assert.match(image, /payload\.seed/);
+  assert.match(scene, /model_seed/);
+  assert.match(index, /sceneLockFor|renderLock/);
 });
 
 test("server stdout uses ikealive video parse tavily assembly render and image prefixes", () => {
