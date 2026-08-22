@@ -1,26 +1,64 @@
-<p align="center">
-  <img src="docs/social-preview.jpg" alt="IKEAlive — upload an IKEA PDF, watch a reel of steps" width="1280" />
-</p>
+<div align="center">
+
+<img src="docs/social-preview.jpg" alt="IKEAlive — the booklet, as a film. Video, stills, or 3D." width="1280" />
 
 # IKEAlive
 
-**Upload an IKEA PDF. Watch a reel of the steps.**
+### The booklet, as a film.
 
-IKEAFY is the repo; IKEAlive is the product — a consumer assembly studio that turns official IKEA plates into a film you follow one step at a time.
+Upload an IKEA PDF. Pick **video**, **stills**, or **3D**. Watch the steps.
 
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
-[![GitHub stars](https://img.shields.io/github/stars/helloso623/IKEAlive)](https://github.com/helloso623/IKEAlive/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/helloso623/IKEAlive)](https://github.com/helloso623/IKEAlive/issues)
+IKEAFY is the repo. IKEAlive is the workshop.
 
-## What it is
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-111111?style=for-the-badge&logo=nodedotjs&logoColor=FFDA1A)](https://nodejs.org)
+[![GitHub stars](https://img.shields.io/github/stars/helloso623/IKEAlive?style=for-the-badge)](https://github.com/helloso623/IKEAlive/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/helloso623/IKEAlive?style=for-the-badge)](https://github.com/helloso623/IKEAlive/issues)
 
-Drop an instructions PDF, or type a product name so Tavily can fetch the official IKEA PDF (catalog stand-in without `TAVILY_API_KEY`). The studio turns the plates into a reel you watch one step at a time. Official LACK is a secondary locked sheet. The right rail holds inventory, troubles, identify, and small parts. Watch chat has a Mic that uses the Web Speech API and `/api/agents/chat` so spoken commands can start the reel, change step, or request a spare.
+[Open the workshop](#open-the-workshop) ·
+[Three ways to watch](#three-ways-to-watch) ·
+[Keys on the bench](#keys-on-the-bench) ·
+[Floor plan](#floor-plan)
 
-Lab is one workspace with three spaces: **Bench** (3D edit), **House** (photo + measurements in the same rails, not a separate product), and **AR** (the `#ar-photo` room-camera overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+</div>
 
-## Run
+<p align="center">
+  <img src="docs/workshop-still.jpg" alt="Upload the PDF, then pick video, stills, or 3D instructions" width="1280" />
+</p>
 
-Requires [Node.js](https://nodejs.org) 20 or newer.
+---
+
+## The booklet, as a film
+
+The hex key is already in the bag. What was missing was watching someone do it.
+
+IKEA already drew the plates. IKEAlive does not rewrite them. It reads the PDF (or looks the official booklet up by product name), then you choose a lens:
+
+```
+   ①  drop the PDF          ②  pick a lens           ③  watch
+  ┌───────────────┐        ┌───────────────┐        ┌───────────────┐
+  │  the plates   │   →    │  video        │   →    │  step n       │
+  │  (or a name)  │        │  stills       │        │  one at a time│
+  └───────────────┘        │  3D           │        └───────────────┘
+                           └───────────────┘
+```
+
+Type a product name and Tavily can fetch the official IKEA PDF — catalog stand-in without `TAVILY_API_KEY`. Official **LACK** is a secondary locked sheet. The right rail is the kit: inventory, troubles, identify, small parts. Watch chat has a Mic (Web Speech API + `/api/agents/chat`) so spoken commands can start the reel, change step, or request a spare.
+
+## Three ways to watch
+
+Same furniture. Different lens. Pick before you hit **Get the Reel**.
+
+| | What you watch | On the machine |
+| --- | --- | --- |
+| **Video** | A step film | Needs `FAL_KEY` (fal.ai). |
+| **Stills** | Instruction plates, cheaper than a reel | Needs `FAL_KEY`. |
+| **3D** | The workshop engine — pieces in space | Local. No fal. |
+
+Leave keys empty and the rest of the app stays local. Video and stills are the ones that leave the machine, and only when `FAL_KEY` is set.
+
+## Open the workshop
+
+Requires [Node.js](https://nodejs.org) **20+**. Copy `.env.example` → `.env` if you want keys; leave them blank to stay local. **Do not commit `.env`.**
 
 **Browser**
 
@@ -33,7 +71,7 @@ npm run dev
 - App: `http://localhost:5173`
 - API: `http://localhost:8787`
 
-**Electron** (full workshop in a desktop window — IKEAlive upload/watch, Lab Bench, House):
+**Electron** — full workshop in a desktop window (IKEAlive upload/watch, Lab Bench, House):
 
 ```bash
 npm run electron
@@ -41,21 +79,19 @@ npm run electron
 
 `npm run electron` and `npm run dev:electron` start the same Express + Vite stack as `npm run dev`, then open it in a desktop window. Keep using `npm run dev` if you want the browser instead. After `npm run build`, `electron .` (without `ELECTRON_DEV`) starts Express itself and loads the built client from `http://127.0.0.1:8787`.
 
-## Environment
+## Keys on the bench
 
-Copy `.env.example` to `.env`. Leave values empty to stay fully local. **Never commit `.env` or paste real keys.**
+Names only. Never paste values. `.env` stays out of git.
 
-| Variable | What it enables | Without it |
+| Variable | What it unlocks | Without it |
 | --- | --- | --- |
-| `FAL_KEY` | Step films via fal.ai | Local storyboard |
+| `FAL_KEY` | Video films and still plates via fal.ai | Those two lenses cannot render remotely |
 | `OPENAI_API_KEY` | Lab bench generation (hosted steward) | Built-in local steward |
 | `TAVILY_API_KEY` | Official IKEA PDF lookup and live shop links | Catalog stand-ins |
 
-Optional also: `PORT` (API, default `8787`) and `CLIENT_PORT` (Vite, default `5173`). Model names such as `OPENAI_MODEL_HARD` live in `.env.example`.
+Optional: `PORT` (API, default `8787`), `CLIENT_PORT` (Vite, default `5173`). Model names such as `OPENAI_MODEL_HARD` live in `.env.example`.
 
-`.env` stays out of git. Do not commit keys.
-
-## Folders
+## Floor plan
 
 | Path | What lives here |
 | --- | --- |
@@ -63,8 +99,12 @@ Optional also: `PORT` (API, default `8787`) and `CLIENT_PORT` (Vite, default `51
 | `server/` | Express API |
 | `electron/` | Desktop wrapper |
 | `guides/` | Official building guides |
-| `docs/` | Product notes and the GitHub social preview |
+| `docs/` | Notes, social preview, workshop still |
 | `tests/` | Node test suite |
+
+## The other room
+
+Lab is one workspace with three spaces: **Bench** (3D edit), **House** (photo + measurements in the same rails, not a separate product), and **AR** (the `#ar-photo` room-camera overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
 ## License
 
