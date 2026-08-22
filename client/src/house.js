@@ -26,14 +26,20 @@ import {
 } from "./photogram.js";
 import { knownObject, resolveRoomScale } from "./frame-scale.js";
 import { GENERIC_SIDE_TABLE_M, makeGenericSideTable } from "./generic-table.js";
+import { grabVideoFrames } from "./video-frames.js";
+import { qrSvg } from "./qr.js";
 import {
-  createBinaryOccupancy,
   fitModelToRoom,
-  generateDesignIssues,
   modelEnvelope,
-  moveBinaryFootprint,
   scenePlanSource,
 } from "./scene-refit.js";
+import {
+  createOccupancyGrid,
+  detectDesignIssues,
+  mergeFrameOccupancy,
+  reconcileFurniturePlacement,
+  tableModelFromComponents,
+} from "./room-intelligence.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -286,11 +292,14 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       hasPhoto: () => false,
       hasScene: () => false,
       rebuildHouse3d() {},
+      applyRoomFrames() {},
+      startPhoneWatch() {},
     };
   }
 
   let photo = null;
   let extraPhotos = [];
+  let videoFrames = [];
   let lastPlan = null;
   let describedRoom = null;
   let currentSpace = "desk";
@@ -304,7 +313,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
   let currentIssues = [];
 
   function allPhotos() {
-    const list = [photo, ...extraPhotos].filter(Boolean);
+    const list = [...videoFrames, photo, ...extraPhotos].filter(Boolean);
     return list.filter((img, i) => list.indexOf(img) === i);
   }
 
@@ -578,6 +587,19 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       const slab = new THREE.Mesh(new THREE.BoxGeometry(item.w, Math.max(0.03, item.h), item.d), mat);
       slab.position.y = Math.max(0.03, item.h) / 2;
       g.add(slab);
+    } else if (/post|dowel|leg/i.test(`${item.shape || ""} ${item.name || ""}`)) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(item.color || "#d8c7a1"),
+        roughness: 0.62,
+      });
+      const post = new THREE.Mesh(
+        item.shape === "dowel"
+          ? new THREE.CylinderGeometry(Math.max(0.008, item.w / 2), Math.max(0.008, item.w / 2), item.h, 16)
+          : new THREE.BoxGeometry(item.w, item.h, item.d),
+        mat,
+      );
+      post.position.y = item.h / 2;
+      g.add(post);
     } else {
       g.add(
         makeGenericSideTable(THREE, {
@@ -589,7 +611,115 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       );
     }
     g.position.set(item.x, 0, item.z);
+    g.userData.sceneItem = item;
     return g;
+  }
+
+  function modelComponentMesh(piece) {
+    const item = {
+      ...piece,
+      w: piece.scaled?.w,
+      d: piece.scaled?.d,
+      h: piece.scaled?.h,
+      x: 0,
+      z: 0,
+    };
+    const component = furnitureMesh(item);
+    component.position.set(piece.modelX, piece.modelY - (piece.scaled?.h || 0) / 2, piece.modelZ);
+    component.rotation.set(Number(piece.rx) || 0, Number(piece.ry) || 0, Number(piece.rz) || 0);
+    component.scale.set(1, 1, 1);
+    component.userData.modelComponent = true;
+    return component;
+  }
+
+  function renderDesignIssues(issues = currentIssues) {
+    if (!issuesOut) return;
+    if (!issues.length) {
+      issuesOut.innerHTML = `<p class="hint">Add or place a modeled table to generate room-aware checks.</p>`;
+      return;
+    }
+    issuesOut.innerHTML = issues
+      .map(
+        (issue) =>
+          `<div class="design-issue ${escapeHtml(issue.level)}"><strong>${escapeHtml(issue.title)}</strong><span>${escapeHtml(issue.message)}</span></div>`,
+      )
+      .join("");
+  }
+
+  function updateRefit(previous, current) {
+    if (!three?.room || !current) return null;
+    const roomChanged =
+      !three.occupancy ||
+      three.occupancy.widthM !== three.room.widthM ||
+      three.occupancy.depthM !== three.room.depthM;
+    if (roomChanged) three.occupancy = createBinaryOccupancy(three.room);
+    const result = moveBinaryFootprint(three.occupancy, roomChanged ? null : previous, current);
+    lastRefit = result;
+    if (refitOut) {
+      refitOut.textContent =
+        `Binary scene refit · removed ${result.removedCells} old footprint cells · ` +
+        `${result.occupiedCells} cells occupied at the current fit.`;
+    }
+    currentIssues = generateDesignIssues({
+      model: current,
+      room: three.room,
+      obstacles: three.obstacles,
+    });
+    renderDesignIssues();
+    onRefit?.({ model: { ...current }, room: { ...three.room }, issues: currentIssues, occupancy: result });
+    return result;
+  }
+
+  function commitModelRefit() {
+    if (!three?.modelRoot || !three.model || !three.room) return null;
+    const proposed = {
+      ...three.model,
+      x: three.modelRoot.position.x,
+      z: three.modelRoot.position.z,
+    };
+    const fitted = fitModelToRoom(proposed, three.room);
+    three.modelRoot.position.set(fitted.x, 0, fitted.z);
+    modelPlacement = { x: fitted.x, z: fitted.z };
+    const previous = three.dragFootprint || three.model;
+    three.dragFootprint = null;
+    three.model = fitted;
+    const result = updateRefit(previous, fitted);
+    hud(
+      `Moved the current table to ${fitted.x.toFixed(2)} × ${fitted.z.toFixed(2)} m. ` +
+        `Old binary footprint removed; ${currentIssues.filter((issue) => issue.level !== "ok").length} checks need review.`,
+    );
+    return result;
+  }
+
+  function buildModelRoot(envelope, room) {
+    const start = fitModelToRoom(
+      {
+        ...envelope,
+        x: modelPlacement?.x ?? room.widthM / 2,
+        z: modelPlacement?.z ?? room.depthM / 2,
+      },
+      room,
+    );
+    const root = new THREE.Group();
+    root.name = "current-table-model";
+    root.userData.sceneItem = start;
+    for (const piece of envelope.pieces || []) root.add(modelComponentMesh(piece));
+    root.position.set(start.x, 0, start.z);
+    const marker = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.max(0.02, start.w), Math.max(0.02, start.d)),
+      new THREE.MeshBasicMaterial({
+        color: 0x56c8b5,
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    marker.rotation.x = -Math.PI / 2;
+    marker.position.y = 0.003;
+    marker.name = "binary-current-footprint";
+    root.add(marker);
+    return { root, model: start };
   }
 
   /** Rebuild the whole house as a 3D scene from the loaded photos. */
@@ -628,6 +758,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     if (Number(describedRoom?.heightM) > 0) room.heightM = Number(describedRoom.heightM);
     if (describedRoom?.kind) room.kind = describedRoom.kind;
 
+    const previousModel = ctx3.model ? { ...ctx3.model } : null;
+    ctx3.transform.detach();
     clearGroup(ctx3.roomGroup);
     clearGroup(ctx3.furnitureGroup);
     const surfaces = assignSurfaces(imgs.length);
@@ -659,13 +791,58 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
       ctx3.roomGroup.add(wall);
     }
 
-    for (const item of placeFurniture({ plan: lastPlan, pieces: getPieces?.() || [], room })) {
-      ctx3.furnitureGroup.add(furnitureMesh(item));
+    ctx3.room = room;
+    const pieces = getPieces?.() || [];
+    const placed = placeFurniture({ plan: lastPlan, pieces, room });
+    const envelope = modelEnvelope(pieces);
+    ctx3.obstacles = [];
+    ctx3.modelRoot = null;
+    ctx3.model = null;
+
+    if (envelope) {
+      const built = buildModelRoot(envelope, room);
+      ctx3.modelRoot = built.root;
+      ctx3.model = built.model;
+      ctx3.furnitureGroup.add(built.root);
+      for (const item of placed.filter((candidate) => candidate.source === "plan" || candidate.source === "scan")) {
+        ctx3.obstacles.push(item);
+        ctx3.furnitureGroup.add(furnitureMesh(item));
+      }
+    } else {
+      const [primary, ...rest] = placed;
+      if (primary) {
+        const fitted = fitModelToRoom(
+          {
+            ...primary,
+            x: modelPlacement?.x ?? primary.x,
+            z: modelPlacement?.z ?? primary.z,
+          },
+          room,
+        );
+        const root = furnitureMesh({ ...fitted, x: 0, z: 0 });
+        root.position.set(fitted.x, 0, fitted.z);
+        root.name = "current-table-model";
+        ctx3.modelRoot = root;
+        ctx3.model = fitted;
+        ctx3.furnitureGroup.add(root);
+      }
+      for (const item of rest) {
+        ctx3.obstacles.push(item);
+        ctx3.furnitureGroup.add(furnitureMesh(item));
+      }
     }
 
+    if (ctx3.modelRoot) {
+      modelPlacement = { x: ctx3.model.x, z: ctx3.model.z };
+      ctx3.transform.attach(ctx3.modelRoot);
+      updateRefit(previousModel, ctx3.model);
+    } else {
+      currentIssues = [];
+      renderDesignIssues();
+      if (refitOut) refitOut.textContent = "Place a table to create a binary room footprint.";
+    }
     applyFrame(room);
     ctx3.built = true;
-    ctx3.room = room;
     return room;
   }
 
@@ -749,6 +926,103 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     return room;
   }
 
+  const ROOM_VIDEO_MAX_SECONDS = 30;
+  let phonePoll = 0;
+  let lastRoomVideoId = "";
+  let phoneWatchBusy = false;
+
+  function paintPhoneLink(lan) {
+    const link = $("scan-phone-url");
+    const note = $("scan-phone-status");
+    const qr = $("scan-phone-qr");
+    const url = lan?.url || lan?.urls?.[0] || "";
+    if (link) {
+      if (url) {
+        link.textContent = url;
+        link.href = url;
+      } else {
+        link.textContent = "Connect this computer to Wi-Fi, then tap Send from phone.";
+        link.removeAttribute("href");
+      }
+    }
+    if (qr) qr.innerHTML = url ? qrSvg(url) : "";
+    if (note && !lastRoomVideoId) {
+      note.textContent = url
+        ? "Same Wi‑Fi. Scan the QR or open the link, record ~30s of the room, then send."
+        : "No LAN address yet — join the same Wi-Fi as this computer.";
+    }
+  }
+
+  async function applyRoomFrames(files) {
+    const imgs = [];
+    for (const file of files || []) {
+      const img = await loadImage(file);
+      if (img) imgs.push(img);
+    }
+    if (!imgs.length) return null;
+    videoFrames = imgs.slice(0, 8);
+    if (!photo) photo = videoFrames[0];
+    markPhoto();
+    onPhoto?.(videoFrames[0]);
+    const room = rebuildHouse3d();
+    if (room) {
+      view3d = true;
+      syncViews();
+      onScene?.(room);
+      hud(
+        `Pulled ${videoFrames.length} frames from the 30s phone video — rebuilt ${room.widthM} × ${room.depthM} m.`,
+      );
+    } else {
+      draw(lastPlan);
+      syncViews();
+      hud(`Loaded ${videoFrames.length} frames from the phone video.`);
+    }
+    const note = $("scan-phone-status");
+    if (note) note.textContent = `${videoFrames.length} frames from the phone clip — room rebuilt locally.`;
+    return room;
+  }
+
+  async function tickPhoneUpload() {
+    if (!api?.lan || phoneWatchBusy) return;
+    phoneWatchBusy = true;
+    try {
+      const lan = await api.lan();
+      paintPhoneLink(lan);
+      const meta = await api.roomVideoMeta();
+      if (!meta?.ready || meta.kind !== "video" || !meta.id || meta.id === lastRoomVideoId) return;
+      lastRoomVideoId = meta.id;
+      const blob = await api.roomVideoFile();
+      const url = URL.createObjectURL(blob);
+      try {
+        const grabbed = await grabVideoFrames(url, { count: 6, maxDurationSec: ROOM_VIDEO_MAX_SECONDS });
+        await applyRoomFrames(grabbed.files);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      // Poll is best-effort; a missing clip is not an error.
+    } finally {
+      phoneWatchBusy = false;
+    }
+  }
+
+  function stopPhoneWatch() {
+    if (phonePoll) clearInterval(phonePoll);
+    phonePoll = 0;
+  }
+
+  function startPhoneWatch() {
+    if (phonePoll) return;
+    tickPhoneUpload();
+    phonePoll = setInterval(tickPhoneUpload, 2000);
+  }
+
+  $("scan-phone-link")?.addEventListener("click", () => {
+    $("scan-phone-card")?.classList.remove("hidden");
+    startPhoneWatch();
+    hud("Send from phone — same Wi‑Fi, record ~30s walking the room.");
+  });
+
   function setSpace(space) {
     currentSpace = space;
     active = space === "house";
@@ -756,6 +1030,9 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     if (space === "house") {
       if (!three?.built && allPhotos().length) rebuildHouse3d();
       view3d = Boolean(three?.built);
+      startPhoneWatch();
+    } else {
+      stopPhoneWatch();
     }
     syncViews();
   }
@@ -971,6 +1248,32 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     else draw(lastPlan);
   });
 
+  function snapshot() {
+    const occupiedCells = three?.occupancy?.cells?.reduce((sum, value) => sum + value, 0) || 0;
+    return {
+      room: three?.room ? { ...three.room } : null,
+      model: three?.model
+        ? {
+            id: three.model.id,
+            name: three.model.name,
+            source: three.model.source,
+            w: three.model.w,
+            d: three.model.d,
+            h: three.model.h,
+            x: three.model.x,
+            z: three.model.z,
+            partCount: three.model.pieces?.length || 1,
+          }
+        : null,
+      issues: currentIssues.map((issue) => ({ ...issue })),
+      occupancy: {
+        resolution: three?.occupancy?.resolution || 0,
+        occupiedCells,
+        removedCells: lastRefit?.removedCells || 0,
+      },
+    };
+  }
+
   return {
     applyPlan,
     createRoom,
@@ -981,5 +1284,9 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     hasPhoto: () => allPhotos().length > 0,
     hasScene: () => Boolean(three?.built),
     rebuildHouse3d,
+    applyRoomFrames,
+    startPhoneWatch,
+    snapshot,
+    planSource: () => scenePlanSource(snapshot()),
   };
 }

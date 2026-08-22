@@ -25,6 +25,7 @@
     "express": "^5.1.0",
     "isosurface": "^1.0.0",
     "pdfjs-dist": "^6.2.108",
+    "qrcode": "^1.5.4",
     "three": "^0.170.0"
   },
   "devDependencies": {

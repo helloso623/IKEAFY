@@ -7,7 +7,7 @@ import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { knownObject } from "./frame-scale.js";
-import { fetchScanInbox, filesFromPostedFrames, filesToPostedFrames, grabLiveFrames, grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
+import { assignScanViews, fetchScanInbox, filesFromPostedFrames, filesToPostedFrames, grabLiveFrames, grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
@@ -150,6 +150,15 @@ house = initHouse({
         dimsMm: part?.dimsMm,
         color: part?.color,
         shape: part?.shape,
+        x: piece.x,
+        y: piece.y,
+        z: piece.z,
+        rx: piece.rx,
+        ry: piece.ry,
+        rz: piece.rz,
+        sx: piece.sx,
+        sy: piece.sy,
+        sz: piece.sz,
       };
     });
     const scanned = (shop.getReconstructed?.() || []).map(({ piece, part, positions }) => ({
@@ -187,8 +196,10 @@ async function refreshProject() {
   else if (selectedIds[0]) shop.select(selectedIds[0]);
   syncEditButtons();
   renderBenchPieces();
+  renderDiyHistory();
   syncMaterialPanel();
   aiDock?.refreshScene();
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
 }
 
 function renderBenchPieces() {
@@ -221,6 +232,68 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   }[char]));
+}
+
+function diyBuilds() {
+  return Array.isArray(project.diyHistory) ? project.diyHistory : [];
+}
+
+function renderDiyHistory(active = null) {
+  const history = $("diy-history");
+  const out = $("finish-build-out");
+  const builds = diyBuilds();
+  if (history) {
+    history.innerHTML = builds.length
+      ? [...builds]
+          .reverse()
+          .map(
+            (entry) => `<li>
+              <strong>${escapeHtml(entry.name || "Custom table")}</strong><br />
+              <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
+                new Date(entry.createdAt || Date.now()).toLocaleString(),
+              )}</span>
+              <button type="button" class="quiet" data-bom-build="${escapeHtml(entry.id)}">BOM PDF</button>
+            </li>`,
+          )
+          .join("")
+      : `<li class="hint">No DIY revisions yet.</li>`;
+  }
+  const current = active || builds.at(-1);
+  if (out && current) {
+    const bom = current.bom || {};
+    out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
+      <span>${bom.lines?.length || 0} hardware lines · estimated $${Number(bom.estimatedTotal || 0).toFixed(2)}${
+        bom.live ? " · live offers" : " · catalog links"
+      }</span>
+      <div class="row wrap">
+        <button type="button" class="quiet" data-bom-build="${escapeHtml(current.id)}">Print BOM PDF</button>
+        <span class="hint">${escapeHtml(current.planSteps ? `${current.planSteps} IKEAlive steps` : "IKEAlive plan ready")}</span>
+      </div>`;
+  }
+}
+
+function openBomPrint(build) {
+  const bom = build?.bom;
+  if (!bom?.lines?.length) return hud("That saved revision has no BOM.");
+  const popup = window.open("", "_blank");
+  if (!popup) return hud("Allow pop-ups to open the BOM print dialog.");
+  popup.opener = null;
+  const rows = bom.lines
+    .map(
+      (line) => `<tr><td>${escapeHtml(line.qty)}</td><td>${escapeHtml(line.name)}</td><td>${escapeHtml(
+        line.dimensions,
+      )}</td><td>$${Number(line.estimatedCost || 0).toFixed(2)}</td></tr>`,
+    )
+    .join("");
+  popup.document.write(`<!doctype html><html><head><title>${escapeHtml(
+    build.pdf?.filename || `${bom.name}-hardware-bom.pdf`,
+  )}</title><style>body{font:14px system-ui;margin:32px;color:#111}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ccc;padding:8px;text-align:left}small{color:#666}@media print{button{display:none}}</style></head><body>
+    <h1>${escapeHtml(bom.name)} — hardware BOM</h1><p>${escapeHtml(bom.scope)}</p>
+    <table><thead><tr><th>Qty</th><th>Hardware</th><th>Dimensions</th><th>Estimate</th></tr></thead><tbody>${rows}</tbody></table>
+    <p><strong>Total estimate: $${Number(bom.estimatedTotal || 0).toFixed(2)}</strong></p>
+    <small>${escapeHtml(bom.disclaimer)}</small><p><button onclick="window.print()">Save / print PDF</button></p>
+    <script>window.addEventListener("load",()=>window.print())<\/script></body></html>`);
+  popup.document.close();
 }
 
 function searchBoxes() {
@@ -528,6 +601,13 @@ async function askShopOnce(message) {
     });
     const agentName = reply.agent?.name || "AI";
     appendChat(agentName, reply.text || "", reply.backend);
+    if (reply.manyAgents) {
+      for (const id of ["agent-bar", "ikea-agent-bar"]) {
+        $(id)?.querySelectorAll("span").forEach((span) => {
+          span.classList.toggle("on", /CAD|Creative|Assembler/.test(span.textContent || ""));
+        });
+      }
+    }
     rememberConversation("assistant", reply.text || "", {
       agent: agentName,
       backend: reply.backend || "",
@@ -920,6 +1000,13 @@ $("edit-tools")?.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-redo]")) redoLastEdit();
 });
 
+document.addEventListener("click", (event) => {
+  const id = event.target.closest("[data-bom-build]")?.dataset.bomBuild;
+  if (!id) return;
+  const build = diyBuilds().find((entry) => entry.id === id);
+  openBomPrint(build);
+});
+
 let finishingModel = false;
 $("finish-model")?.addEventListener("click", async () => {
   if (finishingModel) return;
@@ -936,6 +1023,10 @@ $("finish-model")?.addEventListener("click", async () => {
   try {
     const packet = await api.finishProject();
     openBuildPacketPrint(packet, printWindow);
+    await refreshProject();
+    const saved = diyBuilds().find((entry) => entry.id === packet.build?.id) || packet.build;
+    renderDiyHistory(saved);
+    $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
     await studio?.openAssemblyView?.(packet.assembly, { label: "hardware build plan" });
     const match = packet.bom?.ikeaMatch;
@@ -1207,6 +1298,46 @@ async function showScanTapSource(file) {
   drawScanTapFrame();
 }
 
+async function rememberScanFrames(files) {
+  try {
+    const frames = await filesToPostedFrames(files);
+    if (frames.length) await api.scanVideoPost({ frames });
+  } catch {
+    // Inbox is optional — local frames still land on the Scan panel.
+  }
+}
+
+async function applyPostedScanFrames(frames) {
+  const files = filesFromPostedFrames(frames);
+  if (!files.length) throw new Error("No stills in that POST.");
+  const views = assignScanViews(files);
+  setScanViews(views);
+  if (views.front) await showScanTapSource(views.front);
+  const message = `Loaded ${files.length} posted frame${files.length === 1 ? "" : "s"} into front, side and top.`;
+  const output = $("scan-reconstruct-out");
+  if (output) output.textContent = message;
+  hud(message);
+  ikealiveLog("scan", "posted frames", { count: files.length });
+}
+
+async function pullScanInbox() {
+  const output = $("scan-reconstruct-out");
+  if (output) output.textContent = "Pulling the last POST to /api/scan/video…";
+  hud("Pulling posted scan video or frames…");
+  const inbox = await fetchScanInbox("");
+  if (inbox.kind === "frames") {
+    await applyPostedScanFrames(inbox.frames);
+    return;
+  }
+  if (!inbox.blob) throw new Error("No posted scan yet.");
+  const url = URL.createObjectURL(inbox.blob);
+  try {
+    await pullScanVideo(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function pullScanVideo(source) {
   const output = $("scan-reconstruct-out");
   if (output) output.textContent = "Pulling stills from the video locally…";
@@ -1215,6 +1346,7 @@ async function pullScanVideo(source) {
   const views = grabbed.views;
   setScanViews(views);
   if (views.front) await showScanTapSource(views.front);
+  await rememberScanFrames(grabbed.files);
   const message = `Pulled ${grabbed.files.length} frames for front, side and top. Scale is still local — tap 1 m, a known object, or vanishing.`;
   if (output) output.textContent = message;
   hud(message);
@@ -1293,11 +1425,11 @@ $("scan-video")?.addEventListener("change", async () => {
 });
 $("scan-load-video")?.addEventListener("click", async () => {
   const raw = $("scan-video-url")?.value?.trim();
-  if (!raw) {
-    hud("Paste a video URL, then pull frames.");
-    return;
-  }
   try {
+    if (!raw) {
+      await pullScanInbox();
+      return;
+    }
     await pullScanVideo(scanVideoProxyUrl(raw, ""));
   } catch (err) {
     const message = err?.message || "Could not pull frames from that URL.";
@@ -1317,7 +1449,7 @@ $("scan-btn")?.addEventListener("click", () => {
     panel.open = true;
     panel.scrollIntoView({ block: "nearest" });
   }
-  hud("Scan object — photos, a video, or a URL. Tap two points = 1 m, a known object, or vanishing.");
+  hud("Scan — photos, a video, or Send from phone for a ~30s room walk.");
 });
 
 $("scan-reconstruct")?.addEventListener("click", async () => {
@@ -1436,6 +1568,41 @@ $("scan-bake-plan")?.addEventListener("click", async () => {
     );
   } catch (err) {
     hud(err?.message || "Could not bake that IKEAlive plan.");
+  }
+});
+
+$("scene-bake-plan")?.addEventListener("click", async () => {
+  const snapshot = house?.snapshot?.();
+  if (!snapshot?.model || !snapshot?.room) {
+    hud("Place the current table in a 3D room before scanning the model + scene.");
+    return;
+  }
+  const button = $("scene-bake-plan");
+  button.disabled = true;
+  hud("Scanning the current model, room fit, binary footprint, and design checks…");
+  try {
+    const raw = house.planSource();
+    const parsed = await api.parseGuide(
+      raw,
+      "Keep the baked dimensions, placement, binary-footprint removal, and generated design checks.",
+      { scene: snapshot },
+    );
+    if (!parsed?.steps?.length) throw new Error("The baked model + scene did not produce steps.");
+    setMode("ikeafy");
+    window.setIkealiveInterface?.("watch");
+    const view = await studio?.startFromGuide?.(raw, {
+      label: `${snapshot.model.name || "Current table"} model + room scan`,
+      instructions: "Use the baked current model and room scene; do not substitute an older table revision.",
+    });
+    hud(
+      view?.ok === false
+        ? view.reason || "Could not start the model + scene plan."
+        : `Model + scene baked into IKEAlive — ${parsed.steps.length} parsed to-do steps.`,
+    );
+  } catch (error) {
+    hud(error?.message || "Could not bake the current model + scene.");
+  } finally {
+    button.disabled = false;
   }
 });
 

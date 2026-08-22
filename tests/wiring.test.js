@@ -330,7 +330,7 @@ test("dead simulation controls stay out of the Lab", () => {
 });
 
 test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out"]) {
+  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -564,6 +564,8 @@ test("the shop is a bottom-right AI circle with chat, voice, history, and scene"
   assert.match(html, /id="ai-history"/);
   assert.match(html, /id="chat-form"/);
   assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="many-agents-note"/);
+  assert.match(html, /build this furniture/);
   const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
   assert.doesNotMatch(inspector, /id="chat-form"/);
   const css = read("client/src/styles.css");
