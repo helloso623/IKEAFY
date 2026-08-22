@@ -597,6 +597,9 @@ export function createWorkshop(canvas) {
 
   const floorMap = grayWoodMap({ planks: 12, seed: 2 });
   floorMap.repeat.set(3, 3);
+  // One ground only. Bench occupies y ∈ [-0.06, 0]; the floor sits 2 mm under
+  // that box so nothing shares y = 0 with the worktop. No GridHelper — it
+  // was a second surface on the same plane and flickered through the wood.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshStandardMaterial({
@@ -604,32 +607,17 @@ export function createWorkshop(canvas) {
       map: floorMap,
       roughness: 0.86,
       metalness: 0.02,
-      // Lose the depth fight with GridHelper / bench top (same plane, huge far/near).
       polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 4,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 8,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.002;
+  floor.position.y = -0.062;
   floor.renderOrder = -1;
   floor.receiveShadow = true;
   floor.userData.baseMaterial = floor.material;
   scene.add(floor);
-
-  const grid = new THREE.GridHelper(4, 20, 0xffffff, 0x6a6a6a);
-  grid.position.y = 0.004;
-  const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
-  for (const mat of gridMats) {
-    mat.transparent = true;
-    mat.opacity = 0.22;
-    mat.toneMapped = false;
-    mat.depthWrite = false;
-  }
-  grid.renderOrder = 1;
-  // Wood map already reads as a ground plane — keep the helper off so it cannot flicker.
-  grid.visible = !floor.material.map;
-  scene.add(grid);
 
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
   benchMap.repeat.set(2, 1.2);
@@ -777,6 +765,13 @@ export function createWorkshop(canvas) {
   });
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, wireframe: true, toneMapped: false });
   const unlitMat = new THREE.MeshBasicMaterial({ color: 0xd4d0c8, toneMapped: false });
+  const unlitFloorMat = new THREE.MeshBasicMaterial({
+    color: 0xd4d0c8,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 8,
+  });
 
   function emitViewport() {
     canvas.dispatchEvent(new CustomEvent("ikealive-viewport", { detail: { look: lookOn, measure: measureOn } }));
@@ -810,7 +805,7 @@ export function createWorkshop(canvas) {
         child.material = override || child.userData.baseMaterial;
       });
     }
-    floor.material = lookOn ? unlitMat : floor.userData.baseMaterial;
+    floor.material = lookOn ? unlitFloorMat : floor.userData.baseMaterial;
     bench.material = lookOn ? unlitMat : bench.userData.baseMaterial;
   }
 
