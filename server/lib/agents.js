@@ -3,7 +3,7 @@ import { engineeringReport, runSuite } from "./physics.js";
 import { parseGuide, expandStep, defaultGuide } from "./ikeafy.js";
 import { planRoom } from "./adaptation.js";
 import { sketchFromFunctions } from "./firmware.js";
-import { addPiece, isolateAsBoard, labelFunction, persistLabTool } from "./project.js";
+import { addPiece, isolateAsBoard, labelFunction, movePiece, persistLabTool } from "./project.js";
 import { usableOpenAiKey } from "./secrets.js";
 
 export const ROSTER = [
@@ -295,11 +295,72 @@ function stripElectronicsTalk(text) {
     .trim();
 }
 
+export function describeScene(ctx = {}) {
+  const wrapped = ctx.scene && typeof ctx.scene === "object" ? ctx.scene : null;
+  const scene = wrapped || (ctx.interface || ctx.mode || ctx.lab || ctx.selected || ctx.pieceCount ? ctx : null);
+  if (!scene) {
+    const count = ctx.project?.pieces?.length || 0;
+    return count ? `${count} piece${count === 1 ? "" : "s"} on the bench` : "";
+  }
+  if (!wrapped && (scene.interface === "watch" || scene.mode === "ikeafy" || scene.product || scene.partName)) {
+    const bits = [];
+    if (scene.mode === "lab") bits.push(`Lab ${scene.lab || "bench"}`);
+    else if (scene.interface === "watch") bits.push(scene.step ? `Watch step ${scene.step}` : "Watch");
+    else if (scene.mode || scene.interface) bits.push("Upload");
+    if (scene.product) bits.push(String(scene.product));
+    if (scene.partName || scene.partId) bits.push(`selected ${scene.partName || scene.partId}`);
+    if (scene.pieceCount) bits.push(`${scene.pieceCount} pieces on the bench`);
+    return bits.join(" · ");
+  }
+  const lab = scene.lab || scene.mode || "desk";
+  const count = Number.isFinite(Number(scene.pieceCount))
+    ? Number(scene.pieceCount)
+    : Array.isArray(scene.pieces)
+      ? scene.pieces.length
+      : 0;
+  const bits = [`${lab} mode`, `${count} piece${count === 1 ? "" : "s"}`];
+  const sel = scene.selected;
+  if (sel?.name) {
+    const d = sel.dimsMm;
+    const dim =
+      d && Number.isFinite(Number(d.x))
+        ? ` ${Math.round(Number(d.x))}×${Math.round(Number(d.y))}×${Math.round(Number(d.z))} mm`
+        : "";
+    bits.push(`selected ${sel.name}${dim}`);
+  } else {
+    bits.push("nothing selected");
+  }
+  if (ctx.photoName) bits.push(`viewport still ${ctx.photoName}`);
+  return bits.join("; ");
+}
+
+function selectedPieceFromCtx(ctx = {}) {
+  const id = ctx.scene?.selected?.id;
+  if (id && ctx.project?.pieces) {
+    const hit = ctx.project.pieces.find((p) => p.id === id);
+    if (hit) return hit;
+  }
+  if (ctx.partId && ctx.project?.pieces) {
+    const byPart = ctx.project.pieces.find((p) => p.partId === ctx.partId);
+    if (byPart) return byPart;
+  }
+  if (ctx.project?.selection && ctx.project.pieces) {
+    return ctx.project.pieces.find((p) => p.id === ctx.project.selection) || null;
+  }
+  return null;
+}
+
+function isSceneAsk(text) {
+  return /\b(what('s| is) (this|on (the )?(screen|bench|desk))|selected|current (model|piece|scene)|looking at|on (the )?screen|this (piece|model|table|scan))\b/i.test(
+    String(text || ""),
+  );
+}
+
 const STUDIO_ACTIONS = new Set(["start", "official", "next", "back", "play", "spare", "clear"]);
 
 /**
  * Spoken / typed IKEAlive watch commands. Checked before bench generation so
- * “get the reel” is not treated as “generate furniture”.
+ * "get the reel" is not treated as "generate furniture".
  */
 export function planStudioActions(message) {
   const lower = String(message || "").toLowerCase().trim();
@@ -331,12 +392,20 @@ export function planStudioActions(message) {
 
 /**
  * Lab creative desk: turn a spoken request into bench actions the client
- * can apply with api.add / camera / label / isolate.
+ * can apply with api.add / camera / move / scan / label / isolate.
  */
 export function planCreativeActions(message, ctx = {}) {
   const lower = String(message || "").toLowerCase();
   const actions = [];
   let text = "";
+
+  if (/\b(scan|reconstruct|photogram)\b/.test(lower) && !/\b(add|put|drop)\b/.test(lower)) {
+    return {
+      handles: true,
+      text: "Open Scan object — add aligned front, side and top photos, then Reconstruct.",
+      actions: [{ type: "scan" }],
+    };
+  }
 
   if (isLampAsk(lower) && /\b(generate|make|build|create|add|put|design|drop)\b/.test(lower)) {
     const table = getPart("lack-table");
@@ -373,6 +442,23 @@ export function planCreativeActions(message, ctx = {}) {
   }
 
   if (MOVE_HINTS.test(lower) && !isCatalogAsk(lower)) {
+    const piece = selectedPieceFromCtx(ctx);
+    const nudgePiece = piece && !/\bcamera\b/.test(lower) && /\b(this|it|piece|selected|left|right|forward|back|up|down)\b/.test(lower);
+    if (nudgePiece) {
+      const step = 0.05;
+      const pose = {};
+      if (/\bleft\b/.test(lower)) pose.x = (Number(piece.x) || 0) - step;
+      else if (/\bright\b/.test(lower)) pose.x = (Number(piece.x) || 0) + step;
+      if (/\bforward|front\b/.test(lower)) pose.z = (Number(piece.z) || 0) - step;
+      else if (/\bback\b/.test(lower)) pose.z = (Number(piece.z) || 0) + step;
+      if (/\bup\b/.test(lower) && !/\bsetup\b/.test(lower)) pose.y = (Number(piece.y) || 0) + step;
+      else if (/\bdown\b/.test(lower)) pose.y = (Number(piece.y) || 0) - step;
+      if (Object.keys(pose).length) {
+        actions.push({ type: "move", id: piece.id, ...pose });
+        text = `Moved ${ctx.scene?.selected?.name || piece.partId}.`;
+        return { handles: true, text, actions };
+      }
+    }
     actions.push(cameraAction(lower));
     text = "Nudged the camera. Drag a piece to move or rotate it on the bench.";
     return { handles: true, text, actions };
@@ -422,6 +508,12 @@ export function applyCreativeActions(project, actions) {
         action.pieceIds = ids;
         action.applied = true;
       }
+    } else if (action.type === "move" && action.id) {
+      const piece = movePiece(project, action.id, action);
+      if (piece) {
+        action.piece = piece;
+        action.applied = true;
+      }
     }
   }
   return actions;
@@ -439,10 +531,23 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "studio"]);
+  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
+    if (action.type === "scan") {
+      out.push({ type: "scan" });
+      continue;
+    }
+    if (action.type === "move") {
+      if (!action.id) continue;
+      const pose = {};
+      for (const key of ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz"]) {
+        if (action[key] !== undefined) pose[key] = Number(action[key]);
+      }
+      out.push({ type: "move", id: String(action.id), ...pose });
+      continue;
+    }
     if (action.type === "studio") {
       const name = String(action.action || "");
       if (STUDIO_ACTIONS.has(name)) out.push({ type: "studio", action: name });
@@ -485,6 +590,15 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
   return out;
 }
 
+function withSceneNote(text, ctx, message) {
+  const note = describeScene(ctx);
+  if (!note) return text;
+  const lower = String(message || "").toLowerCase();
+  if (!/\?|this|selected|screen|model|bench|looking|current/.test(lower)) return text;
+  if (String(text || "").includes(note)) return text;
+  return `${text} (${note})`;
+}
+
 function localReply(message, ctx) {
   const agent = routeAgent(message);
   const studio = planStudioActions(message);
@@ -496,6 +610,15 @@ function localReply(message, ctx) {
       actions: studio.actions,
     };
   }
+  const sceneNote = describeScene(ctx);
+  if (isSceneAsk(message) && sceneNote) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: `${agent.name} (${agent.model}, local steward): I can see the bench: ${sceneNote}.`,
+      actions: [],
+    };
+  }
   const hardLabTask = CAD_HINTS.test(message) || EDA_HINTS.test(message) || SIM_HINTS.test(message);
   const planned = hardLabTask
     ? { handles: false, text: "", actions: [] }
@@ -505,7 +628,7 @@ function localReply(message, ctx) {
     return {
       agent,
       backend: "local-steward",
-      text: `${agent.name} (${agent.model}, local steward): ${planned.text}`,
+      text: withSceneNote(`${agent.name} (${agent.model}, local steward): ${planned.text}`, ctx, message),
       actions: planned.actions,
     };
   }
@@ -611,7 +734,7 @@ function localReply(message, ctx) {
   return {
     agent,
     backend: "local-steward",
-    text,
+    text: withSceneNote(text, ctx, message),
     actions,
   };
 }
@@ -629,19 +752,20 @@ async function hostedReply(message, ctx, agent) {
     .slice(0, 64)
     .map((p) => `${p.id} (${p.name}, ${p.category})`)
     .join("; ");
+  const sceneNote = describeScene(ctx);
   const body = {
     model,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
+        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
           electronics
             ? "Electronics were requested — nano, LED, and button are fair."
-            : "Furniture, tables, or catalog parts only — no Arduino, ports, firmware, or boards."
+            : "Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics."
         }`,
       },
-      { role: "user", content: describeScene(ctx.scene) ? `${message}\n\nScene: ${describeScene(ctx.scene)}` : message },
+      { role: "user", content: [message, sceneNote && `[bench scene] ${sceneNote}`].filter(Boolean).join("\n") },
     ],
   };
   const fetchFn = ctx.fetchFn || fetch;
@@ -689,21 +813,9 @@ export function mergeChatContext(ctx = {}) {
     scene,
     costBarrier: ctx.costBarrier ?? scene.costBarrier,
     step: ctx.step ?? scene.step,
-    partId: ctx.partId || scene.partId,
+    partId: ctx.partId || scene.partId || scene.selected?.partId || scene.selected?.id,
     room: ctx.room || scene.room,
   };
-}
-
-export function describeScene(scene = {}) {
-  if (!scene || typeof scene !== "object") return "";
-  const bits = [];
-  if (scene.mode === "lab") bits.push(`Lab ${scene.lab || "bench"}`);
-  else if (scene.interface === "watch") bits.push(scene.step ? `Watch step ${scene.step}` : "Watch");
-  else if (scene.mode || scene.interface) bits.push("Upload");
-  if (scene.product) bits.push(String(scene.product));
-  if (scene.partName || scene.partId) bits.push(`selected ${scene.partName || scene.partId}`);
-  if (scene.pieceCount) bits.push(`${scene.pieceCount} pieces on the bench`);
-  return bits.join(" · ");
 }
 
 export async function chat(message, ctx = {}) {

@@ -296,6 +296,24 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /api\.isolate\(/);
   assert.match(main, /shop\.setCamera/);
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
+  assert.match(main, /action\.type === "scan"/);
+  assert.match(main, /action\.type === "move"/);
+  assert.match(main, /buildSceneContext|labScenePayload/);
+  assert.match(main, /photoName/);
+});
+
+test("Lab AI is a bottom-right orb, not a header Ask", () => {
+  for (const id of ["ai-orb", "ai-dock", "ai-mic", "ai-history", "ai-status", "chat-log", "chat-in"]) {
+    assert.ok(markupIds.has(id), `Lab AI markup is missing #${id}`);
+  }
+  assert.match(html, /id="omnibox"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /\.omnibox-form \{ display: none !important/);
+  assert.match(css, /#ai-orb/);
+  assert.match(css, /#app\.mode-ikeafy #ai-orb/);
+  assert.match(main, /bindVoice/);
+  assert.match(main, /bindAiDock/);
+  assert.match(main, /webkitSpeechRecognition|speechCtor|bindVoice/);
 });
 
 test("bench editing controls are wired for furniture first", () => {
@@ -328,6 +346,20 @@ test("bench editing controls are wired for furniture first", () => {
   assert.match(apiSource, /^\s{2}duplicate:/m);
   assert.match(apiSource, /^\s{2}undo:/m);
   assert.match(apiSource, /^\s{2}redo:/m);
+});
+
+test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
+  const workshop = read("client/src/workshop.js");
+  const start = workshop.indexOf("export function createWorkshop");
+  const created = workshop.slice(start, workshop.indexOf("const group = new THREE.Group()", start));
+  assert.doesNotMatch(created, /new THREE\.GridHelper/);
+  assert.match(created, /polygonOffset:\s*true/);
+  assert.match(created, /floor\.receiveShadow\s*=\s*false/);
+  assert.match(created, /floor\.position\.y\s*=\s*-0\.12/);
+  assert.doesNotMatch(workshop, /new THREE\.GridHelper/);
+  assert.match(workshop, /floor\.receiveShadow\s*=\s*false/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*true/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*!lookOn/);
 });
 
 test("empty inspect is quiet — no ports, no Arduino", () => {

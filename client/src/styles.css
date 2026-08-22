@@ -171,6 +171,9 @@ a { color: inherit; text-decoration: none; }
   background: var(--ink);
 }
 
+.omnibox-form { display: none !important; }
+.omnibox-form input { border-radius: 999px; }
+
 .watch-only { display: none; }
 #app[data-interface="watch"].mode-ikeafy .watch-only { display: inline-flex; }
 
@@ -1092,6 +1095,30 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 #app.mode-lab[data-lab="ar"] #ar-photo {
   pointer-events: auto;
+}
+
+/* The regenerated 3D house sits above the photo overlay in AR. */
+#room-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  background: #14181e;
+}
+#app.mode-lab:not([data-lab="ar"]) #room-scene {
+  display: none !important;
+}
+#app.mode-lab[data-lab="ar"] #room-scene {
+  pointer-events: auto;
+}
+.house-extra {
+  margin: 0.45rem 0 0;
+  gap: 0.4rem;
+}
+.house-extra button {
+  padding: 0.32rem 0.7rem;
+  font-size: 0.78rem;
 }
 #app.mode-lab[data-lab="ar"] #view {
   opacity: 0;
@@ -2091,7 +2118,7 @@ body.lab-resizing * {
 }
 
 /* -------------------------------------------- Lab: Viewport / Sim strip
-   A Blender-ish bar floating over #view: frame + shading on the left,
+   A Blender-ish bar floating over #view: Look + shading on the left,
    modifiers-lite in the middle, the stacked behavior sim on the right.
    Lives in its own #viewport-strip node so sibling toolbars stay untouched. */
 .viewport-strip {
@@ -2367,3 +2394,122 @@ body.lab-resizing * {
   border: 1px solid #ffda1a;
 }
 .cad-measure strong { color: #ffda1a; }
+
+/* ============================================================
+   Lab AI orb — bottom-right circle. Hidden on IKEAlive upload/watch.
+   ============================================================ */
+
+#ai-orb {
+  display: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 40;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #3c4454;
+  background: #232833;
+  color: #e7ebf2;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+#ai-orb:hover { background: #2c3340; color: #fff; }
+#ai-orb.on {
+  background: #3d9cf0;
+  border-color: #3d9cf0;
+  color: #fff;
+}
+
+#ai-dock {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 5.15rem;
+  z-index: 40;
+  width: min(22rem, calc(100vw - 2.5rem));
+  max-height: min(32rem, calc(100vh - 7rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.75rem 0.8rem;
+  background: #232833;
+  color: #e7ebf2;
+  border: 1px solid #3c4454;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+  font-size: 0.85rem;
+}
+#ai-dock[hidden] { display: none !important; }
+
+#app.mode-lab #ai-orb,
+#app.mode-bench #ai-orb,
+#app.mode-house #ai-orb { display: inline-flex; }
+
+#app.mode-ikeafy #ai-orb,
+#app.mode-ikeafy #ai-dock {
+  display: none !important;
+}
+
+.ai-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.ai-dock-head strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+#ai-dock .agent-bar { margin: 0; }
+#ai-dock .agent-bar span {
+  border-color: #3c4454;
+  color: #9aa3b5;
+  background: #1b1f26;
+}
+#ai-dock .chat-log {
+  height: 11rem;
+  background: #1b1f26;
+  border-color: #3c4454;
+  color: #e7ebf2;
+}
+#ai-dock .chat-log .me { color: #fff; }
+.ai-form {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0;
+}
+.ai-form input { flex: 1 1 auto; min-width: 0; }
+.ai-form button { flex: 0 0 auto; }
+#ai-mic.on {
+  background: #3d9cf0;
+  border-color: #3d9cf0;
+  color: #fff;
+}
+.ai-status { margin: 0; color: #9aa3b5; min-height: 1.1em; }
+.ai-history-fold { color: #9aa3b5; font-size: 0.78rem; }
+.ai-history-fold summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.ai-history {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  max-height: 7rem;
+  overflow: auto;
+}
+.ai-history li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid #3c4454;
+}
+.ai-cmd { color: #e7ebf2; font-weight: 600; }
+.ai-res { color: #9aa3b5; }

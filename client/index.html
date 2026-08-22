@@ -39,6 +39,17 @@
           <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
         </nav>
+        <!-- Header Ask stays in the DOM for wiring tests; Lab uses #ai-orb. -->
+        <form id="omnibox-form" class="omnibox-form" role="search" hidden>
+          <input
+            id="omnibox"
+            type="search"
+            placeholder="Add a table, generate a lamp, or ask…"
+            autocomplete="off"
+            aria-label="Search the catalog or ask the shop"
+          />
+          <button type="button" id="omnibox-ask">Ask</button>
+        </form>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
           <label class="toggle bench-only hidden">
@@ -153,6 +164,7 @@
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
+        <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
@@ -337,10 +349,17 @@
               This room
             </summary>
             <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
+              <p class="hint lab-hint house-caption">
+                Photo and measurements sit with the bench. AR shows the overlay — add more angles and
+                the Lab rebuilds the whole room in 3D.
+              </p>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
+              </label>
+              <label class="field file-field" for="room-photos">
+                <span>More room photos (3D rebuild)</span>
+                <input id="room-photos" type="file" accept="image/*" multiple />
               </label>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
@@ -357,6 +376,10 @@
                 <input id="room-budget" type="number" value="40" />
               </label>
               <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+              <div class="row wrap house-extra">
+                <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
+                <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
+              </div>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -394,6 +417,10 @@
             <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
             <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
             <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
+            <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool" id="lab-look" title="Unlit clay view — no shadows">Look</button>
+            <button type="button" class="lab-tool" id="lab-look-at" title="Frame selected">Look at</button>
+            <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>
@@ -456,7 +483,7 @@
                   <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
                   <button type="button" data-cad-tool="joint">Joint</button>
                 </div>
-                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
+                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale. L Look, M Measure, F Look at.</p>
               </div>
             </div>
           </details>
@@ -540,12 +567,14 @@
             placeholder="Add a table, generate a lamp, or ask about this scene…"
             aria-label="Command the shop"
           />
-          <button type="button" id="lab-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
+          <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>
+          <button type="button" id="lab-voice" class="quiet" hidden aria-pressed="false" title="Speak">Mic</button>
           <button type="submit" class="primary">Send</button>
         </form>
-        <p id="lab-voice-status" class="voice-status hint" aria-live="polite"></p>
+        <p id="ai-status" class="hint ai-status" aria-live="polite"></p>
+        <p id="lab-voice-status" class="voice-status hint" hidden aria-live="polite"></p>
         <details class="ai-history-fold" open>
-          <summary>History</summary>
+          <summary>Command history</summary>
           <ol id="ai-history" class="ai-history"></ol>
         </details>
       </aside>
