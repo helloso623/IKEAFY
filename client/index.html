@@ -183,8 +183,14 @@
       </main>
 
       <!-- ============ WATCH — four Finley-style cards ============ -->
-      <aside class="rail cards" data-pane="ikeafy" aria-label="IKEAlive watch">
+      <aside class="rail cards" data-pane="ikeafy" data-watch-card="bom" aria-label="IKEAlive watch">
         <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
+          <nav class="watch-picks" aria-label="Watch cards">
+            <button type="button" class="watch-pick on" data-watch-card="bom">Assembly inventory</button>
+            <button type="button" class="watch-pick" data-watch-card="reviews">Where people had troubles</button>
+            <button type="button" class="watch-pick" data-watch-card="broken">Part identification desk</button>
+            <button type="button" class="watch-pick" data-watch-card="spare">Small parts service</button>
+          </nav>
           <div class="panel watch bom">
             <h2>Assembly inventory</h2>
             <p class="hint">Kit in the box, then anything extra to pick up.</p>
@@ -465,12 +471,27 @@
           window.dispatchEvent(new Event("resize"));
         }
 
+        function setWatchCard(name) {
+          const allowed = new Set(["bom", "reviews", "broken", "spare"]);
+          const next = allowed.has(name) ? name : "bom";
+          const rail = document.querySelector(".rail.cards");
+          if (rail) rail.setAttribute("data-watch-card", next);
+          for (const btn of document.querySelectorAll(".watch-pick")) {
+            const on = btn.getAttribute("data-watch-card") === next;
+            btn.classList.toggle("on", on);
+            btn.setAttribute("aria-pressed", String(on));
+          }
+        }
+
         document.addEventListener("click", (ev) => {
           const go = ev.target.closest("[data-go-interface]");
           if (go) setInterface(go.getAttribute("data-go-interface"));
+          const pick = ev.target.closest(".watch-pick");
+          if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
         });
 
         window.setIkealiveInterface = setInterface;
+        window.setIkealiveWatchCard = setWatchCard;
       })();
     </script>
     <script type="module" src="/src/main.js"></script>

@@ -637,6 +637,39 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .studio-side > .card,
 .studio-side > .watch { flex: 0 0 auto; }
 
+.watch-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.watch-pick {
+  min-height: 3.4rem;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  font-family: "Clash Display", var(--serif);
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  color: #091410;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(250, 249, 245, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  box-shadow:
+    0 10px 28px rgba(93, 151, 209, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+.watch-pick:hover { background: #fff; color: #091410; }
+.watch-pick.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--card);
+  box-shadow: none;
+}
+
 /* Four IKEAlive watch cards — one Finley chrome (radius, type, border, padding). */
 .studio-side > .watch {
   background:
@@ -650,6 +683,14 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   backdrop-filter: blur(20px) saturate(150%);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
+.studio-side > .watch:not(.chat) { display: none; }
+.rail.cards[data-watch-card="bom"] .watch.bom,
+.rail.cards[data-watch-card="reviews"] .watch.reviews,
+.rail.cards[data-watch-card="broken"] .watch.broken,
+.rail.cards[data-watch-card="spare"] .watch.spare {
+  display: block;
+}
+.studio-side > .watch.chat { display: block; }
 .studio-side > .watch h2 {
   font-family: "Clash Display", var(--serif);
   font-size: 1.05rem;

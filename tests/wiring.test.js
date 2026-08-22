@@ -69,6 +69,11 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(html, /data-interface="upload"/);
   assert.match(html, /data-interface-pane="upload"/);
   assert.match(html, /class="studio-side"/, "the watch rail holds the four Finley cards");
+  assert.match(html, /class="watch-picks"/, "four buttons switch the watch cards");
+  assert.match(html, /data-watch-card="bom"/);
+  assert.match(html, /data-watch-card="reviews"/);
+  assert.match(html, /data-watch-card="broken"/);
+  assert.match(html, /data-watch-card="spare"/);
   assert.match(html, /id="omnibox"/);
   const side = html.slice(html.indexOf('class="studio-side"'), html.indexOf('class="studio-side"') + 220);
   assert.match(side, /Assembly inventory|IKEAlive watch|part ID/i);
@@ -305,6 +310,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /\.lab-viewport/);
   assert.match(css, /\.lab-inspector/);
   assert.match(css, /\.studio-side > \.watch \{/, "Finley watch cards keep their own chrome");
+  assert.match(css, /\.watch-picks/);
+  assert.match(css, /\.studio-side > \.watch\.chat/);
   assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
   assert.match(html, /class="panel watch bom"/);
   assert.match(html, /class="studio-side"/);
