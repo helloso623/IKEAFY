@@ -116,14 +116,30 @@ function sizePlain(part) {
 }
 
 /**
- * Lab is furniture-only for now. Electronics chrome (Arduino, nets, isolate)
- * stays off the panel even if catalog parts still exist on the server.
+ * The server decides what the bench shows. Furniture keeps the EDA chrome
+ * hidden; electronics on the bench flip the sheet to KiCad — net strip over
+ * the viewport, netlist + ERC in the inspector, isolate-as-board in reach.
+ * chrome.electronics is the only gate: never behind "more tools".
  */
 function applyChrome(chrome) {
-  void chrome?.electronics;
+  const electronics = Boolean(chrome?.electronics);
+  const inLab = $("app")?.dataset.mode === "lab";
   for (const node of document.querySelectorAll(".electronics-chrome")) {
-    node.classList.add("hidden");
+    const benchOnly = node.classList.contains("bench-only");
+    node.classList.toggle("hidden", !electronics || (benchOnly && !inLab));
   }
+  const noNets = $("no-nets-hint");
+  if (noNets) noNets.classList.toggle("hidden", electronics);
+  shop.setEda?.(electronics && inLab);
+  if (!electronics) {
+    pendingPort = null;
+    highlightedNet = null;
+    shop.setPendingPort?.(null);
+    shop.highlightNet?.(null);
+  }
+  renderNetlist();
+  renderErc();
+  renderNetStrip();
   if (chrome) hudChromeNote(chrome);
 }
 
@@ -190,9 +206,10 @@ function renderBenchPieces() {
   list.innerHTML = project.pieces
     .map((piece) => {
       const part = partsById[piece.partId];
+      const ref = piece.ref ? `${piece.ref} · ` : "";
       const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
       const on = piece.id === current ? " on" : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${ref}${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -205,6 +222,101 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   }[char]));
+}
+
+/* ------------------------------------------------------------------ Lab EDA
+   The netlist panel, ERC report and net strip all read the same server
+   payload: project.netlist (named nets over the cables) and project.erc.
+   Clicking a row or a chip lights the net in 3D; clicking two gold pads
+   asks the server for a wire, which ERC may refuse with a reason. */
+
+function pieceRefName(pieceId) {
+  const piece = project.pieces.find((p) => p.id === pieceId);
+  if (!piece) return pieceId;
+  return piece.ref || partsById[piece.partId]?.name || piece.partId;
+}
+
+function padName(pieceId, portId) {
+  return `${pieceRefName(pieceId)}.${portId}`;
+}
+
+function netClass(name) {
+  return project.netlist?.nets?.find((n) => n.name === name)?.class || "signal";
+}
+
+function renderNetlist() {
+  const list = $("netlist");
+  if (!list) return;
+  const cables = (project.cables || []).filter((c) => c.ok !== false);
+  if (!cables.length) {
+    list.innerHTML = `<p class="hint lab-hint">No wires yet. Click one gold pad, then another.</p>`;
+    return;
+  }
+  const cableNets = project.netlist?.cableNets || {};
+  list.innerHTML = cables
+    .map((c) => {
+      const net = cableNets[c.id] || c.net || "N$?";
+      const on = net === highlightedNet ? " on" : "";
+      const from = escapeHtml(padName(c.fromPiece, c.fromPort));
+      const to = escapeHtml(padName(c.toPiece, c.toPort));
+      return `<div class="item net-row${on}" data-net="${escapeHtml(net)}"><span class="net-ends"><i class="net-dot net-${netClass(net)}"></i>${from} → ${to}</span><small>${escapeHtml(net)} · ${c.locked ? "locked" : "loose"}</small></div>`;
+    })
+    .join("");
+}
+
+function renderErc() {
+  const box = $("erc-report");
+  if (!box) return;
+  const erc = project.erc;
+  if (!erc || !project.chrome?.electronics) {
+    box.innerHTML = "";
+    return;
+  }
+  const tone = erc.errors?.length ? "erc-bad" : erc.warnings?.length ? "erc-warn" : "erc-ok";
+  const rows = (erc.findings || [])
+    .map((f) => `<p class="erc-line erc-${f.level}">${escapeHtml(f.text)}</p>`)
+    .join("");
+  box.innerHTML = `<p class="erc-note ${tone}">${escapeHtml(erc.note || "")}</p>${rows}`;
+}
+
+function renderNetStrip() {
+  const strip = $("net-strip");
+  if (!strip) return;
+  if (!project.chrome?.electronics) {
+    strip.innerHTML = "";
+    return;
+  }
+  const nets = project.netlist?.nets || [];
+  const chips = nets
+    .map((net) => {
+      const on = net.name === highlightedNet ? " on" : "";
+      return `<button type="button" class="net-chip net-${net.class}${on}" data-net="${escapeHtml(net.name)}">${escapeHtml(net.name)}<i>${net.members.length}</i></button>`;
+    })
+    .join("");
+  const erc = project.erc;
+  const badge = erc
+    ? `<span class="erc-chip ${erc.errors?.length ? "erc-bad" : erc.warnings?.length ? "erc-warn" : "erc-ok"}">ERC · ${erc.errors?.length || 0}E ${erc.warnings?.length || 0}W</span>`
+    : "";
+  strip.innerHTML = `<span class="net-strip-title">Nets</span>${chips || `<span class="net-strip-empty">Click two gold pads to wire the first net.</span>`}${badge}`;
+}
+
+function setHighlightedNet(name, toggle = true) {
+  highlightedNet = toggle && highlightedNet === name ? null : name || null;
+  const net = project.netlist?.nets?.find((n) => n.name === highlightedNet);
+  if (!net) highlightedNet = null;
+  shop.highlightNet?.(
+    net?.name || null,
+    (net?.members || []).map((m) => `${m.pieceId}::${m.portId}`),
+  );
+  renderNetlist();
+  renderNetStrip();
+  if (net) hud(`${net.name} — ${net.members.map((m) => padName(m.pieceId, m.portId)).join(", ")}.`);
+}
+
+function clearPendingWire(quiet = false) {
+  pendingPort = null;
+  shop.setPendingPort?.(null);
+  if (!quiet) hud("Wire dropped.");
 }
 
 function searchBoxes() {
@@ -405,12 +517,18 @@ function syncFunctionStrip() {
 }
 
 function showPart(part, piece) {
-  const lines = [part.name];
+  const lines = [piece?.ref ? `${piece.ref} · ${part.name}` : part.name];
   const size = sizePlain(part);
   const price = money(part.cost);
   const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
   if (shopLine) lines.push(shopLine);
   if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
+  if (piece && project.chrome?.electronics) {
+    const mine = Object.entries(project.netlist?.ports || {})
+      .filter(([key]) => key.startsWith(`${piece.id}::`))
+      .map(([key, net]) => `${key.split("::")[1]} on ${net}`);
+    if (mine.length) lines.push(`Nets: ${mine.join(", ")}`);
+  }
   lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
   syncEditButtons();
@@ -529,6 +647,63 @@ $("fn-btns").addEventListener("click", async (ev) => {
   const part = partsById[piece?.partId] || picked.part;
   if (part && piece) showPart(part, piece);
   hud(`${part?.name || "Piece"} is now ${fn}.`);
+});
+
+$("netlist")?.addEventListener("click", (ev) => {
+  const net = ev.target.closest("[data-net]")?.dataset.net;
+  if (net) setHighlightedNet(net);
+});
+
+$("net-strip")?.addEventListener("click", (ev) => {
+  const net = ev.target.closest("[data-net]")?.dataset.net;
+  if (net) setHighlightedNet(net);
+});
+
+$("isolate-btn")?.addEventListener("click", async () => {
+  const electronic = project.pieces.filter((p) => {
+    const part = partsById[p.partId];
+    return part && (part.category === "electronics" || part.firmwareRole);
+  });
+  const ids = selectedIds.length ? selectedIds : electronic.map((p) => p.id);
+  if (!ids.length) return hud("Nothing electronic to isolate.");
+  await api.isolate(ids, "board");
+  await refreshProject();
+  hud("Isolated as a board — the substrate is drawn under it.");
+});
+
+// Wire-by-click: the first pad arms the wire, the second asks the server.
+// An ERC refusal comes back as data and lands on the HUD, not as a wire.
+shop.onPortClick?.(async (port) => {
+  if (!project.chrome?.electronics) return;
+  if (!pendingPort) {
+    pendingPort = port;
+    shop.setPendingPort?.(`${port.pieceId}::${port.portId}`);
+    hud(`${padName(port.pieceId, port.portId)} — click the other pad. Esc drops the wire.`);
+    return;
+  }
+  if (pendingPort.pieceId === port.pieceId && pendingPort.portId === port.portId) {
+    clearPendingWire();
+    return;
+  }
+  const from = pendingPort;
+  clearPendingWire(true);
+  const result = await api.cable({
+    fromPiece: from.pieceId,
+    fromPort: from.portId,
+    toPiece: port.pieceId,
+    toPort: port.portId,
+  });
+  if (result?.refused || result?.ok === false) {
+    hud(result?.reason || "ERC refused that wire.");
+    return;
+  }
+  await refreshProject();
+  if (result?.net) setHighlightedNet(result.net, false);
+  hud(
+    `${padName(result.fromPiece, result.fromPort)} → ${padName(result.toPiece, result.toPort)}${
+      result.net ? ` joined ${result.net}` : ""
+    } · ${result.locked ? "locked" : "loose"}.`,
+  );
 });
 
 $("sim-behavior").addEventListener("click", async () => {
@@ -755,6 +930,11 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+  if (ev.key === "Escape") {
+    if (pendingPort) clearPendingWire();
+    else if (highlightedNet) setHighlightedNet(null, false);
+    return;
+  }
   const key = ev.key.toLowerCase();
   if ((ev.ctrlKey || ev.metaKey) && key === "z") {
     ev.preventDefault();

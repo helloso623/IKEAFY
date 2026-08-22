@@ -124,6 +124,9 @@
         <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
         <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
         <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
+        <!-- Lab EDA: the schematic/net strip. Appears with chrome.electronics,
+             like the sheet tabs across the top of a KiCad schematic. -->
+        <div id="net-strip" class="net-strip bench-only electronics-chrome hidden" aria-label="Nets on the bench"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame"></canvas>
@@ -320,11 +323,11 @@
         </div>
       </div>
 
-      <!-- ============ LAB — right inspector (parameters / functions) ============ -->
+      <!-- ============ LAB — right inspector (parameters / functions / nets) ============ -->
       <aside class="rail right lab-inspector hidden" data-pane="lab" aria-label="Inspector">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Parameters · Functions</strong>
+          <strong class="lab-pane-title">Parameters · Functions · Nets</strong>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
@@ -395,6 +398,24 @@
                   </div>
                 </details>
               </div>
+            </div>
+          </details>
+          <details class="lab-sheet" id="nets-sheet" open>
+            <summary class="lab-sheet-sum">Nets</summary>
+            <div class="lab-sheet-body">
+              <!-- The bench-as-EDA. Server chrome.electronics turns this on;
+                   it never hides behind "more tools" while boards are down. -->
+              <div id="electronics-only" class="electronics-chrome hidden">
+                <div id="cables-panel">
+                  <p class="hint lab-hint">Click a gold pad, then another — ERC refuses bad wires. Click a row to light its net.</p>
+                  <div id="netlist" class="list thin netlist"></div>
+                </div>
+                <div id="erc-report" class="erc-report" aria-live="polite"></div>
+                <div class="row wrap eda-actions">
+                  <button type="button" id="isolate-btn">Isolate as board</button>
+                </div>
+              </div>
+              <p class="hint lab-hint" id="no-nets-hint">No nets until something electronic is on the bench.</p>
             </div>
           </details>
         </div>

@@ -440,35 +440,39 @@ export function persistLabTool(project, tool, value) {
 }
 
 /**
- * Lab is furniture-only for now. Catalog may still list boards and cables,
- * but ports, nets, isolate-as-board and firmware stay off the inspect panel.
+ * The bench decides its own chrome. A furniture-only bench stays quiet — no
+ * ports, no nets, no firmware talk. The moment a board or an LED lands on it,
+ * the sheet flips to EDA: netlist panel, ERC report, isolate-as-board.
  */
 export function benchChrome(project) {
   const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);
-  const electronics = parts.filter((p) => p.category === "electronics" || p.firmwareRole);
+  const electronicParts = parts.filter((p) => p.category === "electronics" || p.firmwareRole);
   const cables = parts.filter((p) => p.category === "cable");
+  const electronics = electronicParts.length > 0;
   const labTools = Object.fromEntries(LAB_TOOLS.map((tool) => [tool, true]));
   return {
-    electronics: false,
+    electronics,
     lab: true,
     labTools,
     counts: {
       pieces: parts.length,
-      electronics: electronics.length,
+      electronics: electronicParts.length,
       cables: (project.cables || []).length + cables.length,
       tapes: (project.tapes || []).length,
       joints: (project.joints || []).length,
     },
     show: {
-      cablesPanel: false,
-      isolateBoard: false,
-      labelFunction: false,
-      firmware: false,
-      ports: false,
+      cablesPanel: electronics,
+      isolateBoard: electronics,
+      labelFunction: electronics,
+      firmware: electronicParts.some((p) => p.firmwareRole === "mcu"),
+      ports: electronics,
       tape: parts.length > 0,
       ...labTools,
     },
-    note: "Lab is furniture-only for now — electronics stay off the bench.",
+    note: electronics
+      ? "Electronics on the bench — netlist, ERC and isolate-as-board are live."
+      : "Lab is furniture-only until something electronic lands on the bench.",
   };
 }
 

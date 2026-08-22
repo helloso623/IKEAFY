@@ -25,21 +25,21 @@ test("an empty bench offers nothing at all", () => {
   assert.equal(chrome.show.tape, false);
 });
 
-test("the seeded lamp table still hides Lab electronics chrome", () => {
+test("the seeded lamp table flips the bench to EDA", () => {
   const chrome = benchChrome(seedLampTable());
-  assert.equal(chrome.electronics, false);
-  assert.equal(chrome.show.cablesPanel, false);
-  assert.equal(chrome.show.firmware, false);
-  assert.equal(chrome.show.ports, false);
-  assert.equal(chrome.show.isolateBoard, false);
+  assert.equal(chrome.electronics, true);
+  assert.equal(chrome.show.cablesPanel, true);
+  assert.equal(chrome.show.firmware, true);
+  assert.equal(chrome.show.ports, true);
+  assert.equal(chrome.show.isolateBoard, true);
   assert.ok(chrome.counts.electronics >= 3);
 });
 
-test("deleting an electronic piece leaves the furniture chrome off", () => {
+test("deleting the last electronic piece turns the EDA chrome back off", () => {
   const project = emptyProject();
   addPiece(project, "lack-top");
   const nano = addPiece(project, "arduino-nano");
-  assert.equal(benchChrome(project).electronics, false);
+  assert.equal(benchChrome(project).electronics, true);
   assert.equal(benchChrome(project).counts.electronics, 1);
 
   removePiece(project, nano.id);

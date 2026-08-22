@@ -1963,3 +1963,117 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   font-size: 0.76rem;
 }
 .cad-dims small { font-size: 0.62rem; color: rgba(255, 255, 255, 0.65); }
+
+/* ================= Lab EDA — net strip, netlist, ERC ==================== */
+/* The schematic strip along the bottom of the viewport: one chip per net,
+   colored by class, plus a running ERC tally. chrome.electronics gates it. */
+.net-strip {
+  position: absolute;
+  bottom: 2.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  max-width: min(94%, 60rem);
+  padding: 0.3rem 0.6rem;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(17, 17, 17, 0.1);
+}
+#app.mode-lab .net-strip {
+  background: var(--lab-panel);
+  border-color: var(--lab-line);
+}
+.net-strip:empty { display: none; }
+.net-strip-title {
+  font-family: var(--lab-mono, var(--mono));
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lab-soft, var(--soft));
+  padding: 0 0.25rem;
+}
+.net-strip-empty { font-size: 0.72rem; color: var(--lab-soft, var(--soft)); }
+.net-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.16rem 0.6rem;
+  border: 1px solid var(--lab-line, var(--line));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lab-ink, var(--ink));
+  font-family: var(--lab-mono, var(--mono));
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.net-chip i {
+  font-style: normal;
+  font-size: 0.62rem;
+  color: var(--lab-soft, var(--soft));
+}
+.net-chip.on {
+  border-color: var(--lab-accent-2, #e8a317);
+  box-shadow: 0 0 0 1px var(--lab-accent-2, #e8a317) inset;
+}
+.net-chip.net-ground { border-left: 3px solid #565d68; }
+.net-chip.net-power { border-left: 3px solid #c0392b; }
+.net-chip.net-data { border-left: 3px solid #2a6fb8; }
+.net-chip.net-signal { border-left: 3px solid #2f6f3a; }
+
+/* Netlist rows: FROM → TO on the left, net name + lock state on the right. */
+.netlist .net-row { cursor: pointer; }
+.netlist .net-row.on { box-shadow: 0 0 0 1px var(--lab-accent-2, #e8a317) inset; }
+.net-ends {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--lab-mono, var(--mono));
+  font-size: 0.74rem;
+}
+.net-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: none;
+}
+.net-dot.net-ground { background: #565d68; }
+.net-dot.net-power { background: #c0392b; }
+.net-dot.net-data { background: #2a6fb8; }
+.net-dot.net-signal { background: #2f6f3a; }
+
+/* ERC report: the note first, then each finding on its own line. */
+.erc-report { margin-top: 0.5rem; }
+.erc-report:empty { display: none; }
+.erc-note {
+  font-family: var(--lab-mono, var(--mono));
+  font-size: 0.72rem;
+  margin: 0 0 0.3rem;
+}
+.erc-note.erc-ok { color: var(--lab-ok, #3cbe7a); }
+.erc-note.erc-warn { color: var(--lab-accent-2, #e8a317); }
+.erc-note.erc-bad { color: var(--lab-x, #e15555); }
+.erc-line {
+  font-size: 0.74rem;
+  margin: 0.2rem 0;
+  padding-left: 0.65rem;
+  border-left: 2px solid var(--lab-line, var(--line));
+}
+.erc-line.erc-error { border-left-color: var(--lab-x, #e15555); }
+.erc-line.erc-warning { border-left-color: var(--lab-accent-2, #e8a317); }
+.erc-chip {
+  margin-left: auto;
+  font-family: var(--lab-mono, var(--mono));
+  font-size: 0.66rem;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--lab-line, var(--line));
+}
+.erc-chip.erc-ok { color: var(--lab-ok, #3cbe7a); }
+.erc-chip.erc-warn { color: var(--lab-accent-2, #e8a317); }
+.erc-chip.erc-bad { color: var(--lab-x, #e15555); }
+.eda-actions { margin-top: 0.5rem; }

@@ -102,7 +102,7 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
   assert.match(studio, /pdfBase64|pdf-upload/, "uploaded PDFs need to travel with parse");
 });
 
-test("electronics stays off the Lab header and inspect", () => {
+test("electronics is a Lab bench feature, not a header product", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
@@ -111,17 +111,25 @@ test("electronics stays off the Lab header and inspect", () => {
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
   assert.match(html, /id="lab-spaces"/);
-  assert.doesNotMatch(html, /id="electronics-only"/);
-  assert.doesNotMatch(html, /id="flash-btn"/);
-  assert.doesNotMatch(html, /id="isolate-btn"/);
-  assert.doesNotMatch(html, /id="cables-panel"/);
-  assert.doesNotMatch(html, />Arduino</);
+  // The EDA chrome lives on the bench and wakes with server chrome.electronics.
+  assert.match(html, /id="electronics-only"/);
+  assert.match(html, /id="isolate-btn"/, "isolate-as-board stays");
+  assert.match(html, /id="cables-panel"/);
+  assert.match(html, /id="netlist"/, "the netlist panel is from/to/lock rows");
+  assert.match(html, /id="erc-report"/);
+  assert.match(html, /id="net-strip"/, "the schematic strip sits over the viewport");
 });
 
-test("Lab electronics chrome stays hidden even if the server still knows about boards", () => {
-  assert.doesNotMatch(html, /electronics-chrome/, "electronics controls stay off the Lab markup");
-  assert.match(main, /electronics-chrome/, "main.js still hides leftover electronics chrome");
-  assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
+test("electronics chrome is server-driven and never behind more tools", () => {
+  assert.match(html, /electronics-chrome/, "the EDA panels carry the chrome class");
+  assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js reads the server's chrome flag");
+  assert.match(main, /setEda/, "the 3D bench flips to EDA with the chrome");
+  assert.match(main, /api\.cable\(/, "clicking two pads asks the server for a wire");
+  assert.match(main, /refused/, "an ERC refusal lands on the HUD, not as a wire");
+  const netsAt = html.indexOf('id="electronics-only"');
+  assert.ok(netsAt > 0, "the Nets sheet must exist");
+  const owner = html.slice(html.lastIndexOf("<details", netsAt), netsAt);
+  assert.doesNotMatch(owner, /more-tools/, "netlist and ERC do not hide behind more tools");
 });
 
 test("the bench catalog scrolls in one well of sample cards", () => {
@@ -271,8 +279,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /Bodies/);
   assert.match(html, /Parameters/);
   assert.match(html, /Functions/);
-  assert.doesNotMatch(html, /Parameters · Functions · Nets/);
-  assert.doesNotMatch(html, /<summary class="lab-sheet-sum">Nets<\/summary>/);
+  assert.match(html, /Parameters · Functions · Nets/);
+  assert.match(html, /<summary class="lab-sheet-sum">Nets<\/summary>/, "the Nets sheet is a first-class inspector sheet");
   const css = read("client/src/styles.css");
   assert.match(css, /\.lab-browser/);
   assert.match(css, /\.lab-viewport/);
