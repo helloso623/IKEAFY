@@ -279,7 +279,7 @@ async function refreshCurrentDiy() {
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Refreshing construction ways and shaped pieces for the current model…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Refreshing furniture pieces for the current model’s shapes and millimetres…</span>`;
   try {
     const packet = await api.diyCurrent();
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
@@ -313,7 +313,7 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Ways PDF</button>
+              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Piece PDF</button>
             </li>`,
           )
           .join("")
@@ -323,16 +323,16 @@ function renderDiyHistory(active = null) {
   if (out && current) {
     const bom = current.bom || {};
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${bom.ways?.length || 0} construction ways · ${bom.cutList?.length || 0} shaped-piece / cut-list lines · estimated $${Number(
+      <span>${bom.cutList?.length || 0} shaped table pieces · ${bom.ways?.length || 0} candidate routes · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
-        bom.live ? " · live research" : " · catalog stand-in"
+        bom.live ? " · live piece matches" : " · catalog and cut links"
       }</span>
       <div class="row wrap">
         ${
           current.id
-            ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
-            : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
+            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print piece plan</button>`
+            : `<span class="hint">Live current design · Hunt table pieces to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
           current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
@@ -341,13 +341,13 @@ function renderDiyHistory(active = null) {
   }
 }
 
-function openWaysPrint(build) {
+function openPiecePlanPrint(build) {
   const bom = build?.bom;
-  if (!bom?.lines?.length) return hud("That saved revision has no ways or cut list.");
+  if (!bom?.lines?.length) return hud("That saved revision has no table-piece list.");
   try {
     openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
   } catch (error) {
-    hud(error?.message || "Could not open that saved ways-to-make PDF.");
+    hud(error?.message || "Could not open that saved table-piece PDF.");
   }
 }
 
@@ -910,6 +910,27 @@ shop.onMeshEdit?.(({ tool, name, label }) => {
   hud(`${label || tool} on ${name}. Undo takes it back.`);
 });
 
+shop.onComponentSelect?.(({ mode, count, name }) => {
+  const label = COMPONENT_LABELS[mode] || "Component";
+  const picked = selectedPiece();
+  if (picked?.part) {
+    const lines = [picked.part.name];
+    const size = sizePlain(picked.part);
+    if (size) lines.push(size);
+    lines.push(
+      count
+        ? `${count} ${label.toLowerCase()} component${count === 1 ? "" : "s"} selected.`
+        : `${label} view · click to select, Shift-click to toggle.`,
+    );
+    inspect(lines.join("\n"));
+  }
+  hud(
+    count
+      ? `${count} ${label.toLowerCase()} component${count === 1 ? "" : "s"} targeted on ${name}.`
+      : `${label} view — click a component; Shift-click toggles; empty click clears.`,
+  );
+});
+
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
 // a joint mate lands as api.move (plus a joint record) so undo covers both.
 shop.onSketch?.(async ({ partId, pose, label }) => {
@@ -1063,6 +1084,13 @@ const MESH_HINTS = {
   loopcut: "Loop cut — click the body to add an edge loop across it.",
 };
 
+const COMPONENT_LABELS = { vertex: "Vertex", edge: "Edge", face: "Face" };
+
+function setComponentModeUi(mode) {
+  if (!shop.getSelected()) return hud(`Pick a mesh, then open ${COMPONENT_LABELS[mode] || "component"} view.`);
+  shop.setComponentMode?.(mode);
+}
+
 function setSculptTool(mode) {
   if (!shop.getSelected() && shop.getSculptMode() !== mode) {
     hud("Pick a piece, then sculpt it.");
@@ -1081,8 +1109,13 @@ function setMeshToolUi(mode) {
 
 function subdivideSelectedBody() {
   if (!shop.getSelected()) return hud("Pick a piece, then Subdiv.");
-  if (shop.subdivideSelected()) hud("Subdivided — every face split in four. Now sculpt it.");
-  else hud("That body is already dense enough.");
+  const result = shop.subdivideSelected();
+  if (!result) return hud("That body is already dense enough.");
+  if (result.scope === "selection") {
+    hud(`Subdivided the selected components without tearing their welded neighbors.`);
+  } else {
+    hud("Subdivided the whole mesh — every face split in four.");
+  }
 }
 
 function hideSelectedBody() {
@@ -1105,6 +1138,12 @@ async function scaleSelectedBy(factor) {
   const f = Number(factor);
   if (!Number.isFinite(f) || f <= 0) return hud("Type a scale factor above 0.");
   if (Math.abs(f - 1) < 1e-6) return hud("A factor of 1 changes nothing.");
+  if (shop.hasComponentSelection?.()) {
+    const result = shop.scaleComponentSelection?.(f);
+    if (!result) return hud("Those components could not be scaled.");
+    hud(`Scaled ${result.count} selected ${result.mode} component${result.count === 1 ? "" : "s"} ×${Math.round(f * 1000) / 1000}.`);
+    return;
+  }
   const pose = shop.getSelectedPose?.();
   if (!pose) return hud("Pick a body, then scale it.");
   await commitPose({
@@ -1128,6 +1167,8 @@ async function scaleSelectedToMeasured() {
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
+  const component = ev.target.closest("[data-component-mode]")?.dataset.componentMode;
+  if (component) setComponentModeUi(component);
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-delete]")) deleteSelected();
@@ -1156,10 +1197,10 @@ $("scale-to-measure")?.addEventListener("click", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const id = event.target.closest("[data-ways-build]")?.dataset.waysBuild;
+  const id = event.target.closest("[data-piece-plan]")?.dataset.piecePlan;
   if (!id) return;
   const build = diyBuilds().find((entry) => entry.id === id);
-  openWaysPrint(build);
+  openPiecePlanPrint(build);
 });
 
 let finishingModel = false;
@@ -1169,12 +1210,12 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Finding build ways…";
+  button.textContent = "Hunting pieces…";
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Finding build ways…</title><p>Researching construction routes and shaped pieces for this model…</p>");
+    printWindow.document.write("<!doctype html><title>Finding table pieces…</title><p>Matching tops, legs, aprons, and boards to this model…</p>");
   }
-  hud("Finding ways to make this exact final table…");
+  hud("Hunting furniture pieces in this model’s shapes and millimetres…");
   try {
     const packet = await api.finishProject();
     openBuildPacketPrint(packet, printWindow);
@@ -1183,14 +1224,14 @@ $("finish-model")?.addEventListener("click", async () => {
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "ways-to-make plan" });
+    await studio?.openAssemblyView?.(packet.assembly, { label: "table-piece plan" });
     const match = packet.bom?.ikeaMatch;
     hud(
       match
-        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
-        : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
+        ? `Piece PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
+        : `Piece PDF ready · ${packet.bom?.ways?.length || 0} candidate routes · ${
             packet.bom?.lines?.length || 0
-          } cut-list lines · IKEAlive todo created.`,
+          } shaped table pieces · IKEAlive todo created.`,
     );
   } catch (error) {
     printWindow?.close();
@@ -1199,7 +1240,7 @@ $("finish-model")?.addEventListener("click", async () => {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Finish & find ways";
+    button.textContent = "Hunt table pieces";
   }
 });
 
@@ -1798,6 +1839,9 @@ window.addEventListener("keydown", (ev) => {
     duplicateSelected();
     return;
   }
+  if (key === "1") setComponentModeUi("vertex");
+  if (key === "2") setComponentModeUi("edge");
+  if (key === "3") setComponentModeUi("face");
   if (key === "g") setEditMode("translate");
   if (key === "r") setEditMode("rotate");
   if (key === "s") setEditMode("scale");

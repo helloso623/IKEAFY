@@ -130,33 +130,19 @@ async function searchOfferQuery(query, key, fetchFn) {
   return offersFromResults(json.results || json.data || []);
 }
 
-/** One dimensions-bearing search for boards, tops, legs, and shaped stock. */
-export async function searchFurniturePieceOffers(lines = [], { fetchFn = fetch } = {}) {
+/** One dimensions-bearing search for pieces that can make the current table. */
+export async function searchFurniturePieceOffers(build = {}, { fetchFn = fetch } = {}) {
   const key = usableTavilyKey();
-  const items = (lines || [])
-    .slice(0, 10)
-    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
-    .filter(Boolean);
-  if (!key || !items.length) return [];
-  const query =
-    `buy cut-to-size furniture board tabletop table legs apron stretcher ${items.join(" OR ")} ` +
-    "-screws -bolts -fasteners";
-  return searchOfferQuery(query, key, fetchFn);
-}
-
-/** One search for construction methods and shaped bodies for the current model. */
-export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
-  const key = usableTavilyKey();
-  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
-  const items = [...(build.cutList || []), ...methodCuts]
+  const routePieces = (build.ways || []).flatMap((way) => way.additionalPieces || []);
+  const items = [...(build.cutList || []), ...routePieces]
     .slice(0, 10)
     .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
     .filter(Boolean);
   if (!key || !items.length) return [];
   const dims = build.modelDimensionsMm || {};
   const query =
-    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
+    `furniture pieces for table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `cut-to-size tabletop legs apron stretcher board lumber ${items.join(" OR ")} -screw -bolt -fastener`;
   return searchOfferQuery(query, key, fetchFn);
 }
 

@@ -8,7 +8,7 @@ import {
   ownedTools,
   pickManualPdfHit,
   findIkeaManual,
-  searchBuildWayOffers,
+  searchFurniturePieceOffers,
   searchToolOffers,
 } from "../server/lib/tavily.js";
 
@@ -79,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("ways-to-make research asks for methods and shaped pieces instead of fasteners", async () => {
+test("piece hunt asks for tops, legs, boards, and lumber instead of fasteners", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -93,7 +93,7 @@ test("ways-to-make research asks for methods and shaped pieces instead of fasten
     };
   };
   try {
-    const offers = await searchBuildWayOffers(
+    const offers = await searchFurniturePieceOffers(
       {
         modelDimensionsMm: { x: 900, y: 500, z: 740 },
         cutList: [
@@ -104,9 +104,9 @@ test("ways-to-make research asks for methods and shaped pieces instead of fasten
       },
       { fetchFn },
     );
-    assert.match(query, /ways to build custom table/i);
-    assert.match(query, /cut list|tabletop|table legs/i);
-    assert.match(query, /-screws -bolts -fasteners/);
+    assert.match(query, /furniture pieces for table 900 x 500 x 740 mm/i);
+    assert.match(query, /tabletop legs apron stretcher board lumber/i);
+    assert.match(query, /-screw -bolt -fastener/);
     assert.equal(offers.length, 1);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;

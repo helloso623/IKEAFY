@@ -546,18 +546,18 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture researches ways, prints the cut list, and opens its parsed todo", () => {
+test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Finish &amp; find ways/);
-  assert.match(html, /construction methods, boards, tops, legs, and cut sizes/);
-  assert.match(html, /Ways-to-make history/);
+  assert.match(html, /Hunt table pieces/);
+  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
+  assert.match(html, /Piece-plan history/);
   assert.match(apiSource, /^\s{2}finishProject:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
   assert.match(main, /api\.finishProject\(\)/);
   assert.match(main, /refreshCurrentDiy/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines|ways-to-make plan/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {

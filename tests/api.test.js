@@ -59,7 +59,7 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   throw new Error(`server did not start: ${lastError}`);
 }
 
-test("finishing and remodeling a table returns current ways and preserves prior plans", async (t) => {
+test("hunting after a remodel returns current pieces and preserves prior piece plans", async (t) => {
   const port = 20500 + (process.pid % 400);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -83,7 +83,7 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   const packet = await response.json();
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, legs/);
+  assert.match(packet.bom.scope, /Furniture pieces matched.*shape and millimetres/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
   assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
@@ -103,7 +103,7 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   const changed = await refreshed.json();
   assert.notEqual(changed.bom.modelSignature, packet.bom.modelSignature);
   assert.equal(changed.bom.ikeaMatch, null);
-  assert.ok(changed.bom.ways.some((way) => way.additionalCuts?.some((line) => line.role === "apron")));
+  assert.ok(changed.bom.ways.some((way) => way.additionalPieces?.some((line) => line.role === "apron")));
   const project = await (await fetch(`${base}/api/project`)).json();
   assert.equal(project.diyHistory.length, 2);
 });

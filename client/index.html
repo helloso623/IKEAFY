@@ -339,7 +339,7 @@
                 <span class="model-kicker">Cuts</span>
                 <button type="button" class="lab-tool" data-mesh-tool="knife" title="Knife: drag a line across the body to cut a real edge into it">Knife</button>
                 <button type="button" class="lab-tool" data-mesh-tool="loopcut" title="Loop cut: click a box body to add an edge loop across it">Loop cut</button>
-                <button type="button" class="lab-tool" data-subdivide title="Subdivide the selected body once">Subdiv</button>
+                <button type="button" class="lab-tool" data-subdivide title="Subdivide selected faces or edges; with none targeted, subdivide the whole mesh">Subdiv</button>
                 <span class="model-kicker">Sculpt</span>
                 <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
                 <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
@@ -372,7 +372,7 @@
                 </label>
                 <button type="button" id="scale-to-measure" class="quiet">Scale to fit</button>
               </div>
-              <p class="hint lab-hint">Numeric scale resizes the selected body. Measure two points on it, then Scale to fit makes that span the typed millimetres — like Fusion's Measure → Scale.</p>
+              <p class="hint lab-hint">Scale targets selected vertices, edges, or faces. With no component targeted it resizes the whole body. Measure two points, then Scale to fit makes that span the typed millimetres.</p>
             </div>
           </details>
           <details class="lab-folder lab-outliner desk-space" open>
@@ -545,7 +545,7 @@
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
               <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish &amp; find ways researches how to make the final table.</p>
+              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Hunt table pieces matches boards, tops, legs, and aprons to the final table.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -575,6 +575,10 @@
             <button type="button" class="lab-tool" id="edit-rotate" data-edit="rotate">Rotate</button>
             <button type="button" class="lab-tool" id="edit-scale" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool component-mode" id="component-vertex" data-component-mode="vertex" aria-pressed="false" title="Vertex view (1) · click vertices; Shift-click toggles">Vertex view</button>
+            <button type="button" class="lab-tool component-mode" id="component-edge" data-component-mode="edge" aria-pressed="false" title="Edge view (2) · click edges; Shift-click toggles">Edge view</button>
+            <button type="button" class="lab-tool component-mode" id="component-face" data-component-mode="face" aria-pressed="false" title="Face view (3) · click faces; Shift-click toggles">Face view</button>
+            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" id="edit-snap" data-snap aria-pressed="true">Snap</button>
             <button type="button" class="lab-tool" id="duplicate-piece" data-duplicate>Duplicate</button>
             <button type="button" class="lab-tool" id="delete-piece" data-delete disabled>Delete</button>
@@ -586,7 +590,7 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find ways to make this exact table, print its cut list, and create IKEAlive steps">Finish &amp; find ways</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find tabletops, legs, aprons, and boards for this model">Hunt table pieces</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
@@ -659,9 +663,9 @@
             </div>
           </details>
           <details class="lab-sheet" id="diy-build-sheet">
-            <summary class="lab-sheet-sum">Ways-to-make history</summary>
+            <summary class="lab-sheet-sum">Piece-plan history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish &amp; find ways researches construction methods, boards, tops, legs, and cut sizes for the current model. It makes a PDF and IKEAlive todo while older revisions stay here.</p>
+              <p class="hint lab-hint">Hunt table pieces finds dimension-matched tops, legs, aprons, stretchers, and boards, then makes a PDF and IKEAlive plan. Older model revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>

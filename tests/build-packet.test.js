@@ -3,12 +3,12 @@ import test from "node:test";
 
 import { buildPacketHtml } from "../client/src/build-packet.js";
 
-test("print packet contains construction ways, cut pieces, and parsed todo steps", () => {
+test("print packet contains furniture pieces and parsed todo steps", () => {
   const html = buildPacketHtml({
-    pdf: { filename: "table-ways-to-make.pdf" },
+    pdf: { filename: "table-piece-plan.pdf" },
     bom: {
       name: "Table <one>",
-      scope: "Construction ways and cut pieces for this model",
+      scope: "Furniture pieces matched to this model",
       estimatedTotal: 34.5,
       currency: "USD",
       ways: [
@@ -17,7 +17,7 @@ test("print packet contains construction ways, cut pieces, and parsed todo steps
           recommended: true,
           summary: "Make the current shape from a cut panel and four legs.",
           joinery: "Use the attachment system supplied with the legs.",
-          additionalCuts: [],
+          additionalPieces: [],
           sources: [{ store: "Build plan", url: "https://example.com/table-plan" }],
         },
       ],
@@ -50,11 +50,11 @@ test("print packet contains construction ways, cut pieces, and parsed todo steps
   });
 
   assert.match(html, /Table &lt;one&gt;/);
-  assert.match(html, /Ways to make the final model/);
+  assert.match(html, /Candidate piece routes/);
   assert.match(html, /Cut top \+ ready-made legs/);
-  assert.match(html, /Cut list and shaped pieces/);
+  assert.match(html, /Pieces for this table/);
   assert.match(html, /birch plywood/);
-  assert.match(html, /Live build research/);
+  assert.match(html, /Live piece matches/);
   assert.match(html, /Cut-to-size table plan/);
   assert.match(html, /IKEAlive watch \/ plan \/ todo/);
   assert.match(html, /Cut the top to its modeled size/);

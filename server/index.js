@@ -942,7 +942,7 @@ app.post("/api/project/finish", async (_req, res) => {
   const assembly = await startAssemblyAsync({
     mode: "custom",
     guide: packet.planSource,
-    instructions: "Follow the selected construction way and its dimensioned cut list for this saved model revision.",
+    instructions: "Use the dimension-matched tabletop, legs, aprons, stretchers, and boards for this exact model.",
   });
   if (!assembly.ok) {
     return res.status(500).json({ ok: false, reason: assembly.reason || "Could not parse the custom build plan." });
@@ -964,7 +964,7 @@ app.post("/api/project/finish", async (_req, res) => {
     planSource: packet.planSource,
   });
   persistLabTool(state.project, "generate", {
-    kind: "build-ways",
+    kind: "furniture-piece-plan",
     bom: packet.bom,
     runId: assembly.run?.id || null,
     pdf: packet.pdf,
@@ -972,8 +972,8 @@ app.post("/api/project/finish", async (_req, res) => {
   });
   ikealiveLog("build", "furniture finished", {
     pieces: state.project.pieces.length,
-    ways: packet.bom.ways.length,
-    cutLines: packet.bom.lines.length,
+    candidateRoutes: packet.bom.ways.length,
+    pieceLines: packet.bom.lines.length,
     ikeaArticle: packet.bom.ikeaMatch?.article || null,
     live: packet.bom.live,
     runId: assembly.run?.id || null,
