@@ -923,12 +923,8 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   grid-template-areas:
     "top top top"
     "left stage right"
-    "hleft house hright";
+    "left house right";
 }
-#app.mode-lab .rail.left:not(.house-rail) { grid-area: left; }
-#app.mode-lab .rail.right:not(.house-rail) { grid-area: right; }
-#app.mode-lab .house-rail.left { grid-area: hleft; }
-#app.mode-lab .house-rail.right { grid-area: house; }
 #app.mode-lab .iface-upload,
 #app.mode-bench .iface-upload,
 #app.mode-house .iface-upload,
@@ -970,16 +966,19 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 #app.mode-lab #ar-photo {
   position: absolute;
-  inset: 0;
+  inset: auto 1rem 1rem auto;
   z-index: 2;
-  width: 100%;
-  height: 100%;
+  width: min(42%, 300px);
+  height: min(36%, 200px);
   pointer-events: none;
-  background: rgba(246, 245, 242, 0.12);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  background: rgba(246, 245, 242, 0.2);
 }
-#app.mode-lab.has-room-photo #view {
-  opacity: 0;
-  pointer-events: none;
+#app.mode-lab #view {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #app.mode-lab .lab-browser,

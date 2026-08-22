@@ -11,7 +11,7 @@ import {
   searchParts,
 } from "./lib/catalog.js";
 import { manageBundle, routeCable } from "./lib/cables.js";
-import { engineeringReport, runSuite } from "./lib/physics.js";
+import { engineeringReport, runSuite, stackSim } from "./lib/physics.js";
 import {
   attachBroken,
   colorizePlate,
@@ -187,6 +187,21 @@ app.post("/api/physics/system", (req, res) => {
   const tape = getPart(req.body?.tapeId || "tape-gaffer");
   const report = engineeringReport(parts, { tapePart: tape, ...req.body });
   persistLabTool(state.project, "sim", report);
+  res.json(report);
+});
+
+/**
+ * Lab strip: one Run sim that stacks strength / weather / heat / rain / tape /
+ * force over everything on the bench and reads the function graph back
+ * (a piece labeled "light" tells the client to blink the LED).
+ */
+app.post("/api/physics/sim", (req, res) => {
+  const rows = state.project.pieces
+    .map((piece) => ({ piece, part: getPart(piece.partId) }))
+    .filter((row) => row.part);
+  const tape = getPart(req.body?.tapeId || "tape-gaffer");
+  const report = stackSim(rows, tape, req.body || {});
+  state.project.sim.lastReport = report;
   res.json(report);
 });
 

@@ -112,6 +112,9 @@
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
         <div id="hud"></div>
+        <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
+        <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
+        <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame"></canvas>
@@ -237,111 +240,186 @@
       </aside>
 
       <div class="house-drawer hidden" data-pane="house" id="house-drawer" aria-label="House">
-        <aside class="rail house-rail" aria-label="This room">
-        <div class="pane house-nav">
-          <div class="panel card">
-            <h2>This room</h2>
-            <p class="hint">Photo and measurements — the canvas shows the fit.</p>
-            <label class="field file-field" for="room-photo">
-              <span>Room photo</span>
-              <input id="room-photo" type="file" accept="image/*" />
-            </label>
-            <div class="row wrap">
-              <label class="field" for="room-w">
-                <span>Width (m)</span>
-                <input id="room-w" type="number" step="0.1" value="3.2" />
-              </label>
-              <label class="field" for="room-d">
-                <span>Depth (m)</span>
-                <input id="room-d" type="number" step="0.1" value="3.8" />
-              </label>
-            </div>
-            <label class="field" for="room-budget">
-              <span>Budget ($)</span>
-              <input id="room-budget" type="number" value="40" />
-            </label>
-          </div>
-        </div>
-        </aside>
-        <aside class="rail house-rail" aria-label="Fit">
-        <div class="pane house-ctx">
-          <div class="panel card house-plate">
-            <header class="house-head">
-              <div class="house-title">
-                <h2>Fit the piece in the room</h2>
+        <aside class="rail house-rail lab-browser" aria-label="Browser">
+          <header class="lab-pane-head">
+            <span class="lab-pane-kicker">Browser</span>
+            <strong class="lab-pane-title">Bodies</strong>
+          </header>
+          <div class="pane house-nav lab-tree">
+            <details class="lab-folder" open>
+              <summary class="lab-folder-sum">
+                <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
+                This room
+              </summary>
+              <div class="lab-folder-body">
+                <p class="hint lab-hint">Photo and measurements — the canvas shows the fit.</p>
+                <label class="field file-field" for="room-photo">
+                  <span>Room photo</span>
+                  <input id="room-photo" type="file" accept="image/*" />
+                </label>
+                <div class="row wrap lab-dims">
+                  <label class="field" for="room-w">
+                    <span>Width (m)</span>
+                    <input id="room-w" type="number" step="0.1" value="3.2" />
+                  </label>
+                  <label class="field" for="room-d">
+                    <span>Depth (m)</span>
+                    <input id="room-d" type="number" step="0.1" value="3.8" />
+                  </label>
+                </div>
+                <label class="field" for="room-budget">
+                  <span>Budget ($)</span>
+                  <input id="room-budget" type="number" value="40" />
+                </label>
               </div>
-            </header>
-            <p class="house-caption">We’ll place a table where the door still swings.</p>
-            <button id="adapt-btn" class="primary house-go">Put a table in there</button>
-            <div id="adapt-out" class="copy house-notes"></div>
+            </details>
           </div>
-        </div>
+        </aside>
+        <aside class="rail house-rail lab-inspector" aria-label="Inspector">
+          <header class="lab-pane-head">
+            <span class="lab-pane-kicker">Inspector</span>
+            <strong class="lab-pane-title">Parameters</strong>
+          </header>
+          <div class="pane house-ctx lab-sheets">
+            <details class="lab-sheet" open>
+              <summary class="lab-sheet-sum">Parameters</summary>
+              <div class="lab-sheet-body">
+                <div class="panel card house-plate">
+                  <header class="house-head">
+                    <div class="house-title">
+                      <h2>Fit the piece in the room</h2>
+                    </div>
+                  </header>
+                  <p class="house-caption">We’ll place a table where the door still swings.</p>
+                  <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+                  <div id="adapt-out" class="copy house-notes"></div>
+                </div>
+              </div>
+            </details>
+          </div>
         </aside>
       </div>
 
-      <!-- ============ LAB — right rail ============ -->
-      <aside class="rail right hidden" data-pane="bench" aria-label="Inspect">
-        <div class="pane bench-ctx">
-          <div class="panel card">
-            <h2>Inspect</h2>
-            <div id="inspect" class="copy">Nothing selected.</div>
-            <div class="row">
-              <button id="delete-piece" disabled>Delete piece</button>
-            </div>
-            <div id="lab-strip" class="lab-strip">
-              <p class="hint" id="fn-hint">Assign a job on the selected piece.</p>
-              <div class="row wrap" id="fn-btns">
-                <button type="button" data-fn="support">Support</button>
-                <button type="button" data-fn="light">Light</button>
-                <button type="button" data-fn="sense">Sense</button>
-                <button type="button" data-fn="control">Control</button>
-                <button type="button" data-fn="decorate">Decorate</button>
-              </div>
-              <div class="row">
-                <button type="button" id="sim-behavior" class="primary">Simulate behavior</button>
-              </div>
-              <details class="more-tools">
-                <summary>More bench tools</summary>
-                <div class="row wrap" id="lab-btns">
-                  <button data-test="strength">Strength</button>
-                  <button data-test="pressure">Pressure</button>
-                  <button data-test="wave">Wave</button>
-                  <button data-test="flow">Flow</button>
-                  <button data-test="aero">Aero</button>
-                  <button data-test="speed">Speed</button>
-                  <button data-test="weather">Weather</button>
-                  <button data-test="tape">Tape hold</button>
-                </div>
-                <div class="row">
-                  <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
-                  <label>Rain <input id="rain" type="checkbox" /></label>
-                </div>
-                <div class="row">
-                  <button id="tape-elec">Electrical tape</button>
-                  <button id="tape-gaff">Gaffer</button>
-                </div>
-              </details>
-            </div>
-            <div id="electronics-only" class="electronics-chrome hidden">
-              <h2>Electronics</h2>
-              <div class="row">
-                <button id="isolate-btn">Isolate as board</button>
-                <button id="label-btn">Label function</button>
-              </div>
-              <div class="electronics-chrome" id="cables-panel">
-                <h2>Nets</h2>
-                <p class="hint">Click two ports. Compatible ones lock.</p>
-                <div id="cables" class="list thin"></div>
-                <div class="row">
-                  <button id="bundle-loose">Loose</button>
-                  <button id="bundle-zip">Zip</button>
-                  <button id="bundle-race">Raceway</button>
-                </div>
-              </div>
-            </div>
+      <div class="lab-viewport" aria-hidden="true">
+        <div class="lab-view-bar">
+          <div class="lab-view-tools">
+            <span class="lab-tool on">Select</span>
+            <span class="lab-tool">Orbit</span>
+            <span class="lab-tool">Pan</span>
+            <span class="lab-tool">Zoom</span>
+            <span class="lab-tool-rule"></span>
+            <span class="lab-tool">Measure</span>
+            <span class="lab-tool">Section</span>
+          </div>
+          <div class="lab-view-meta">
+            <span class="lab-proj">Perspective</span>
+            <label class="lab-theme">
+              <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
+              Light
+            </label>
           </div>
         </div>
-        <div class="panel card chat shop-chat">
+        <div class="lab-viewcube">
+          <span class="lab-cube-top">TOP</span>
+          <span class="lab-cube-front">FRONT</span>
+          <span class="lab-cube-right">RIGHT</span>
+        </div>
+        <div class="lab-axis">
+          <i class="lab-ax lab-ax-x">X</i>
+          <i class="lab-ax lab-ax-y">Y</i>
+          <i class="lab-ax lab-ax-z">Z</i>
+        </div>
+        <div class="lab-status">
+          <span>Ready</span>
+          <span>Grid 10 mm</span>
+          <span>Snap</span>
+          <span>Units mm</span>
+        </div>
+      </div>
+
+      <!-- ============ LAB — right inspector (parameters / functions / nets) ============ -->
+      <aside class="rail right lab-inspector hidden" data-pane="bench" aria-label="Inspector">
+        <header class="lab-pane-head">
+          <span class="lab-pane-kicker">Inspector</span>
+          <strong class="lab-pane-title">Parameters · Functions · Nets</strong>
+        </header>
+        <div class="pane bench-ctx lab-sheets">
+          <details class="lab-sheet" open>
+            <summary class="lab-sheet-sum">Parameters</summary>
+            <div class="lab-sheet-body">
+              <div class="lab-param-grid">
+                <span class="lab-param-key">Selection</span>
+                <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
+              </div>
+              <div class="row lab-actions">
+                <button id="delete-piece" disabled>Delete piece</button>
+              </div>
+            </div>
+          </details>
+          <details class="lab-sheet" open>
+            <summary class="lab-sheet-sum">Functions</summary>
+            <div class="lab-sheet-body">
+              <div id="lab-strip" class="lab-strip">
+                <p class="hint lab-hint" id="fn-hint">Assign a job on the selected piece.</p>
+                <div class="row wrap" id="fn-btns">
+                  <button type="button" data-fn="support">Support</button>
+                  <button type="button" data-fn="light">Light</button>
+                  <button type="button" data-fn="sense">Sense</button>
+                  <button type="button" data-fn="control">Control</button>
+                  <button type="button" data-fn="decorate">Decorate</button>
+                </div>
+                <div class="row">
+                  <button type="button" id="sim-behavior" class="primary">Simulate behavior</button>
+                </div>
+                <details class="more-tools">
+                  <summary>More bench tools</summary>
+                  <div class="row wrap" id="lab-btns">
+                    <button data-test="strength">Strength</button>
+                    <button data-test="pressure">Pressure</button>
+                    <button data-test="wave">Wave</button>
+                    <button data-test="flow">Flow</button>
+                    <button data-test="aero">Aero</button>
+                    <button data-test="speed">Speed</button>
+                    <button data-test="weather">Weather</button>
+                    <button data-test="tape">Tape hold</button>
+                  </div>
+                  <div class="row">
+                    <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
+                    <label>Rain <input id="rain" type="checkbox" /></label>
+                  </div>
+                  <div class="row">
+                    <button id="tape-elec">Electrical tape</button>
+                    <button id="tape-gaff">Gaffer</button>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </details>
+          <details class="lab-sheet" open>
+            <summary class="lab-sheet-sum">Nets</summary>
+            <div class="lab-sheet-body">
+              <div id="electronics-only" class="electronics-chrome hidden">
+                <h2>Electronics</h2>
+                <div class="row">
+                  <button id="isolate-btn">Isolate as board</button>
+                  <button id="label-btn">Label function</button>
+                </div>
+                <div class="electronics-chrome" id="cables-panel">
+                  <h2>Nets</h2>
+                  <p class="hint lab-hint">Click two ports. Compatible ones lock.</p>
+                  <div id="cables" class="list thin"></div>
+                  <div class="row lab-net-tools">
+                    <button id="bundle-loose">Loose</button>
+                    <button id="bundle-zip">Zip</button>
+                    <button id="bundle-race">Raceway</button>
+                  </div>
+                </div>
+              </div>
+              <p class="hint lab-hint lab-empty-net">No nets until ports are on the bench.</p>
+            </div>
+          </details>
+        </div>
+        <div class="panel card chat shop-chat lab-console">
           <h2>Shop chat</h2>
           <details class="more-tools">
             <summary>Who is answering</summary>
