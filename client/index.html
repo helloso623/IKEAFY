@@ -198,6 +198,10 @@
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
+        <div class="scene-bake-dock" aria-label="Bake the current room view">
+          <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
+          <span>Bake occupancy removal, auto-fit, and design checks into an IKEAlive plan.</span>
+        </div>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
         <div id="viewport-strip" class="viewport-strip hidden" aria-hidden="true"></div>
@@ -556,8 +560,7 @@
               <div id="design-issues" class="design-issues" aria-live="polite">
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
-              <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish / Find a way scores physical methods and finds boards plus connection hardware for the current model.</p>
+              <p class="hint">The scan control under the room view bakes this fit. Finish / Find a way scores physical methods and finds boards plus connection hardware for the current model.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>

@@ -329,7 +329,7 @@ test("dead simulation controls stay out of the Lab", () => {
 });
 
 test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
+  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scene-bake-plan", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -348,6 +348,11 @@ test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
   assert.match(apiSource, /^\s{2}scanPlan:/m);
   assert.match(html, /id="scan-place-room"/);
   assert.match(html, /id="scan-bake-plan"/);
+  assert.ok(
+    html.indexOf('id="room-scene"') < html.indexOf('id="scene-bake-plan"'),
+    "the model + scene scan control sits under the room view",
+  );
+  assert.match(read("client/src/styles.css"), /mode-lab\[data-lab="house"\] \.scene-bake-dock/);
   assert.match(html, /id="room-orbit-hint"/);
   assert.match(main, /scan-place-room/);
   assert.match(main, /scan-bake-plan/);
