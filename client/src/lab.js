@@ -211,6 +211,19 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     hud(report.note);
   });
 
+  document.getElementById("fn-btns")?.addEventListener("click", async (event) => {
+    const functionLabel = event.target.closest("[data-fn]")?.dataset.fn;
+    if (!functionLabel) return;
+    const selected = shop.getSelected();
+    if (!selected?.piece) {
+      hud("Pick a piece, then assign its job.");
+      return;
+    }
+    await api.label(selected.piece.id, functionLabel);
+    await refreshProject();
+    hud(`${selected.part?.name || "Piece"} is now ${functionLabel}.`);
+  });
+
   document.getElementById("reset-sim")?.addEventListener("click", () => say(""));
 
   say([graphLine(getProject()), "Stack chips, then Run sim. Reset puts the bench back."]);

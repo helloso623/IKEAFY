@@ -61,7 +61,7 @@ import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
 import { exportPrintJob } from "./lib/printer.js";
-import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
+import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import {

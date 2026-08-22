@@ -41,12 +41,6 @@
         </nav>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
-          <label class="toggle bench-only hidden">
-            <input type="checkbox" id="sim-toggle" />
-            Simulate
-          </label>
-          <button id="reset-sim" class="bench-only hidden">Reset</button>
-          <button id="print-btn" class="bench-only hidden">3D print</button>
           <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
         </div>
       </header>
@@ -510,6 +504,31 @@
                 </div>
                 <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale. L Look, M Measure, F Look at.</p>
               </div>
+            </div>
+          </details>
+          <details class="lab-sheet" open>
+            <summary class="lab-sheet-sum">Materials</summary>
+            <div class="lab-sheet-body material-bar" id="material-panel">
+              <div class="mat-row">
+                <label class="mat-key" for="mat-color">Color</label>
+                <input id="mat-color" type="color" value="#ecdfc6" disabled />
+                <div id="mat-swatches" class="mat-swatches" aria-label="Material colors">
+                  <button type="button" data-mat-color="#ecdfc6" style="--sw:#ecdfc6" aria-label="Birch"></button>
+                  <button type="button" data-mat-color="#f2f2f2" style="--sw:#f2f2f2" aria-label="White"></button>
+                  <button type="button" data-mat-color="#30343a" style="--sw:#30343a" aria-label="Charcoal"></button>
+                </div>
+              </div>
+              <div class="mat-row">
+                <label class="mat-key" for="mat-rough">Roughness</label>
+                <input id="mat-rough" type="range" min="0" max="100" value="60" disabled />
+                <output id="mat-rough-out" for="mat-rough">0.60</output>
+              </div>
+              <div id="mat-finish" class="row mat-finish" aria-label="Material finish">
+                <button type="button" data-mat-finish="foil">Foil</button>
+                <button type="button" data-mat-finish="wood">Wood</button>
+                <button type="button" data-mat-finish="metal">Metal</button>
+              </div>
+              <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
             </div>
           </details>
           <details class="lab-sheet" open>

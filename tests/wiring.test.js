@@ -18,6 +18,7 @@ const html = read("client/index.html");
 const main = read("client/src/main.js");
 const studio = read("client/src/studio.js");
 const house = read("client/src/house.js");
+const lab = read("client/src/lab.js");
 const apiSource = read("client/src/api.js");
 
 const markupIds = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
@@ -351,7 +352,7 @@ test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", ()
   assert.match(main, /scan-bake-plan/);
   assert.match(main, /startFromGuide/);
   assert.match(studio, /startFromGuide/);
-  assert.match(house, /makeIkeaTestTable/);
+  assert.match(house, /makeGenericSideTable/);
   assert.match(house, /KeyW/);
 });
 
@@ -396,9 +397,10 @@ test("the lab strip assigns jobs and runs one behavior suite", () => {
   const stripStart = html.indexOf('id="lab-strip"');
   const strip = html.slice(stripStart, html.indexOf("</details>", stripStart));
   assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
-  assert.match(main, /simBehavior/);
-  assert.match(main, /data-fn/);
-  assert.match(apiSource, /simBehavior/);
+  assert.match(lab, /simRun/);
+  assert.match(lab, /data-fn/);
+  assert.match(lab, /api\.label/);
+  assert.match(apiSource, /simRun/);
 });
 
 test("the workshop is the app — no leftover Next store", () => {
