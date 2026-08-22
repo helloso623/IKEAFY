@@ -902,13 +902,15 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   padding: 2.25rem 1.5rem 2rem;
 }
 .landing.landing-split {
+  height: 100%;
   max-width: 82rem;
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
   gap: 4rem;
-  align-items: center;
+  align-items: start;
 }
-.landing-copy { padding-top: 0.25rem; }
+.landing-copy { align-self: start; padding-top: 0.25rem; }
+.landing-panel { align-self: center; }
 .landing-panel {
   padding: 1.75rem;
   background: var(--paper);
