@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bomFromIds, cheaperAlternatives, fitsDims, retailerOffers, searchParts } from "../server/lib/catalog.js";
+import {
+  bomFromIds,
+  cheaperAlternatives,
+  filterLabCatalog,
+  fitsDims,
+  getPart,
+  isElectronicsQuery,
+  isLabShelfPart,
+  labShelfParts,
+  retailerOffers,
+  searchParts,
+} from "../server/lib/catalog.js";
 
 test("token search finds a LACK table from “lack table”", () => {
   const hits = searchParts({ query: "lack table" });
@@ -48,6 +59,77 @@ test("dims filter keeps pieces that fit the scanned envelope", () => {
   assert.ok(hits.some((p) => p.id === "pine-offcut"));
   assert.equal(hits.some((p) => p.id === "linmon-top"), false);
   assert.ok(hits.every((p) => fitsDims(p, { x: 550, y: 550 })));
+});
+
+test("the Lab shelf keeps furniture, hardware, tape, and hand tools", () => {
+  const shelf = labShelfParts();
+  const ids = shelf.map((p) => p.id);
+  for (const keep of [
+    "lack-table",
+    "lack-top",
+    "lack-leg",
+    "linmon-top",
+    "adils-leg",
+    "pine-offcut",
+    "dowel-18",
+    "m6-screw",
+    "allen-key",
+    "screwdriver",
+    "tape-electrical",
+    "tape-gaffer",
+    "tape-packing",
+    "zip-tie",
+  ]) {
+    assert.ok(ids.includes(keep), `${keep} belongs on the Lab shelf`);
+  }
+  for (const drop of [
+    "arduino-nano",
+    "esp32-dev",
+    "led-5mm",
+    "ws2812-strip",
+    "tactile-btn",
+    "breadboard",
+    "resistor-220",
+    "psu-5v2a",
+    "jumper-m2m",
+    "usb-mini-cable",
+    "soldering-iron",
+    "multimeter",
+    "enclosure-print",
+  ]) {
+    assert.equal(ids.includes(drop), false, `${drop} stays off the Lab shelf`);
+    assert.equal(isLabShelfPart(getPart(drop)), false);
+  }
+  assert.ok(shelf.every(isLabShelfPart));
+  assert.equal(
+    shelf.some((p) => p.category === "electronics" || p.category === "cable"),
+    false,
+  );
+});
+
+test("electronics stay off the default Lab catalog until you search or toggle", () => {
+  const closed = filterLabCatalog(searchParts({}));
+  assert.equal(closed.some((p) => p.id === "arduino-nano" || p.id === "led-5mm"), false);
+  assert.equal(closed.some((p) => p.category === "electronics"), false);
+  assert.ok(closed.some((p) => p.id === "lack-table"));
+
+  for (const query of ["arduino", "led", "nano", "esp", "resistor", "breadboard", "jumper", "solder"]) {
+    assert.equal(isElectronicsQuery(query), true, `${query} should open electronics`);
+    const hits = filterLabCatalog(searchParts({ query }), { query });
+    assert.ok(hits.length, `${query} should return catalog matches`);
+    assert.ok(
+      hits.some((p) => !isLabShelfPart(p)),
+      `${query} should surface a hidden electronics/hardware match`,
+    );
+  }
+  assert.equal(isElectronicsQuery("table"), false);
+  assert.equal(isElectronicsQuery(""), false);
+  const tables = filterLabCatalog(searchParts({ query: "table" }), { query: "table" });
+  assert.equal(tables.some((p) => p.category === "electronics"), false);
+
+  const opened = filterLabCatalog(searchParts({}), { showElectronics: true });
+  assert.ok(opened.some((p) => p.id === "arduino-nano"));
+  assert.ok(opened.some((p) => p.id === "led-5mm"));
 });
 
 test("a LACK table fits a 550 mm footprint and not a 400 mm one", () => {

@@ -592,6 +592,56 @@ const PARTS = [
   },
 ];
 
+const LAB_SHELF_SKIP_IDS = new Set([
+  "arduino-nano",
+  "esp32-dev",
+  "led-5mm",
+  "ws2812-strip",
+  "tactile-btn",
+  "breadboard",
+  "resistor-220",
+  "psu-5v2a",
+  "jumper-m2m",
+  "usb-mini-cable",
+  "soldering-iron",
+  "multimeter",
+  "enclosure-print",
+]);
+
+/** Lab shelf: furniture, hardware, tape, and hand tools — no boards or robotics. */
+export function isLabShelfPart(part) {
+  if (!part) return false;
+  if (part.category === "electronics" || part.category === "cable") return false;
+  if (LAB_SHELF_SKIP_IDS.has(part.id)) return false;
+  if (part.firmwareRole) return false;
+  return true;
+}
+
+export function labShelfParts(parts = PARTS) {
+  return parts.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
+
+/** Typed in #search / #omnibox — boards stay hidden until one of these hits. */
+export const ELECTRONICS_SEARCH =
+  /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+
+export function isElectronicsQuery(query) {
+  return ELECTRONICS_SEARCH.test(String(query || ""));
+}
+
+export function includeLabElectronics({ query = "", showElectronics = false } = {}) {
+  return Boolean(showElectronics) || isElectronicsQuery(query);
+}
+
+/** Default Lab catalog is furniture/hardware. Electronics only if searched or toggled. */
+export function filterLabCatalog(parts, { query = "", showElectronics = false } = {}) {
+  const list = Array.isArray(parts) ? parts : [];
+  if (includeLabElectronics({ query, showElectronics })) {
+    return list.map((p) => ({ ...p }));
+  }
+  return list.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
+
 export function listParts() {
   return PARTS.map((p) => ({ ...p }));
 }

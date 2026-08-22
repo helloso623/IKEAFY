@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 
 import {
   cheaperAlternatives,
+  filterLabCatalog,
   getPart,
   listParts,
   PARTNERS,
@@ -81,7 +82,6 @@ import {
   rescale,
   retexture,
   redoEdit,
-  seedLampTable,
   snapPose,
   snapshotSim,
   undoEdit,
@@ -107,6 +107,18 @@ const VIDEO_PARTNERS = {
 
 const app = express();
 app.use(express.json({ limit: "16mb" }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || origin === "null" || origin === "file://") {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 const state = {
   project: emptyProject(),
@@ -161,15 +173,20 @@ app.get("/api/catalog", (req, res) => {
   if (req.query.x || req.query.maxX) dimsMm.x = Number(req.query.x || req.query.maxX);
   if (req.query.y || req.query.maxY) dimsMm.y = Number(req.query.y || req.query.maxY);
   if (req.query.z || req.query.maxZ) dimsMm.z = Number(req.query.z || req.query.maxZ);
+  const query = req.query.q || "";
+  const showElectronics = /^(1|true|yes)$/i.test(String(req.query.electronics || ""));
   res.json(
-    searchParts({
-      query: req.query.q || "",
-      maxCost,
-      category: req.query.category,
-      store: req.query.store,
-      minSpecs,
-      dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
-    }),
+    filterLabCatalog(
+      searchParts({
+        query,
+        maxCost,
+        category: req.query.category,
+        store: req.query.store,
+        minSpecs,
+        dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
+      }),
+      { query, showElectronics },
+    ),
   );
 });
 
@@ -596,8 +613,8 @@ app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
 });
 
-app.post("/api/project/seed", (req, res) => {
-  state.project = req.body?.lamp ? seedLampTable() : emptyProject();
+app.post("/api/project/seed", (_req, res) => {
+  state.project = emptyProject();
   res.json(projectPayload(state.project));
 });
 

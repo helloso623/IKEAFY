@@ -141,7 +141,7 @@ test("electronics stays off the Lab header and inspect", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
   assert.match(html, /id="lab-spaces"/);
@@ -156,6 +156,29 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.doesNotMatch(html, /electronics-chrome/, "electronics controls stay off the Lab markup");
   assert.match(main, /electronics-chrome/, "main.js still hides leftover electronics chrome");
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
+});
+
+test("Lab loadCatalog hides electronics unless you search or toggle them", () => {
+  assert.match(main, /function isLabShelfPart/);
+  assert.match(main, /function isElectronicsQuery/);
+  assert.match(main, /function filterLabCatalog/);
+  assert.match(main, /category === "electronics"/);
+  assert.match(main, /category === "cable"/);
+  assert.match(main, /soldering-iron/);
+  assert.match(main, /multimeter/);
+  assert.match(main, /enclosure-print/);
+  assert.match(main, /arduino-nano/);
+  assert.match(main, /\.filter\(isLabShelfPart\)/);
+  assert.match(main, /arduino\|leds\?\|nano\|esp\(\?:32\)\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
+  assert.match(html, /id="show-electronics"/);
+  assert.match(html, /Show electronics/);
+  assert.doesNotMatch(html, /id="show-electronics"[^>]*checked/);
+  assert.match(main, /\$\("show-electronics"\)/);
+  const server = read("server/index.js");
+  assert.match(server, /state\.project = emptyProject\(\)/);
+  assert.match(server, /filterLabCatalog/);
+  assert.doesNotMatch(server, /req\.body\?\.lamp \? seedLampTable/);
+  assert.doesNotMatch(html, /Arduino Nano|ESP32|Half breadboard|Soldering iron|Digital multimeter|Printable lamp enclosure/);
 });
 
 test("the bench catalog scrolls in one well of sample cards", () => {
@@ -190,12 +213,11 @@ test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
   assert.match(apiSource, /^\s{2}scan:/m);
 });
 
-test("Lab spaces are Bench, House, AR, then Scan", () => {
+test("Lab spaces are Desk, House, AR, then Scan", () => {
   const spacesAt = html.indexOf('id="lab-spaces"');
   assert.ok(spacesAt > 0, "Lab space switcher must exist");
   const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
   assert.match(spaces, /data-lab="desk"/);
-  assert.match(spaces, />Bench</);
   assert.match(spaces, /data-lab="house"/);
   assert.match(spaces, /data-lab="ar"/);
   assert.match(spaces, /id="scan-btn"/);

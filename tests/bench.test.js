@@ -22,7 +22,9 @@ test("an empty bench offers nothing at all", () => {
   const chrome = benchChrome(emptyProject());
   assert.equal(chrome.electronics, false);
   assert.equal(chrome.counts.pieces, 0);
+  assert.equal(chrome.counts.electronics, 0);
   assert.equal(chrome.show.tape, false);
+  assert.equal(emptyProject().pieces.some((p) => /arduino|led|nano/.test(p.partId)), false);
 });
 
 test("the seeded lamp table still hides Lab electronics chrome", () => {

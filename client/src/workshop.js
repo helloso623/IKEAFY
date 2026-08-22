@@ -742,20 +742,31 @@ export function createWorkshop(canvas) {
       map: floorMap,
       roughness: 0.86,
       metalness: 0.02,
+      // Lose the depth fight with GridHelper / bench top (same plane, huge far/near).
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 4,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.002;
+  floor.renderOrder = -1;
   floor.receiveShadow = true;
+  floor.userData.baseMaterial = floor.material;
   scene.add(floor);
 
   const grid = new THREE.GridHelper(4, 20, 0xffffff, 0x6a6a6a);
-  grid.position.y = 0.002;
+  grid.position.y = 0.004;
   const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
   for (const mat of gridMats) {
     mat.transparent = true;
-    mat.opacity = 0.28;
+    mat.opacity = 0.22;
     mat.toneMapped = false;
+    mat.depthWrite = false;
   }
+  grid.renderOrder = 1;
+  // Wood map already reads as a ground plane — keep the helper off so it cannot flicker.
+  grid.visible = !floor.material.map;
   scene.add(grid);
 
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
@@ -771,6 +782,7 @@ export function createWorkshop(canvas) {
   );
   bench.position.set(0, -0.03, 0);
   bench.receiveShadow = true;
+  bench.userData.baseMaterial = bench.material;
   scene.add(bench);
 
   const group = new THREE.Group();
@@ -784,6 +796,9 @@ export function createWorkshop(canvas) {
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const meshes = new Map();
+  // Photo scans are intentionally client-only. Their compact triangle buffers
+  // survive project syncs in this map and render as ordinary selectable bodies.
+  const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
   let snapOn = true;
@@ -1032,7 +1047,10 @@ export function createWorkshop(canvas) {
 
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
+  // Look is unlit clay — MeshBasicMaterial, no shadows — so the bench reads as form.
   let shading = "material";
+  let lookOn = false;
+  let measureOn = false;
   const solidMat = new THREE.MeshStandardMaterial({
     color: 0xcfcfcf,
     roughness: 0.85,
@@ -1040,22 +1058,57 @@ export function createWorkshop(canvas) {
     flatShading: true,
   });
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, wireframe: true, toneMapped: false });
+  const unlitMat = new THREE.MeshBasicMaterial({ color: 0xd4d0c8, toneMapped: false });
+
+  function emitViewport() {
+    canvas.dispatchEvent(new CustomEvent("ikealive-viewport", { detail: { look: lookOn, measure: measureOn } }));
+  }
+
+  function applyLookLights() {
+    renderer.shadowMap.enabled = !lookOn;
+    key.castShadow = !lookOn;
+    key.intensity = lookOn ? 0 : 1.3;
+    fill.intensity = lookOn ? 0 : 0.32;
+    rim.intensity = lookOn ? 0 : 0.18;
+    hemi.intensity = lookOn ? 1 : 0.9;
+    floor.receiveShadow = !lookOn;
+    bench.receiveShadow = !lookOn;
+  }
+
+  function meshOverride() {
+    if (lookOn) return unlitMat;
+    if (shading === "solid") return solidMat;
+    if (shading === "wire") return wireMat;
+    return null;
+  }
 
   function applyShading() {
+    applyLookLights();
+    const override = meshOverride();
     for (const root of [group, cableGroup]) {
       root.traverse((child) => {
         if (!child.isMesh) return;
         if (!child.userData.baseMaterial) child.userData.baseMaterial = child.material;
-        child.material =
-          shading === "solid" ? solidMat : shading === "wire" ? wireMat : child.userData.baseMaterial;
+        child.material = override || child.userData.baseMaterial;
       });
     }
+    floor.material = lookOn ? unlitMat : floor.userData.baseMaterial;
+    bench.material = lookOn ? unlitMat : bench.userData.baseMaterial;
   }
 
   function setShading(mode) {
     if (!["solid", "material", "wire"].includes(mode)) return;
     shading = mode;
+    lookOn = false;
     applyShading();
+    emitViewport();
+  }
+
+  function setLook(on) {
+    lookOn = Boolean(on);
+    applyShading();
+    emitViewport();
+    return lookOn;
   }
 
   function frameSelected() {
@@ -1096,6 +1149,7 @@ export function createWorkshop(canvas) {
 
   const timelineEl = document.getElementById("cad-timeline");
   const dimsEl = document.getElementById("cad-dims");
+  const measureEl = document.getElementById("cad-measure");
   const benchPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const sketchFx = new THREE.Group();
   scene.add(sketchFx);
@@ -1156,9 +1210,15 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && measureOn) {
+      measureOn = false;
+      clearMeasure();
+      canvas.classList.remove("measuring");
+      emitViewport();
+    }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected) transform.attach(selected);
+    else if (selected && !measureOn) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -1184,7 +1244,7 @@ export function createWorkshop(canvas) {
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
   function updateDims() {
-    if (!dimsEl || sketch) return;
+    if (!dimsEl || sketch || measureOn) return;
     const data = selected?.userData;
     if (!data?.part || !selected.parent) {
       dimsEl.classList.remove("on");
@@ -1202,6 +1262,139 @@ export function createWorkshop(canvas) {
     const dep = Math.max(1, Math.round(d.y * selected.scale.z));
     const h = Math.max(1, Math.round(d.z * selected.scale.y));
     placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
+  }
+
+  /* ---- Measure: click two world points, read millimetres (Blender ruler) ---- */
+  const measureFx = new THREE.Group();
+  scene.add(measureFx);
+  const measureDotGeo = new THREE.SphereGeometry(0.006, 14, 12);
+  const measureDotMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const measureLineMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  let measureA = null;
+  let measureB = null;
+  let measureLocked = false;
+  let measureDown = null;
+
+  function snapMeasure(point) {
+    const step = snapOn ? 0.001 : 0.0001;
+    return new THREE.Vector3(
+      Math.round(point.x / step) * step,
+      Math.round(point.y / step) * step,
+      Math.round(point.z / step) * step,
+    );
+  }
+
+  function hitWorld(ev) {
+    pointAt(ev);
+    const hits = ray.intersectObjects([group, bench, floor], true);
+    if (hits.length) return hits[0].point.clone();
+    const out = new THREE.Vector3();
+    return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  function clearMeasure() {
+    measureA = null;
+    measureB = null;
+    measureLocked = false;
+    measureFx.traverse((child) => {
+      if (child.geometry && child.geometry !== measureDotGeo) child.geometry.dispose();
+    });
+    measureFx.clear();
+    measureEl?.classList.remove("on");
+  }
+
+  function drawMeasure() {
+    measureFx.traverse((child) => {
+      if (child.geometry && child.geometry !== measureDotGeo) child.geometry.dispose();
+    });
+    measureFx.clear();
+    if (!measureA) return;
+    const a = new THREE.Mesh(measureDotGeo, measureDotMat);
+    a.position.copy(measureA);
+    measureFx.add(a);
+    if (!measureB) return;
+    const b = new THREE.Mesh(measureDotGeo, measureDotMat);
+    b.position.copy(measureB);
+    measureFx.add(b);
+    measureFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([measureA, measureB]), measureLineMat));
+  }
+
+  function fmtMm(meters) {
+    const rounded = Math.round(meters * 1000 * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded} mm` : `${rounded.toFixed(1)} mm`;
+  }
+
+  function placeMeasure(world, html) {
+    if (!measureEl) return;
+    dimVec.copy(world).project(camera);
+    if (dimVec.z > 1) {
+      measureEl.classList.remove("on");
+      return;
+    }
+    measureEl.style.left = `${(dimVec.x * 0.5 + 0.5) * canvas.clientWidth}px`;
+    measureEl.style.top = `${(-dimVec.y * 0.5 + 0.5) * canvas.clientHeight}px`;
+    if (measureEl.dataset.body !== html) {
+      measureEl.dataset.body = html;
+      measureEl.innerHTML = html;
+    }
+    measureEl.classList.add("on");
+  }
+
+  function updateMeasureLabel() {
+    if (!measureEl || !measureOn || !measureA || !measureB) {
+      measureEl?.classList.remove("on");
+      return;
+    }
+    const mid = measureA.clone().lerp(measureB, 0.5);
+    const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
+    const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
+    const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
+    placeMeasure(
+      mid,
+      `<strong>${fmtMm(measureA.distanceTo(measureB))}</strong><small>Δ ${dx} × ${dy} × ${dz} mm</small>`,
+    );
+  }
+
+  function measureClick(ev) {
+    const hit = hitWorld(ev);
+    if (!hit) return;
+    const point = snapMeasure(hit);
+    if (!measureA || measureLocked) {
+      measureA = point;
+      measureB = null;
+      measureLocked = false;
+      drawMeasure();
+      return;
+    }
+    measureB = point;
+    measureLocked = true;
+    drawMeasure();
+  }
+
+  function setMeasure(on) {
+    const next = Boolean(on);
+    if (next === measureOn) return measureOn;
+    measureOn = next;
+    canvas.classList.toggle("measuring", measureOn);
+    if (measureOn) {
+      if (cadTool) setCadTool(null);
+      transform.detach();
+    } else {
+      clearMeasure();
+      if (selected && !cadTool) transform.attach(selected);
+    }
+    emitViewport();
+    return measureOn;
   }
 
   function sketchCenter(s) {
@@ -1282,6 +1475,13 @@ export function createWorkshop(canvas) {
   }
 
   window.addEventListener("pointermove", (ev) => {
+    if (measureOn && measureA && !measureLocked) {
+      const hit = hitWorld(ev);
+      if (hit) {
+        measureB = snapMeasure(hit);
+        drawMeasure();
+      }
+    }
     if (!sketch) return;
     if (sketch.phase === "draw") {
       const hit = castBench(ev);
@@ -1528,6 +1728,14 @@ export function createWorkshop(canvas) {
   window.addEventListener("keydown", (ev) => {
     const tag = ev.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+    if (ev.key === "Escape" && measureOn) {
+      if (measureA) {
+        clearMeasure();
+        return;
+      }
+      setMeasure(false);
+      return;
+    }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
   });
 
@@ -1537,6 +1745,30 @@ export function createWorkshop(canvas) {
     shadow(root);
     root.userData = { piece, part, ports: part.ports || [] };
     if (!lab) addEdaDecor(root, piece, part);
+    return root;
+  }
+
+  function meshForReconstruction(record) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(record.positions, 3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const material = stdMat({
+      color: new THREE.Color(record.piece.color || "#c9d2da"),
+      roughness: 0.5,
+      metalness: 0.04,
+      flatShading: false,
+      side: THREE.DoubleSide,
+    });
+    const root = shadow(new THREE.Mesh(geometry, material));
+    root.userData = {
+      piece: record.piece,
+      part: record.part,
+      ports: [],
+      reconstructed: true,
+      voxelCount: record.voxelCount,
+      triangleCount: record.triangleCount,
+    };
     return root;
   }
 
@@ -1617,6 +1849,12 @@ export function createWorkshop(canvas) {
       poseMesh(mesh, piece, part);
       group.add(mesh);
       meshes.set(piece.id, mesh);
+    }
+    for (const record of reconstructed.values()) {
+      const mesh = meshForReconstruction(record);
+      poseMesh(mesh, record.piece, record.part);
+      group.add(mesh);
+      meshes.set(record.piece.id, mesh);
     }
     cableGroup.clear();
     const cableNets = project.netlist?.cableNets || {};
@@ -1710,6 +1948,10 @@ export function createWorkshop(canvas) {
 
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0 || transform.dragging) return;
+    if (measureOn) {
+      measureDown = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
     if (cadTool === "sketch-rect" || cadTool === "sketch-circle") {
       sketchDown(ev);
       return;
@@ -1719,6 +1961,15 @@ export function createWorkshop(canvas) {
       return;
     }
     pick(ev);
+  });
+
+  canvas.addEventListener("pointerup", (ev) => {
+    if (!measureOn || !measureDown || ev.button !== 0) return;
+    const dx = ev.clientX - measureDown.x;
+    const dy = ev.clientY - measureDown.y;
+    measureDown = null;
+    if (dx * dx + dy * dy > 25) return;
+    measureClick(ev);
   });
 
   function resize() {
@@ -1789,7 +2040,7 @@ export function createWorkshop(canvas) {
 
   function setLed(on) {
     // Emission only draws in material shading — same rule as Blender's solid view.
-    if (shading !== "material") return;
+    if (lookOn || shading !== "material") return;
     meshes.forEach((mesh) => {
       if (mesh.userData.part?.firmwareRole !== "led") return;
       mesh.traverse((child) => {
@@ -1826,10 +2077,109 @@ export function createWorkshop(canvas) {
     if (boxHelper && selected) boxHelper.update();
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
+    updateMeasureLabel();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
   tick();
+
+  function addReconstructedMesh(spec) {
+    if (!spec?.id || !(spec.positions instanceof Float32Array) || spec.positions.length < 9) {
+      throw new Error("The reconstructed body has no triangle vertices.");
+    }
+    const dimsMm = {
+      x: Math.max(1, Number(spec.dimensionsMm?.x) || 1),
+      y: Math.max(1, Number(spec.dimensionsMm?.y) || 1),
+      z: Math.max(1, Number(spec.dimensionsMm?.z) || 1),
+    };
+    const piece = {
+      id: spec.id,
+      partId: "scan-mesh",
+      x: Number(spec.x) || 0,
+      y: Number(spec.y) || (dimsMm.z * MM) / 2,
+      z: Number(spec.z) || 0,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      sx: 1,
+      sy: 1,
+      sz: 1,
+      color: spec.color || "#c9d2da",
+      reconstructed: true,
+    };
+    const part = {
+      id: "scan-mesh",
+      name: spec.name || "Scanned object",
+      category: "scan",
+      dimsMm,
+      color: piece.color,
+    };
+    const record = {
+      piece,
+      part,
+      positions: spec.positions,
+      voxelCount: Number(spec.voxelCount) || 0,
+      triangleCount: Number(spec.triangleCount) || spec.positions.length / 9,
+    };
+    reconstructed.set(piece.id, record);
+    const old = meshes.get(piece.id);
+    if (old) {
+      group.remove(old);
+      old.geometry?.dispose?.();
+      old.material?.dispose?.();
+    }
+    const mesh = meshForReconstruction(record);
+    poseMesh(mesh, piece, part);
+    group.add(mesh);
+    meshes.set(piece.id, mesh);
+    pushOp("S", `Scan ${part.name} · ${record.triangleCount.toLocaleString()} triangles`);
+    attach(mesh);
+    return { piece, part };
+  }
+
+  function removeReconstructed(id) {
+    if (!reconstructed.has(id)) return false;
+    const mesh = meshes.get(id);
+    if (mesh) {
+      if (selected === mesh) attach(null);
+      group.remove(mesh);
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+      meshes.delete(id);
+    }
+    reconstructed.delete(id);
+    pushOp("D", "Delete scanned object");
+    return true;
+  }
+
+  function updateReconstructedPose(pose) {
+    const record = reconstructed.get(pose?.id);
+    if (!record) return false;
+    for (const key of ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz"]) {
+      if (Number.isFinite(Number(pose[key]))) record.piece[key] = Number(pose[key]);
+    }
+    applyPose(record.piece);
+    return true;
+  }
+
+  function duplicateReconstructed(id) {
+    const source = reconstructed.get(id);
+    if (!source) return null;
+    let suffix = reconstructed.size + 1;
+    while (reconstructed.has(`scan-mesh-${suffix}`)) suffix += 1;
+    return addReconstructedMesh({
+      id: `scan-mesh-${suffix}`,
+      name: `${source.part.name} copy`,
+      positions: source.positions,
+      dimensionsMm: source.part.dimsMm,
+      voxelCount: source.voxelCount,
+      triangleCount: source.triangleCount,
+      color: source.piece.color,
+      x: source.piece.x + source.part.dimsMm.x * MM + 0.02,
+      y: source.piece.y,
+      z: source.piece.z,
+    });
+  }
 
   return {
     sync,
@@ -1837,6 +2187,10 @@ export function createWorkshop(canvas) {
     setCamera,
     setShading,
     getShading: () => shading,
+    setLook,
+    getLook: () => lookOn,
+    setMeasure,
+    getMeasure: () => measureOn,
     frameSelected,
     explode,
     setLed,
@@ -1857,6 +2211,16 @@ export function createWorkshop(canvas) {
       onPoseCommit = fn;
     },
     getSelected: () => selected?.userData || null,
+    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, voxelCount, triangleCount }) => ({
+      piece,
+      part,
+      voxelCount,
+      triangleCount,
+    })),
+    addReconstructedMesh,
+    removeReconstructed,
+    updateReconstructedPose,
+    duplicateReconstructed,
     getSelectedPose: () => readPose(selected),
     onSketch: (fn) => {
       onSketchCommit = fn;
