@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bomFromIds, cheaperAlternatives, retailerOffers, searchParts } from "../server/lib/catalog.js";
+import { bomFromIds, cheaperAlternatives, fitsDims, retailerOffers, searchParts } from "../server/lib/catalog.js";
 
 test("token search finds a LACK table from “lack table”", () => {
   const hits = searchParts({ query: "lack table" });
@@ -39,4 +39,19 @@ test("Tavily stand-in returns several shops for a part to purchase", () => {
 test("cheaper pine stands in for a LACK top", () => {
   const alts = cheaperAlternatives("lack-top");
   assert.ok(alts.some((p) => p.id === "pine-offcut"));
+});
+
+test("dims filter keeps pieces that fit the scanned envelope", () => {
+  const hits = searchParts({ dimsMm: { x: 550, y: 550 }, category: "furniture" });
+  assert.ok(hits.some((p) => p.id === "lack-table"));
+  assert.ok(hits.some((p) => p.id === "lack-top"));
+  assert.ok(hits.some((p) => p.id === "pine-offcut"));
+  assert.equal(hits.some((p) => p.id === "linmon-top"), false);
+  assert.ok(hits.every((p) => fitsDims(p, { x: 550, y: 550 })));
+});
+
+test("a LACK table fits a 550 mm footprint and not a 400 mm one", () => {
+  const table = searchParts({ query: "lack table" }).find((p) => p.id === "lack-table");
+  assert.ok(fitsDims(table, { x: 550, y: 550 }));
+  assert.equal(fitsDims(table, { x: 400, y: 400 }), false);
 });

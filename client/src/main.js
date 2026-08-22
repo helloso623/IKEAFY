@@ -9,11 +9,14 @@ const $ = (id) => document.getElementById(id);
 const view = $("view");
 const shop = createWorkshop(view);
 const partsById = {};
-let project = { pieces: [], cables: [], tapes: [], chrome: null };
+let project = { pieces: [], cables: [], tapes: [], chrome: null, netlist: null, erc: null };
 let selectedIds = [];
 let costBarrier = "";
 let studio = null;
 let house = null;
+// KiCad bench: half-drawn wire and the net lit up from the netlist panel.
+let pendingPort = null;
+let highlightedNet = null;
 
 function hud(text) {
   $("hud").textContent = text;
@@ -21,8 +24,6 @@ function hud(text) {
 
 const EMPTY_INSPECT = "Nothing selected.";
 const PIECE_FUNCTIONS = ["support", "light", "sense", "control", "decorate"];
-const ELECTRONICS_FUNCTIONS = ["light", "sense", "control"];
-let ledTimer = null;
 
 function inspect(text) {
   $("inspect").textContent = text;
@@ -40,12 +41,60 @@ function selectedPieceId() {
 }
 
 function syncDeleteButton() {
-  const btn = $("delete-piece");
-  if (!btn) return;
+  syncEditButtons();
+}
+
+function poseHint(piece) {
+  if (!piece) return "Click a piece to move it. G move, R rotate, S scale.";
+  const mm = (n) => Math.round((Number(n) || 0) * 1000);
+  const deg = (n) => Math.round(((Number(n) || 0) * 180) / Math.PI);
+  return `${mm(piece.x)} × ${mm(piece.z)} mm · ${deg(piece.ry)}° · ×${Number(piece.sx || 1).toFixed(1)}`;
+}
+
+function syncEditButtons() {
   const available = Boolean(selectedPieceId());
-  btn.disabled = !available;
-  btn.classList.toggle("refuses", !available);
-  btn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
+  const edit = project.edit || {};
+  const deleteBtn = $("delete-piece");
+  if (deleteBtn) {
+    deleteBtn.disabled = !available;
+    deleteBtn.classList.toggle("refuses", !available);
+    deleteBtn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
+  }
+  const dup = $("duplicate-piece");
+  if (dup) {
+    dup.disabled = !available;
+    dup.title = available ? "Duplicate this piece" : "Pick a piece, then Duplicate.";
+  }
+  const undoBtn = $("undo-edit");
+  if (undoBtn) undoBtn.disabled = !edit.canUndo;
+  const redoBtn = $("redo-edit");
+  if (redoBtn) redoBtn.disabled = !edit.canRedo;
+  for (const btn of document.querySelectorAll("[data-undo]")) btn.disabled = !edit.canUndo;
+  for (const btn of document.querySelectorAll("[data-redo]")) btn.disabled = !edit.canRedo;
+  for (const btn of document.querySelectorAll("[data-duplicate]")) btn.disabled = !available;
+  const pose = $("edit-pose");
+  if (pose) {
+    const picked = selectedPiece();
+    pose.textContent = available
+      ? `${poseHint(picked?.piece || shop.getSelectedPose())}. Delete / Ctrl+D / Ctrl+Z.`
+      : "Click a piece to move it. G move, R rotate, S scale.";
+  }
+  const mode = shop.getMode?.() || "translate";
+  for (const btn of document.querySelectorAll("[data-edit]")) {
+    btn.classList.toggle("on", btn.dataset.edit === mode);
+  }
+  const snapOn = shop.getSnap?.() !== false;
+  const snapBtn = $("edit-snap");
+  if (snapBtn) {
+    snapBtn.classList.toggle("on", snapOn);
+    snapBtn.setAttribute("aria-pressed", snapOn ? "true" : "false");
+  }
+  for (const btn of document.querySelectorAll("[data-snap]")) {
+    btn.classList.toggle("on", snapOn);
+    btn.setAttribute("aria-pressed", snapOn ? "true" : "false");
+  }
+  const flag = $("snap-flag");
+  if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
 }
 
 function money(n) {
@@ -67,20 +116,43 @@ function sizePlain(part) {
 }
 
 /**
- * A table with four legs has no ports, no nets and no firmware. The server tells
- * us what is on the bench, and the electronics chrome is simply not drawn.
+ * Lab is furniture-only for now. Electronics chrome (Arduino, nets, isolate)
+ * stays off the panel even if catalog parts still exist on the server.
  */
 function applyChrome(chrome) {
-  const electronics = Boolean(chrome?.electronics);
+  void chrome?.electronics;
   for (const node of document.querySelectorAll(".electronics-chrome")) {
-    node.classList.toggle("hidden", !electronics);
+    node.classList.add("hidden");
   }
-  const cables = $("cables-panel");
-  if (cables) cables.classList.toggle("hidden", !chrome?.show?.cablesPanel);
-  if (!electronics && chrome) hudChromeNote(chrome);
+  if (chrome) hudChromeNote(chrome);
 }
 
-house = initHouse({ api, hud });
+async function addPartToBench(partId, pose = { x: 0.25, y: 0.28, z: 0.1 }) {
+  const added = await api.add(partId, pose);
+  await refreshProject();
+  const piece = added?.id ? project.pieces.find((p) => p.id === added.id) : project.pieces.at(-1);
+  const part = partsById[partId];
+  if (piece && part) {
+    selectedIds = [piece.id];
+    shop.select(piece.id);
+    showPart(part, piece);
+  }
+  hud(`Added ${part?.name || partId}.`);
+  return piece;
+}
+
+house = initHouse({
+  api,
+  hud,
+  onPhoto() {
+    if (isLab()) setLabSpace("ar");
+  },
+  onPlan() {
+    if (isLab()) setLabSpace("ar");
+  },
+  getSelectedPart: () => selectedPiece()?.part || null,
+  onAdd: (partId) => addPartToBench(partId),
+});
 applyChrome(project.chrome);
 showEmptyInspect();
 syncDeleteButton();
@@ -101,13 +173,8 @@ async function refreshProject() {
   const lostSelection = selectedIds.length > 0 && still.length === 0;
   selectedIds = still;
   if (lostSelection) showEmptyInspect();
-  syncDeleteButton();
-  $("cables").innerHTML = project.cables
-    .map(
-      (c) =>
-        `<div class="item"><span>${c.fromPort} → ${c.toPort}</span><small>${c.locked ? "locked" : "loose"}</small></div>`,
-    )
-    .join("");
+  else if (selectedIds[0]) shop.select(selectedIds[0]);
+  syncEditButtons();
   renderBenchPieces();
   syncFunctionStrip();
 }
@@ -119,11 +186,13 @@ function renderBenchPieces() {
     list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
     return;
   }
+  const current = selectedPieceId();
   list.innerHTML = project.pieces
     .map((piece) => {
       const part = partsById[piece.partId];
       const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
-      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      const on = piece.id === current ? " on" : "";
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -179,7 +248,7 @@ async function loadCatalog(raw) {
   const q = { q: catalogNeedle(typed) };
   const budget = $("cost")?.value || parseBudget(typed);
   if (budget) q.maxCost = budget;
-  const parts = await api.catalog(q);
+  const parts = (await api.catalog(q)).filter((p) => p.category !== "electronics" && p.category !== "cable");
   for (const p of parts) partsById[p.id] = p;
   updateCatalogHint(parts, typed);
   const shelf = $("catalog");
@@ -231,9 +300,10 @@ async function applyShopActions(actions) {
       if (ids.length) await api.isolate(ids, action.label || "board");
     } else if (action.type === "adaptation" && action.plan) {
       setMode("lab");
+      setLabSpace("ar");
       house?.applyPlan(action.plan);
-    } else if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
-      inspect("The board is programmed.");
+    } else if (action.type === "firmware") {
+      continue;
     }
   }
   return added;
@@ -281,15 +351,7 @@ $("catalog").addEventListener("click", async (ev) => {
   const item = ev.target.closest("[data-add]");
   const id = item?.dataset.add;
   if (!id) return;
-  const added = await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
-  await refreshProject();
-  const piece = added?.id ? project.pieces.find((p) => p.id === added.id) : project.pieces.at(-1);
-  const part = partsById[id];
-  if (piece && part) {
-    selectedIds = [piece.id];
-    showPart(part, piece);
-  }
-  hud(`Added ${part?.name || id}.`);
+  await addPartToBench(id);
   (item.nextElementSibling || item)?.scrollIntoView({ block: "nearest" });
 });
 
@@ -302,10 +364,11 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
   const id = ev.target.closest("[data-piece]")?.dataset.piece;
   if (id) {
     selectedIds = [id];
+    shop.select(id);
     const piece = project.pieces.find((p) => p.id === id);
     const part = partsById[piece?.partId];
     if (part) showPart(part, piece);
-    else syncDeleteButton();
+    else syncEditButtons();
   }
 });
 
@@ -313,20 +376,6 @@ $("cost")?.addEventListener("change", () => {
   costBarrier = $("cost").value;
   loadCatalog(activeQuery());
 });
-
-function isElectronics(part) {
-  return part?.category === "electronics" || Boolean(part?.firmwareRole);
-}
-
-function suggestFunction(part) {
-  if (part?.firmwareRole === "led") return "light";
-  if (part?.firmwareRole === "button") return "sense";
-  if (part?.firmwareRole === "mcu") return "control";
-  if (part?.category === "electronics") return "control";
-  if (part?.shape === "post" || /leg/.test(part?.id || "")) return "support";
-  if (part?.category === "furniture") return "support";
-  return "decorate";
-}
 
 function selectedPiece() {
   const id = selectedPieceId();
@@ -355,20 +404,6 @@ function syncFunctionStrip() {
   }
 }
 
-function playLedFrames(run) {
-  if (ledTimer) clearInterval(ledTimer);
-  if (!run?.frames?.length) return;
-  let i = 0;
-  ledTimer = setInterval(() => {
-    shop.setLed(run.frames[i % run.frames.length].led);
-    i += 1;
-    if (i > 16) {
-      clearInterval(ledTimer);
-      ledTimer = null;
-    }
-  }, 200);
-}
-
 function showPart(part, piece) {
   const lines = [part.name];
   const size = sizePlain(part);
@@ -376,13 +411,9 @@ function showPart(part, piece) {
   const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
   if (shopLine) lines.push(shopLine);
   if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
-  if (isElectronics(part)) {
-    const plugs = (part.ports || []).map((x) => x.id);
-    if (plugs.length) lines.push(`Plugs: ${plugs.join(", ")}`);
-  }
-  lines.push("Delete takes this off the bench.");
+  lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
-  syncDeleteButton();
+  syncEditButtons();
   syncFunctionStrip();
 }
 
@@ -390,11 +421,46 @@ shop.onSelect((data) => {
   if (!data?.piece) {
     selectedIds = [];
     showEmptyInspect();
-    syncDeleteButton();
+    syncEditButtons();
+    renderBenchPieces();
     return;
   }
   selectedIds = [data.piece.id];
   showPart(data.part, data.piece);
+  renderBenchPieces();
+});
+
+shop.onPoseCommit((pose) => {
+  commitPose(pose);
+});
+
+// Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
+// a joint mate lands as api.move (plus a joint record) so undo covers both.
+shop.onSketch?.(async ({ partId, pose, label }) => {
+  try {
+    const piece = await api.add(partId, pose);
+    await refreshProject();
+    if (piece?.id) {
+      selectedIds = [piece.id];
+      shop.select(piece.id);
+      const part = partsById[partId];
+      if (part) showPart(part, piece);
+    }
+    hud(`${label}. Ctrl+Z undoes it.`);
+  } catch (err) {
+    hud(err.message || "The lab could not build that body.");
+  }
+});
+
+shop.onJoint?.(async ({ moves, joint, label }) => {
+  try {
+    for (const move of moves) await api.move({ id: move.id, ...move.pose, snap: false });
+    if (joint) await api.joint(joint);
+    await refreshProject();
+    hud(`${label}.`);
+  } catch (err) {
+    hud(err.message || "The joint did not take.");
+  }
 });
 
 $("lab-btns").addEventListener("click", async (ev) => {
@@ -452,15 +518,6 @@ async function applyTape(id) {
 $("tape-elec").addEventListener("click", () => applyTape("tape-electrical"));
 $("tape-gaff").addEventListener("click", () => applyTape("tape-gaffer"));
 
-$("isolate-btn").addEventListener("click", async () => {
-  const ids = project.pieces
-    .filter((p) => isElectronics(partsById[p.partId]))
-    .map((p) => p.id);
-  if (!ids.length) return hud("No lights or boards to group.");
-  await api.isolate(ids, "lamp-board");
-  hud("Grouped the electrics as one board.");
-});
-
 $("fn-btns").addEventListener("click", async (ev) => {
   const fn = ev.target.closest("[data-fn]")?.dataset.fn;
   if (!fn || !PIECE_FUNCTIONS.includes(fn)) return;
@@ -486,38 +543,16 @@ $("sim-behavior").addEventListener("click", async () => {
     aeroMs: 8,
     flowMs: 2,
   });
-  const notes = result.notes?.length ? result.notes : ["Behavior suite finished."];
-  inspect(notes.join("\n"));
-  hud(notes[0]);
+  const notes = (result.notes || []).filter((n) => !/firmware|arduino|sketch/i.test(n));
+  inspect((notes.length ? notes : ["Behavior suite finished."]).join("\n"));
+  hud(notes[0] || "Behavior suite finished.");
   shop.setSim(true, {
     rain,
     heat: tempC > 40,
     force: true,
   });
   $("sim-toggle").checked = true;
-  const fwFns = result.functions || [];
-  if (fwFns.some((fn) => ELECTRONICS_FUNCTIONS.includes(fn))) {
-    await api.flash(fwFns);
-    const run = result.firmware || (await api.runFw(false));
-    playLedFrames(run);
-  }
 });
-
-$("label-btn").addEventListener("click", async () => {
-  const sel = selectedPiece() || shop.getSelected();
-  if (!sel?.piece) return hud("Pick a piece, then assign a job.");
-  const label = suggestFunction(sel.part);
-  await api.label(sel.piece.id, label);
-  await refreshProject();
-  const piece = project.pieces.find((p) => p.id === sel.piece.id);
-  const part = partsById[piece?.partId] || sel.part;
-  if (part && piece) showPart(part, piece);
-  hud(`${part?.name || "Piece"} is now ${label}.`);
-});
-
-$("bundle-loose").addEventListener("click", async () => hud((await api.bundle("loose")).note));
-$("bundle-zip").addEventListener("click", async () => hud((await api.bundle("bundled")).note));
-$("bundle-race").addEventListener("click", async () => hud((await api.bundle("channeled")).note));
 
 $("print-btn").addEventListener("click", async () => {
   const job = await api.print();
@@ -530,18 +565,65 @@ $("print-btn").addEventListener("click", async () => {
   hud(jobs.length ? "Ready to print." : "Nothing here is ready to print.");
 });
 
-$("flash-btn").addEventListener("click", async () => {
-  const labeled = project.pieces.map((p) => p.functionLabel).filter((fn) => ELECTRONICS_FUNCTIONS.includes(fn));
-  const functions = labeled.length ? [...new Set(labeled)] : ["light", "sense"];
-  await api.flash(functions);
-  const run = await api.runFw(false);
-  const sel = shop.getSelected();
-  if (isElectronics(sel?.part)) {
-    inspect(`The light blinks.\n${run.frames.map((f) => (f.led ? "■" : "□")).join(" ")}`);
+async function commitPose(pose) {
+  if (!pose?.id) return;
+  const result = await api.move({ ...pose, snap: shop.getSnap() });
+  if (result?.ok === false) {
+    hud(result.error || "Could not move that piece.");
+    return;
   }
-  hud("The light blinks.");
-  playLedFrames(run);
-});
+  const piece = project.pieces.find((p) => p.id === pose.id);
+  if (piece && result.piece) Object.assign(piece, result.piece);
+  project.edit = result.edit || project.edit;
+  if (result.piece) shop.applyPose(result.piece);
+  syncEditButtons();
+  hud("Placed.");
+}
+
+function setEditMode(mode) {
+  shop.setMode(mode);
+  syncEditButtons();
+  hud(mode === "rotate" ? "Rotate the piece." : mode === "scale" ? "Scale the piece." : "Move the piece.");
+}
+
+function setSnap(on) {
+  shop.setSnap(on);
+  syncEditButtons();
+  hud(on ? "Snap to 10 mm / 15°." : "Snap off.");
+}
+
+async function duplicateSelected() {
+  const id = selectedPieceId();
+  if (!id) return hud("Pick a piece, then Duplicate.");
+  const result = await api.duplicate(id);
+  if (result?.ok === false) return hud(result.error || "Could not duplicate that piece.");
+  await refreshProject();
+  if (result.piece?.id) {
+    selectedIds = [result.piece.id];
+    shop.select(result.piece.id);
+    const part = partsById[result.piece.partId];
+    if (part) showPart(part, result.piece);
+  }
+  hud(`Duplicated ${partsById[result.piece?.partId]?.name || "that piece"}.`);
+}
+
+async function undoLastEdit() {
+  const result = await api.undo();
+  if (result?.ok === false) return hud(result.error || "Nothing to undo.");
+  shop.noteHistory?.("undo");
+  selectedIds = result.selection ? [result.selection] : selectedIds;
+  await refreshProject();
+  hud("Undid the last edit.");
+}
+
+async function redoLastEdit() {
+  const result = await api.redo();
+  if (result?.ok === false) return hud(result.error || "Nothing to redo.");
+  shop.noteHistory?.("redo");
+  selectedIds = result.selection ? [result.selection] : selectedIds;
+  await refreshProject();
+  hud("Redid the last edit.");
+}
 
 async function removePiece(id) {
   if (!id) return;
@@ -564,9 +646,59 @@ $("delete-piece").addEventListener("click", () => {
   removePiece(id);
 });
 
+$("duplicate-piece")?.addEventListener("click", () => duplicateSelected());
+$("undo-edit")?.addEventListener("click", () => undoLastEdit());
+$("redo-edit")?.addEventListener("click", () => redoLastEdit());
+$("edit-snap")?.addEventListener("click", () => setSnap(!shop.getSnap()));
+$("edit-bar")?.addEventListener("click", (ev) => {
+  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
+  if (mode) setEditMode(mode);
+});
+$("edit-tools")?.addEventListener("click", (ev) => {
+  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
+  if (mode) setEditMode(mode);
+  if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
+  if (ev.target.closest("[data-duplicate]")) duplicateSelected();
+  if (ev.target.closest("[data-undo]")) undoLastEdit();
+  if (ev.target.closest("[data-redo]")) redoLastEdit();
+});
+
+function isLab() {
+  return $("app")?.dataset.mode === "lab";
+}
+
+function labHud(space) {
+  if (space === "ar") return "AR — the room camera. Drop a photo or place a table.";
+  if (space === "house") return "House sits with the bench. Measure the room, then open AR for the overlay.";
+  return project.pieces.length
+    ? "Desk — pick a piece on the bench, or fit it in the room."
+    : "Desk — add a piece from the shelf, or measure the room below.";
+}
+
+function setLabSpace(space) {
+  if (space !== "house" && space !== "ar") space = "desk";
+  const app = $("app");
+  if (!app) return;
+  app.dataset.lab = space;
+  app.classList.toggle("lab-desk", space === "desk");
+  app.classList.toggle("lab-house", space === "house");
+  app.classList.toggle("lab-ar", space === "ar");
+  for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
+    btn.classList.toggle("on", btn.dataset.lab === space);
+  }
+  const room = $("lab-room");
+  if (room && space === "house") room.open = true;
+  house?.setActive(space === "ar");
+  if (isLab()) hud(labHud(space));
+  shop.resize();
+}
+
 function setMode(mode) {
-  if (mode === "lab" || mode === "house" || mode === "bench") mode = "lab";
-  else mode = "ikeafy";
+  if (mode === "lab" || mode === "house" || mode === "bench" || mode === "ar" || mode === "desk") {
+    mode = "lab";
+  } else {
+    mode = "ikeafy";
+  }
   const app = $("app");
   const inLab = mode === "lab";
   app.dataset.mode = mode;
@@ -579,7 +711,7 @@ function setMode(mode) {
   for (const rail of document.querySelectorAll(".rail")) {
     rail.classList.remove("hidden");
   }
-  const visiblePanes = inLab ? new Set(["bench", "house", "lab"]) : new Set(["ikeafy"]);
+  const visiblePanes = inLab ? new Set(["lab"]) : new Set(["ikeafy"]);
   for (const pane of document.querySelectorAll("[data-pane]")) {
     pane.classList.toggle("hidden", !visiblePanes.has(pane.dataset.pane));
   }
@@ -587,20 +719,24 @@ function setMode(mode) {
     node.classList.toggle("hidden", !inLab);
   }
   $("film").classList.toggle("hidden", inLab);
-  house?.setActive(inLab);
   if (inLab) {
     applyChrome(project.chrome);
-    hud(
-      project.pieces.length
-        ? "Pick a piece on the bench, or fit it in the room."
-        : "Add a piece from the shelf, or fit a table in the room.",
-    );
+    setLabSpace(app.dataset.lab || "desk");
+  } else {
+    house?.setActive(false);
   }
   shop.resize();
 }
 
 for (const btn of document.querySelectorAll("#modes button")) {
   btn.addEventListener("click", () => setMode(btn.dataset.mode));
+}
+
+for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
+  btn.addEventListener("click", () => {
+    setMode("lab");
+    setLabSpace(btn.dataset.lab);
+  });
 }
 
 $("back-ikealive")?.addEventListener("click", (ev) => {
@@ -619,9 +755,28 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
-  if (ev.key === "g") shop.setMode("translate");
-  if (ev.key === "r") shop.setMode("rotate");
-  if (ev.key === "s" && ev.shiftKey) shop.setMode("scale");
+  const key = ev.key.toLowerCase();
+  if ((ev.ctrlKey || ev.metaKey) && key === "z") {
+    ev.preventDefault();
+    if (ev.shiftKey) redoLastEdit();
+    else undoLastEdit();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && key === "y") {
+    ev.preventDefault();
+    redoLastEdit();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && key === "d") {
+    ev.preventDefault();
+    duplicateSelected();
+    return;
+  }
+  if (key === "g") setEditMode("translate");
+  if (key === "r") setEditMode("rotate");
+  if (key === "s") setEditMode("scale");
+  if (key === "n") setSnap(!shop.getSnap());
+  if (key === "f") shop.frameSelected?.();
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     const id = selectedPieceId();

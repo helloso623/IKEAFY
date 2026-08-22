@@ -21,6 +21,7 @@
       id="app"
       class="mode-ikeafy"
       data-mode="ikeafy"
+      data-lab="desk"
       data-guide-mode="custom"
       data-interface="upload"
     >
@@ -31,6 +32,12 @@
         <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
           <button data-mode="ikeafy" class="on">IKEAlive</button>
           <button data-mode="lab">Lab</button>
+        </nav>
+        <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
+          <button type="button" data-lab="desk" class="on">Desk</button>
+          <button type="button" data-lab="house">House</button>
+          <button type="button" data-lab="ar">AR</button>
+          <button type="button" id="scan-btn">Scan</button>
         </nav>
         <form id="omnibox-form" class="omnibox-form" role="search">
           <input
@@ -50,7 +57,6 @@
           </label>
           <button id="reset-sim" class="bench-only hidden">Reset</button>
           <button id="print-btn" class="bench-only hidden">3D print</button>
-          <button id="flash-btn" class="bench-only electronics-chrome hidden">Arduino</button>
           <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
         </div>
       </header>
@@ -116,6 +122,9 @@
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
         <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
+        <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
+        <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
+        <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame" class="hidden"></canvas>
@@ -208,10 +217,10 @@
       </aside>
 
       <!-- ============ LAB — left browser (catalog / bodies) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="bench" aria-label="Browser">
+      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Browser">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Browser</span>
-          <strong class="lab-pane-title">Catalog / Bodies</strong>
+          <strong class="lab-pane-title">Catalog / Bodies / Room</strong>
         </header>
         <div class="pane bench-nav lab-tree">
           <details class="lab-folder catalog-panel" open>
@@ -239,80 +248,54 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
+          <details class="lab-folder" id="lab-room" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
+              This room
+            </summary>
+            <div class="lab-folder-body house-plate">
+              <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
+              <label class="field file-field" for="room-photo">
+                <span>Room photo</span>
+                <input id="room-photo" type="file" accept="image/*" />
+              </label>
+              <div class="row wrap lab-dims">
+                <label class="field" for="room-w">
+                  <span>Width (m)</span>
+                  <input id="room-w" type="number" step="0.1" value="3.2" />
+                </label>
+                <label class="field" for="room-d">
+                  <span>Depth (m)</span>
+                  <input id="room-d" type="number" step="0.1" value="3.8" />
+                </label>
+              </div>
+              <label class="field" for="room-budget">
+                <span>Budget ($)</span>
+                <input id="room-budget" type="number" value="40" />
+              </label>
+              <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+              <div id="adapt-out" class="copy house-notes"></div>
+              <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
+            </div>
+          </details>
         </div>
       </aside>
 
-      <div class="house-drawer hidden" data-pane="house" id="house-drawer" aria-label="House">
-        <aside class="rail house-rail lab-browser" aria-label="Browser">
-          <header class="lab-pane-head">
-            <span class="lab-pane-kicker">Browser</span>
-            <strong class="lab-pane-title">Bodies</strong>
-          </header>
-          <div class="pane house-nav lab-tree">
-            <details class="lab-folder" open>
-              <summary class="lab-folder-sum">
-                <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
-                This room
-              </summary>
-              <div class="lab-folder-body">
-                <p class="hint lab-hint">Photo and measurements — the canvas shows the fit.</p>
-                <label class="field file-field" for="room-photo">
-                  <span>Room photo</span>
-                  <input id="room-photo" type="file" accept="image/*" />
-                </label>
-                <div class="row wrap lab-dims">
-                  <label class="field" for="room-w">
-                    <span>Width (m)</span>
-                    <input id="room-w" type="number" step="0.1" value="3.2" />
-                  </label>
-                  <label class="field" for="room-d">
-                    <span>Depth (m)</span>
-                    <input id="room-d" type="number" step="0.1" value="3.8" />
-                  </label>
-                </div>
-                <label class="field" for="room-budget">
-                  <span>Budget ($)</span>
-                  <input id="room-budget" type="number" value="40" />
-                </label>
-              </div>
-            </details>
-          </div>
-        </aside>
-        <aside class="rail house-rail lab-inspector" aria-label="Inspector">
-          <header class="lab-pane-head">
-            <span class="lab-pane-kicker">Inspector</span>
-            <strong class="lab-pane-title">Parameters</strong>
-          </header>
-          <div class="pane house-ctx lab-sheets">
-            <details class="lab-sheet" open>
-              <summary class="lab-sheet-sum">Parameters</summary>
-              <div class="lab-sheet-body">
-                <div class="panel card house-plate">
-                  <header class="house-head">
-                    <div class="house-title">
-                      <h2>Fit the piece in the room</h2>
-                    </div>
-                  </header>
-                  <p class="house-caption">We’ll place a table where the door still swings.</p>
-                  <button id="adapt-btn" class="primary house-go">Put a table in there</button>
-                  <div id="adapt-out" class="copy house-notes"></div>
-                </div>
-              </div>
-            </details>
-          </div>
-        </aside>
-      </div>
-
       <div class="lab-viewport" aria-hidden="true">
         <div class="lab-view-bar">
-          <div class="lab-view-tools">
-            <span class="lab-tool on">Select</span>
-            <span class="lab-tool">Orbit</span>
-            <span class="lab-tool">Pan</span>
-            <span class="lab-tool">Zoom</span>
+          <div class="lab-view-tools" id="edit-tools">
+            <button type="button" class="lab-tool on" data-edit="translate">Move</button>
+            <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
+            <button type="button" class="lab-tool" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
-            <span class="lab-tool">Measure</span>
-            <span class="lab-tool">Section</span>
+            <button type="button" class="lab-tool on" data-snap aria-pressed="true">Snap</button>
+            <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
+            <button type="button" class="lab-tool" data-undo disabled>Undo</button>
+            <button type="button" class="lab-tool" data-redo disabled>Redo</button>
+            <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
+            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>
@@ -335,16 +318,16 @@
         <div class="lab-status">
           <span>Ready</span>
           <span>Grid 10 mm</span>
-          <span>Snap</span>
+          <span id="snap-flag">Snap on</span>
           <span>Units mm</span>
         </div>
       </div>
 
-      <!-- ============ LAB — right inspector (parameters / functions / nets) ============ -->
-      <aside class="rail right lab-inspector hidden" data-pane="bench" aria-label="Inspector">
+      <!-- ============ LAB — right inspector (parameters / functions) ============ -->
+      <aside class="rail right lab-inspector hidden" data-pane="lab" aria-label="Inspector">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Parameters · Functions · Nets</strong>
+          <strong class="lab-pane-title">Parameters · Functions</strong>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
@@ -354,8 +337,27 @@
                 <span class="lab-param-key">Selection</span>
                 <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
               </div>
-              <div class="row lab-actions">
-                <button id="delete-piece" disabled>Delete piece</button>
+              <div id="edit-bar" class="edit-bar">
+                <div class="row wrap">
+                  <button type="button" id="edit-move" data-edit="translate" class="on">Move</button>
+                  <button type="button" id="edit-rotate" data-edit="rotate">Rotate</button>
+                  <button type="button" id="edit-scale" data-edit="scale">Scale</button>
+                  <button type="button" id="edit-snap" aria-pressed="true">Snap</button>
+                </div>
+                <div class="row wrap lab-actions">
+                  <button type="button" id="duplicate-piece" disabled>Duplicate</button>
+                  <button type="button" id="delete-piece" disabled>Delete piece</button>
+                </div>
+                <div class="row wrap">
+                  <button type="button" id="undo-edit" disabled>Undo</button>
+                  <button type="button" id="redo-edit" disabled>Redo</button>
+                </div>
+                <div class="row wrap" aria-label="Lab CAD tools">
+                  <button type="button" data-cad-tool="sketch-rect">Sketch rect</button>
+                  <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
+                  <button type="button" data-cad-tool="joint">Joint</button>
+                </div>
+                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
               </div>
             </div>
           </details>
@@ -396,29 +398,6 @@
                   </div>
                 </details>
               </div>
-            </div>
-          </details>
-          <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Nets</summary>
-            <div class="lab-sheet-body">
-              <div id="electronics-only" class="electronics-chrome hidden">
-                <h2>Electronics</h2>
-                <div class="row">
-                  <button id="isolate-btn">Isolate as board</button>
-                  <button id="label-btn">Label function</button>
-                </div>
-                <div class="electronics-chrome" id="cables-panel">
-                  <h2>Nets</h2>
-                  <p class="hint lab-hint">Click two ports. Compatible ones lock.</p>
-                  <div id="cables" class="list thin"></div>
-                  <div class="row lab-net-tools">
-                    <button id="bundle-loose">Loose</button>
-                    <button id="bundle-zip">Zip</button>
-                    <button id="bundle-race">Raceway</button>
-                  </div>
-                </div>
-              </div>
-              <p class="hint lab-hint lab-empty-net">No nets until ports are on the bench.</p>
             </div>
           </details>
         </div>

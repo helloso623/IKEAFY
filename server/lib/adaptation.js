@@ -1,4 +1,4 @@
-import { cheaperAlternatives, getPart, searchParts } from "./catalog.js";
+import { cheaperAlternatives, fitsDims, getPart, normalizeDims, searchParts } from "./catalog.js";
 
 const DEFAULT_DIMS = { x: 550, y: 550, z: 450 };
 
@@ -154,6 +154,106 @@ export function planRoom({
       ? `Adaptation plan uses the catalog list, not a live web crawl. ${cheaper.length} cheaper fit${cheaper.length === 1 ? "" : "s"} in this room.`
       : "Adaptation plan uses the catalog list, not a live web crawl. No cheaper fit in this room and budget.",
   };
+}
+
+function rankSuggestion(part) {
+  if (isWholeTable(part)) return 0;
+  if (part.shape === "slab") return 1;
+  if (isPlaceable(part)) return 2;
+  return 3;
+}
+
+function formatMm(dims) {
+  const d = normalizeDims(dims) || DEFAULT_DIMS;
+  const parts = [d.x, d.y, d.z].filter((n) => Number(n) > 0).map((n) => Math.round(n));
+  return `${parts.join(" × ")} mm`;
+}
+
+function suggestFromMatches(matches, { envelope, source, budget, widthM, depthM }) {
+  const suggestions = matches
+    .filter(isPlaceable)
+    .sort((a, b) => rankSuggestion(a) - rankSuggestion(b) || a.cost - b.cost)
+    .slice(0, 8)
+    .map((part) => {
+      const summary = summarizePick(part);
+      return {
+        ...summary,
+        price: part.cost,
+        mm: formatMm(part.dimsMm),
+        note:
+          source === "piece"
+            ? `Matches the scanned ${formatMm(envelope)} footprint.`
+            : `Fits this ${Number(widthM).toFixed(1)} × ${Number(depthM).toFixed(1)} m room.`,
+      };
+    });
+  return {
+    scanned: {
+      source,
+      dimsMm: envelope,
+      widthM: source === "room" ? widthM : undefined,
+      depthM: source === "room" ? depthM : undefined,
+      budget,
+      mm: formatMm(envelope),
+    },
+    headline: "you could end up with this",
+    matches: matches.map((part) => ({
+      id: part.id,
+      name: part.name,
+      cost: part.cost,
+      dimsMm: part.dimsMm,
+      mm: formatMm(part.dimsMm),
+      shape: part.shape || "",
+      category: part.category,
+    })),
+    suggestions,
+    note: suggestions.length
+      ? `Scan used the catalog list, not a live web crawl. ${suggestions.length} assembl${suggestions.length === 1 ? "y" : "ies"} fit the scanned size and budget.`
+      : "Scan used the catalog list, not a live web crawl. Nothing in the catalog fits these dimensions and budget.",
+  };
+}
+
+/** Scan a room or a selected piece and suggest assemblies that fit those dims. */
+export function scanAssemblies({
+  widthM,
+  depthM,
+  dimsMm,
+  budget = 40,
+  source,
+  want = "table",
+} = {}) {
+  const cap = Number(budget);
+  const maxCost = Number.isFinite(cap) && cap > 0 ? cap : Infinity;
+  const pieceEnvelope = normalizeDims(dimsMm);
+  const usePiece = Boolean(pieceEnvelope) && (source === "piece" || source !== "room");
+  if (usePiece && pieceEnvelope) {
+    const matches = searchParts({ query: want, maxCost, category: "furniture", dimsMm: pieceEnvelope });
+    const fallback = matches.length
+      ? matches
+      : searchParts({ maxCost, category: "furniture", dimsMm: pieceEnvelope });
+    return suggestFromMatches(fallback, {
+      envelope: pieceEnvelope,
+      source: "piece",
+      budget: Number.isFinite(cap) ? cap : null,
+    });
+  }
+  const roomW = Math.max(0.5, Number(widthM) || 3.2);
+  const roomD = Math.max(0.5, Number(depthM) || 3.8);
+  const envelope = { x: roomW * 1000 * 0.95, y: roomD * 1000 * 0.95 };
+  const matches = searchParts({ query: want, maxCost, category: "furniture" }).filter(
+    (part) => isPlaceable(part) && (fitsRoom(part, roomW, roomD) || fitsDims(part, envelope)),
+  );
+  const fallback = matches.length
+    ? matches
+    : searchParts({ maxCost, category: "furniture" }).filter(
+        (part) => isPlaceable(part) && fitsRoom(part, roomW, roomD),
+      );
+  return suggestFromMatches(fallback, {
+    envelope: { x: roomW * 1000, y: roomD * 1000 },
+    source: "room",
+    budget: Number.isFinite(cap) ? cap : 40,
+    widthM: roomW,
+    depthM: roomD,
+  });
 }
 
 export function orderInRoom(plan, { nudge } = {}) {

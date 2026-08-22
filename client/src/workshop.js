@@ -89,6 +89,57 @@ function breadboardMap() {
   return tex;
 }
 
+/* --------------------------------------------------------------- Lab KiCad
+   The bench doubles as a small EDA while electronics are on it: every port is
+   a clickable gold pad, locked wires are routed tubes colored by net class,
+   loose wires draw as a dashed ratsnest, and each net carries a name sprite.
+   All of it hangs off the netlist the server derives in lib/cables.js. */
+
+const NET_CLASS_COLORS = { ground: 0x30343a, power: 0xc0392b, data: 0x2a6fb8 };
+const SIGNAL_PALETTE = [0x2f6f3a, 0x7a4fa0, 0xb8860b, 0x1f7a8c, 0xa0522d];
+
+function netColor(net) {
+  if (!net) return 0xb6402a;
+  if (NET_CLASS_COLORS[net.class]) return NET_CLASS_COLORS[net.class];
+  let hash = 0;
+  for (const ch of net.name || "") hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return SIGNAL_PALETTE[hash % SIGNAL_PALETTE.length];
+}
+
+function kindColor(kind) {
+  if (/usb/.test(kind || "")) return 0x9a9a9a;
+  if (kind === "jst-3") return 0xf4f4f4;
+  if (kind === "lead") return 0xc9c9c9;
+  if (kind === "barrel-5.5") return 0x2a2a2a;
+  return 0xd4af37; // 2.54 mm header gold
+}
+
+function textSprite(text, { fontPx = 46, pad = 20, fg = "#1a1a1a", bg = "rgba(250, 250, 248, 0.92)", heightM = 0.016 } = {}) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const font = `500 ${fontPx}px "IBM Plex Mono", monospace`;
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+  const h = fontPx + pad * 2;
+  canvas.width = w;
+  canvas.height = h;
+  ctx.font = font;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, h * 0.3);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, pad, h / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.scale.set(heightM * (w / h), heightM, 1);
+  sprite.renderOrder = 5;
+  sprite.userData.keepColor = true;
+  return sprite;
+}
+
 function inferShape(part) {
   if (part.shape) return part.shape;
   if (part.id === "lack-table" || part.kitParts?.length) return "table";
@@ -220,36 +271,80 @@ function makeBoard(part, mat) {
   const d = part.dimsMm.y * MM;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.BoxGeometry(w, h * 0.32, d), mat, 0, -h * 0.18, 0);
+  // PCB substrate
+  add(g, new THREE.BoxGeometry(w, h * 0.3, d), mat, 0, -h * 0.2, 0);
+  // MCU package with a pin-1 dot
   add(
     g,
-    new THREE.BoxGeometry(w * 0.3, h * 0.28, d * 0.34),
-    stdMat({ color: 0x1c1c1c, roughness: 0.4, metalness: 0.08 }),
-    0.02 * Math.sign(w),
-    h * 0.08,
+    new THREE.BoxGeometry(w * 0.26, h * 0.26, d * 0.36),
+    stdMat({ color: 0x141414, roughness: 0.38, metalness: 0.1 }),
+    w * 0.07,
+    h * 0.04,
     0,
     true,
   );
   add(
     g,
-    new THREE.BoxGeometry(w * 0.14, h * 0.38, d * 0.32),
-    stdMat({ color: 0x9a9a9a, roughness: 0.28, metalness: 0.65 }),
-    -w * 0.42,
-    0,
+    new THREE.CylinderGeometry(w * 0.012, w * 0.012, h * 0.06, 8),
+    stdMat({ color: 0xdddddd, roughness: 0.4 }),
+    w * 0.07 - w * 0.09,
+    h * 0.19,
+    -d * 0.12,
+    true,
+  );
+  // USB shield
+  add(
+    g,
+    new THREE.BoxGeometry(w * 0.16, h * 0.36, d * 0.38),
+    stdMat({ color: 0x9a9a9a, roughness: 0.24, metalness: 0.7 }),
+    -w * 0.43,
+    h * 0.04,
     0,
     true,
   );
-  const pinMat = stdMat({ color: 0xc5c5c5, roughness: 0.25, metalness: 0.7 });
-  const pinH = h * 0.55;
-  const rows = [
-    [d * 0.38, 7],
-    [-d * 0.38, 7],
-  ];
-  for (const [pz, count] of rows) {
-    for (let i = 0; i < count; i += 1) {
-      const px = -w * 0.28 + (i * w * 0.56) / Math.max(count - 1, 1);
-      add(g, new THREE.BoxGeometry(0.0009, pinH, 0.0009), pinMat, px, h * 0.12, pz, true);
+  // Crystal can
+  const crystal = add(
+    g,
+    new THREE.CylinderGeometry(d * 0.08, d * 0.08, w * 0.1, 10),
+    stdMat({ color: 0xc7c7c7, roughness: 0.25, metalness: 0.8 }),
+    -w * 0.16,
+    h * 0.06,
+    d * 0.2,
+    true,
+  );
+  crystal.rotation.z = Math.PI / 2;
+  // Power LED
+  const pwr = add(
+    g,
+    new THREE.BoxGeometry(w * 0.03, h * 0.1, w * 0.03),
+    stdMat({ color: 0x77cc77, roughness: 0.3, emissive: new THREE.Color(0x2a5a2a), emissiveIntensity: 0.7 }),
+    w * 0.3,
+    h * 0.05,
+    -d * 0.22,
+    true,
+  );
+  pwr.userData.keepColor = true;
+  // Header strips: black plastic with gold pins along both long edges
+  const plastic = stdMat({ color: 0x1c1c1c, roughness: 0.55 });
+  const pin = stdMat({ color: 0xd4af37, roughness: 0.25, metalness: 0.85 });
+  for (const side of [1, -1]) {
+    add(g, new THREE.BoxGeometry(w * 0.82, h * 0.24, d * 0.13), plastic.clone(), 0, h * 0.02, side * d * 0.4, true);
+    for (let i = 0; i < 12; i += 1) {
+      const px = -w * 0.38 + (i * w * 0.76) / 11;
+      add(g, new THREE.CylinderGeometry(0.0004, 0.0004, h * 0.62, 6), pin, px, h * 0.3, side * d * 0.4, true);
     }
+  }
+  // ICSP 2×3 at the far end
+  for (let i = 0; i < 6; i += 1) {
+    add(
+      g,
+      new THREE.CylinderGeometry(0.0004, 0.0004, h * 0.5, 6),
+      pin,
+      w * 0.38 + (i % 3) * 0.0022 - 0.0022,
+      h * 0.24,
+      (i < 3 ? -1 : 1) * 0.0011,
+      true,
+    );
   }
   return g;
 }
@@ -270,8 +365,11 @@ function makeLed(part, mat) {
   const dome = add(g, new THREE.SphereGeometry(r, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass, 0, r * 0.15, 0);
   dome.userData.ledGlow = true;
   add(g, new THREE.CylinderGeometry(r * 0.72, r * 0.88, r * 0.45, 14), mat, 0, -r * 0.15, 0);
+  // Flange with the flat cathode side, like the real package
+  add(g, new THREE.CylinderGeometry(r * 1.08, r * 1.08, r * 0.14, 14), mat.clone(), 0, -r * 0.34, 0);
   const lead = stdMat({ color: 0xb0b0b0, roughness: 0.3, metalness: 0.75 });
-  add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 1.1, 6), lead, r * 0.22, -r * 0.85, 0, true);
+  // Anode lead is the long one
+  add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 1.3, 6), lead, r * 0.22, -r * 0.95, 0, true);
   add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 0.85, 6), lead, -r * 0.22, -r * 0.75, 0, true);
   return g;
 }
@@ -301,16 +399,36 @@ function makeButton(part, mat) {
   const w = part.dimsMm.x * MM;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.BoxGeometry(w, h * 0.45, w), mat, 0, -h * 0.15, 0);
+  add(g, new THREE.BoxGeometry(w, h * 0.5, w), mat, 0, -h * 0.12, 0);
+  // Stainless top plate and the round plunger
   add(
     g,
-    new THREE.CylinderGeometry(w * 0.28, w * 0.3, h * 0.4, 16),
-    stdMat({ color: 0x3a3a3a, roughness: 0.45 }),
+    new THREE.BoxGeometry(w * 0.92, h * 0.1, w * 0.92),
+    stdMat({ color: 0xc9c9c9, roughness: 0.3, metalness: 0.7 }),
     0,
-    h * 0.18,
+    h * 0.16,
     0,
     true,
   );
+  add(
+    g,
+    new THREE.CylinderGeometry(w * 0.26, w * 0.28, h * 0.38, 14),
+    stdMat({ color: 0x3a3a3a, roughness: 0.45 }),
+    0,
+    h * 0.32,
+    0,
+    true,
+  );
+  // Four gull-wing legs
+  const leg = stdMat({ color: 0xb8b8b8, roughness: 0.3, metalness: 0.75 });
+  for (const [sx, sz] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ]) {
+    add(g, new THREE.CylinderGeometry(w * 0.045, w * 0.045, h * 0.5, 6), leg, sx * w * 0.44, -h * 0.42, sz * w * 0.3, true);
+  }
   return g;
 }
 
@@ -326,8 +444,16 @@ function makeBreadboard(part, mat) {
     metalness: 0.02,
   });
   add(g, new THREE.BoxGeometry(w, h * 0.7, d), board);
+  // Centre channel where DIP packages straddle
+  add(g, new THREE.BoxGeometry(w, h * 0.08, d * 0.07), stdMat({ color: 0xd8d8d2, roughness: 0.85 }), 0, h * 0.36, 0, true);
+  // Power rails with their painted stripes
   add(g, new THREE.BoxGeometry(w, h * 0.12, 0.002), stdMat({ color: 0xb6402a }), 0, h * 0.42, d * 0.42, true);
   add(g, new THREE.BoxGeometry(w, h * 0.12, 0.002), stdMat({ color: 0x2a4f8a }), 0, h * 0.42, -d * 0.42, true);
+  // Steel clips peeking out of the end rows
+  const clip = stdMat({ color: 0xb0b0b0, roughness: 0.3, metalness: 0.7 });
+  for (const side of [1, -1]) {
+    add(g, new THREE.BoxGeometry(0.0016, h * 0.2, d * 0.6), clip, side * w * 0.47, h * 0.28, 0, true);
+  }
   return g;
 }
 
@@ -335,22 +461,34 @@ function makeResistor(part, mat) {
   const w = part.dimsMm.x * MM;
   const r = Math.max(part.dimsMm.y, part.dimsMm.z) * MM * 0.55;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r, w * 0.7, 10), mat);
-  g.children[0].rotation.z = Math.PI / 2;
+  // Capsule body: cylinder with rounded ends
+  add(g, new THREE.CylinderGeometry(r, r, w * 0.66, 12), mat).rotation.z = Math.PI / 2;
+  for (const side of [1, -1]) {
+    add(g, new THREE.SphereGeometry(r, 10, 8), mat.clone(), side * w * 0.33, 0, 0);
+  }
   const lead = stdMat({ color: 0xb8b8b8, roughness: 0.28, metalness: 0.7 });
-  add(g, new THREE.CylinderGeometry(r * 0.22, r * 0.22, w * 0.95, 6), lead).rotation.z = Math.PI / 2;
-  const bands = [0x2a2a2a, 0xc45c26, 0xc4a024];
-  bands.forEach((hex, i) => {
+  add(g, new THREE.CylinderGeometry(r * 0.18, r * 0.18, w * 1.3, 6), lead, 0, 0, 0, true).rotation.z = Math.PI / 2;
+  for (const side of [1, -1]) {
+    add(g, new THREE.CylinderGeometry(r * 0.18, r * 0.18, r * 2.2, 6), lead, side * w * 0.65, -r * 0.9, 0, true);
+  }
+  // 220 Ω color code: red, red, brown, gold tolerance
+  const bands = [
+    [0xc0392b, -w * 0.2],
+    [0xc0392b, -w * 0.09],
+    [0x6b3a2a, w * 0.02],
+    [0xd4af37, w * 0.2],
+  ];
+  for (const [hex, x] of bands) {
     add(
       g,
-      new THREE.CylinderGeometry(r * 1.04, r * 1.04, w * 0.06, 10),
-      stdMat({ color: hex, roughness: 0.5 }),
-      -w * 0.16 + i * 0.004,
+      new THREE.CylinderGeometry(r * 1.06, r * 1.06, w * 0.05, 12),
+      stdMat({ color: hex, roughness: 0.45 }),
+      x,
       0,
       0,
       true,
     ).rotation.z = Math.PI / 2;
-  });
+  }
   return g;
 }
 
@@ -518,6 +656,47 @@ function isTableLeg(part) {
   return inferShape(part) === "post" || /leg/.test(part.id);
 }
 
+/* ------------------------------------------------------------------ Lab CAD
+   Fusion-lite bodies cooked on the bench. A sketch-extrude becomes a real
+   piece through the ordinary project API: catalog stock (an off-cut slab or a
+   dowel) scaled through the pose, tagged with texture "lab-box"/"lab-cyl" so
+   sync() knows to render it as a clean primitive. No server changes needed. */
+
+const LAB_GRAY = "#d9d9d9";
+const LAB_STOCK = {
+  box: { partId: "pine-offcut", dims: { x: 550, y: 550, z: 18 } },
+  cyl: { partId: "dowel-18", dims: { x: 18, y: 18, z: 400 } },
+};
+
+function labKindOf(piece) {
+  const hit = /^lab-(box|cyl)$/.exec(piece?.texture || "");
+  return hit ? hit[1] : null;
+}
+
+function makeLabSolid(kind, part, piece) {
+  const w = part.dimsMm.x * MM;
+  const d = part.dimsMm.y * MM;
+  const h = part.dimsMm.z * MM;
+  const mat = stdMat({ color: new THREE.Color(piece.color || LAB_GRAY), roughness: 0.58 });
+  const g = new THREE.Group();
+  const geo = kind === "cyl" ? new THREE.CylinderGeometry(w / 2, w / 2, h, 40) : new THREE.BoxGeometry(w, h, d);
+  add(g, geo, mat);
+  return g;
+}
+
+function escText(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+const asMm = (meters) => Math.max(1, Math.round(meters * 1000));
+const round4 = (v) => Math.round(v * 10000) / 10000;
+
 export function createWorkshop(canvas) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a1a1a);
@@ -602,15 +781,13 @@ export function createWorkshop(canvas) {
   scene.add(fx);
 
   const transform = new TransformControls(camera, canvas);
-  transform.addEventListener("dragging-changed", (e) => {
-    orbit.enabled = !e.value;
-  });
-  scene.add(transform.getHelper());
-
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const meshes = new Map();
   let selected = null;
+  let boxHelper = null;
+  let snapOn = true;
+  let editMode = "translate";
   let simOn = false;
   let simOpts = {};
   let rain = [];
@@ -618,6 +795,240 @@ export function createWorkshop(canvas) {
   let forceArrow = null;
   let ledBlinkOn = false;
   let onSelect = () => {};
+  let onPoseCommit = () => {};
+  let onPortClick = () => {};
+
+  // ---- KiCad bench state ---------------------------------------------------
+  let edaOn = false;
+  let pendingPortKey = null;
+  let highlight = { net: null, members: [] };
+  const portMarkers = new Map(); // "pieceId::portId" -> pad mesh
+  const cableObjects = []; // { obj, label, net, cableId, baseOpacity }
+
+  function addEdaDecor(root, piece, part) {
+    if (!(part.category === "electronics" || part.category === "cable")) return;
+    const maxDim = Math.max(part.dimsMm.x, part.dimsMm.y, part.dimsMm.z) * MM;
+    const padR = THREE.MathUtils.clamp(maxDim * 0.03, 0.0012, 0.0024);
+    for (const port of part.ports || []) {
+      const marker = new THREE.Mesh(
+        new THREE.CylinderGeometry(padR, padR, padR * 1.2, 10),
+        stdMat({ color: kindColor(port.kind), roughness: 0.3, metalness: 0.75 }),
+      );
+      marker.position.set(port.xyz[0] * MM, port.xyz[2] * MM, port.xyz[1] * MM);
+      marker.userData = {
+        keepColor: true,
+        portRef: { pieceId: piece.id, portId: port.id, kind: port.kind },
+      };
+      marker.visible = edaOn;
+      root.add(marker);
+      portMarkers.set(`${piece.id}::${port.id}`, marker);
+    }
+    const tag = [piece.ref, piece.functionLabel].filter(Boolean).join(" · ");
+    if (tag) {
+      const sprite = textSprite(tag);
+      sprite.position.set(0, part.dimsMm.z * MM * 0.5 + 0.016, 0);
+      sprite.visible = edaOn;
+      sprite.userData.edaTag = true;
+      root.add(sprite);
+    }
+  }
+
+  function portWorld(mesh, portId) {
+    const part = mesh?.userData?.part;
+    const port = (part?.ports || []).find((p) => p.id === portId);
+    if (!port) return null;
+    mesh.updateWorldMatrix(true, false);
+    return mesh.localToWorld(new THREE.Vector3(port.xyz[0] * MM, port.xyz[2] * MM, port.xyz[1] * MM));
+  }
+
+  function worldCenter(mesh) {
+    const v = new THREE.Vector3();
+    mesh.getWorldPosition(v);
+    return v;
+  }
+
+  function liveMaterial(obj) {
+    return obj.userData?.baseMaterial || obj.material;
+  }
+
+  function applyHighlightGlow() {
+    const active = highlight.net;
+    for (const row of cableObjects) {
+      const on = !active || row.net === active;
+      const mat = liveMaterial(row.obj);
+      mat.transparent = true;
+      mat.opacity = on ? row.baseOpacity : 0.12;
+      if (mat.emissive !== undefined) {
+        mat.emissive = new THREE.Color(active && on ? 0xffda1a : 0x000000);
+        mat.emissiveIntensity = active && on ? 0.55 : 0;
+      }
+      if (row.label) row.label.material.opacity = on ? 1 : 0.12;
+    }
+    const members = new Set(highlight.members || []);
+    for (const [key, marker] of portMarkers) {
+      const mat = liveMaterial(marker);
+      if (!mat.emissive) continue;
+      const lit = members.has(key);
+      mat.emissive = new THREE.Color(lit ? 0xffda1a : 0x000000);
+      mat.emissiveIntensity = lit ? 0.9 : 0;
+      marker.scale.setScalar(lit ? 1.5 : 1);
+    }
+  }
+
+  function applyPendingGlow() {
+    if (!pendingPortKey) return;
+    const marker = portMarkers.get(pendingPortKey);
+    if (!marker) return;
+    const mat = liveMaterial(marker);
+    if (mat.emissive) {
+      mat.emissive = new THREE.Color(0xffda1a);
+      mat.emissiveIntensity = 1.4;
+    }
+    marker.scale.setScalar(1.7);
+  }
+
+  function setEda(on) {
+    edaOn = Boolean(on);
+    for (const marker of portMarkers.values()) marker.visible = edaOn;
+    group.traverse((child) => {
+      if (child.userData?.edaTag) child.visible = edaOn;
+    });
+    cableGroup.traverse((child) => {
+      if (child.isSprite) child.visible = edaOn;
+    });
+  }
+
+  function highlightNet(name, members = []) {
+    highlight = { net: name || null, members: name ? members : [] };
+    applyHighlightGlow();
+    applyPendingGlow();
+  }
+
+  function setPendingPort(key) {
+    pendingPortKey = key || null;
+    applyHighlightGlow();
+    applyPendingGlow();
+  }
+
+  function drawBoardSubstrates(project) {
+    for (const abs of project.abstractions || []) {
+      if (abs.kind !== "board") continue;
+      let min = null;
+      let max = null;
+      for (const id of abs.pieceIds || []) {
+        const mesh = meshes.get(id);
+        const part = mesh?.userData?.part;
+        if (!mesh || !part) continue;
+        const pos = worldCenter(mesh);
+        const half = new THREE.Vector3(part.dimsMm.x, part.dimsMm.z, part.dimsMm.y).multiplyScalar(MM / 2);
+        const lo = pos.clone().sub(half);
+        const hi = pos.clone().add(half);
+        min = min ? min.min(lo) : lo;
+        max = max ? max.max(hi) : hi;
+      }
+      if (!min || !max) continue;
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(max.x - min.x + 0.024, 0.0035, max.z - min.z + 0.024),
+        stdMat({ color: 0x1e6b3f, roughness: 0.48, metalness: 0.08, transparent: true, opacity: 0.92 }),
+      );
+      slab.position.set((min.x + max.x) / 2, min.y - 0.001, (min.z + max.z) / 2);
+      slab.receiveShadow = true;
+      cableGroup.add(slab);
+      const tag = textSprite(abs.label || "board", { heightM: 0.014, bg: "rgba(30, 107, 63, 0.9)", fg: "#f2f2f2" });
+      tag.position.set((min.x + max.x) / 2, min.y + 0.012, max.z + 0.02);
+      tag.visible = edaOn;
+      cableGroup.add(tag);
+    }
+  }
+
+  function applySnap() {
+    if (snapOn) {
+      transform.setTranslationSnap(0.01);
+      transform.setRotationSnap(Math.PI / 12);
+      transform.setScaleSnap(0.1);
+    } else {
+      transform.setTranslationSnap(null);
+      transform.setRotationSnap(null);
+      transform.setScaleSnap(null);
+    }
+  }
+  applySnap();
+  transform.setMode(editMode);
+
+  function readPose(mesh = selected) {
+    if (!mesh?.userData?.piece) return null;
+    const pos = new THREE.Vector3();
+    mesh.getWorldPosition(pos);
+    return {
+      id: mesh.userData.piece.id,
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      rx: mesh.rotation.x,
+      ry: mesh.rotation.y,
+      rz: mesh.rotation.z,
+      sx: mesh.scale.x,
+      sy: mesh.scale.y,
+      sz: mesh.scale.z,
+    };
+  }
+
+  function markSelected(mesh) {
+    if (boxHelper) {
+      scene.remove(boxHelper);
+      boxHelper.dispose();
+      boxHelper = null;
+    }
+    if (!mesh) return;
+    boxHelper = new THREE.BoxHelper(mesh, 0xffc84a);
+    scene.add(boxHelper);
+  }
+
+  function attach(mesh, quiet = false) {
+    selected = mesh || null;
+    if (!mesh) {
+      transform.detach();
+      markSelected(null);
+      if (!quiet) onSelect(null);
+      return false;
+    }
+    transform.attach(mesh);
+    markSelected(mesh);
+    if (!quiet) onSelect(mesh.userData);
+    return true;
+  }
+
+  function selectById(id, quiet = false) {
+    if (!id) return attach(null, quiet);
+    const mesh = meshes.get(id);
+    if (!mesh) return attach(null, quiet);
+    return attach(mesh, quiet);
+  }
+
+  function applyPose(piece) {
+    const mesh = meshes.get(piece?.id);
+    if (!mesh) return false;
+    if (mesh.parent && mesh.parent !== group) {
+      const world = new THREE.Vector3(piece.x || 0, piece.y || 0, piece.z || 0);
+      mesh.parent.worldToLocal(world);
+      mesh.position.copy(world);
+    } else {
+      mesh.position.set(piece.x || 0, piece.y || 0, piece.z || 0);
+    }
+    mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
+    mesh.scale.set(piece.sx || 1, piece.sy || 1, piece.sz || 1);
+    markSelected(mesh);
+    return true;
+  }
+
+  transform.addEventListener("dragging-changed", (e) => {
+    orbit.enabled = !e.value;
+    if (!e.value) {
+      const pose = readPose(selected);
+      if (pose) onPoseCommit(pose);
+    }
+  });
+  scene.add(transform.getHelper());
 
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
@@ -664,11 +1075,468 @@ export function createWorkshop(canvas) {
     return true;
   }
 
+  /* ---- Lab CAD: sketch-extrude, joint mate, op timeline, dims overlay ----
+     Sketch a rect or circle on the bench plane, pull it up, click to build.
+     Joint picks the piece to move, then the piece to mate it to, flush faces.
+     Every op lands as a chip on #cad-timeline; undo rides the server's edit
+     history. Commits go through callbacks so main.js keeps owning the project
+     API (api.add / api.move / refresh). */
+
+  let knownParts = {};
+  let cadTool = null; // null | "sketch-rect" | "sketch-circle" | "joint"
+  let sketch = null; // { kind, phase: "draw" | "pull", a, b, height }
+  let jointFirstMesh = null;
+  let jointMark = null;
+  let cadBusy = false;
+  let prevPieceLabels = null;
+  let suppressDiff = 0;
+  const ops = [];
+  let onSketchCommit = () => {};
+  let onJointCommit = () => {};
+
+  const timelineEl = document.getElementById("cad-timeline");
+  const dimsEl = document.getElementById("cad-dims");
+  const benchPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const sketchFx = new THREE.Group();
+  scene.add(sketchFx);
+
+  const sketchFill = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.14,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const sketchEdge = new THREE.LineBasicMaterial({ color: 0xffda1a, toneMapped: false });
+  const pullMat = new THREE.MeshStandardMaterial({
+    color: 0xd9d9d9,
+    transparent: true,
+    opacity: 0.5,
+    roughness: 0.6,
+    metalness: 0.04,
+  });
+
+  // Same 10 mm grid the status bar promises.
+  const snap10 = (v) => Math.round(v / 0.01) * 0.01;
+
+  function pointAt(ev) {
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera(pointer, camera);
+  }
+
+  function castBench(ev) {
+    pointAt(ev);
+    const out = new THREE.Vector3();
+    return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  function disposeSketchFx() {
+    sketchFx.traverse((child) => child.geometry?.dispose?.());
+    sketchFx.clear();
+  }
+
+  function clearSketch() {
+    sketch = null;
+    disposeSketchFx();
+    dimsEl?.classList.remove("on");
+  }
+
+  function clearJoint() {
+    jointFirstMesh = null;
+    if (jointMark) {
+      scene.remove(jointMark);
+      jointMark.dispose();
+      jointMark = null;
+    }
+  }
+
+  function setCadTool(next) {
+    clearSketch();
+    clearJoint();
+    cadTool = next || null;
+    orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
+    if (cadTool) transform.detach();
+    else if (selected) transform.attach(selected);
+    for (const btn of document.querySelectorAll("[data-cad-tool]")) {
+      btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
+    }
+  }
+
+  const dimVec = new THREE.Vector3();
+  function placeDims(world, html) {
+    if (!dimsEl) return;
+    dimVec.copy(world).project(camera);
+    if (dimVec.z > 1) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimsEl.style.left = `${(dimVec.x * 0.5 + 0.5) * canvas.clientWidth}px`;
+    dimsEl.style.top = `${(-dimVec.y * 0.5 + 0.5) * canvas.clientHeight}px`;
+    if (dimsEl.dataset.body !== html) {
+      dimsEl.dataset.body = html;
+      dimsEl.innerHTML = html;
+    }
+    dimsEl.classList.add("on");
+  }
+
+  const dimBox = new THREE.Box3();
+  const dimCenter = new THREE.Vector3();
+  function updateDims() {
+    if (!dimsEl || sketch) return;
+    const data = selected?.userData;
+    if (!data?.part || !selected.parent) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimBox.setFromObject(selected);
+    if (dimBox.isEmpty()) {
+      dimsEl.classList.remove("on");
+      return;
+    }
+    dimBox.getCenter(dimCenter);
+    dimCenter.y = dimBox.max.y + 0.025;
+    const d = data.part.dimsMm;
+    const w = Math.max(1, Math.round(d.x * selected.scale.x));
+    const dep = Math.max(1, Math.round(d.y * selected.scale.z));
+    const h = Math.max(1, Math.round(d.z * selected.scale.y));
+    placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
+  }
+
+  function sketchCenter(s) {
+    return s.kind === "rect"
+      ? new THREE.Vector3((s.a.x + s.b.x) / 2, 0, (s.a.z + s.b.z) / 2)
+      : new THREE.Vector3(s.a.x, 0, s.a.z);
+  }
+
+  function redrawSketch() {
+    disposeSketchFx();
+    if (!sketch) return;
+    const s = sketch;
+    const c = sketchCenter(s);
+    const w = Math.max(Math.abs(s.b.x - s.a.x), 0.001);
+    const d = Math.max(Math.abs(s.b.z - s.a.z), 0.001);
+    const r = Math.max(Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z), 0.0005);
+    const flatGeo = s.kind === "rect" ? new THREE.PlaneGeometry(w, d) : new THREE.CircleGeometry(r, 48);
+    const flat = new THREE.Mesh(flatGeo, sketchFill);
+    flat.rotation.x = -Math.PI / 2;
+    flat.position.set(c.x, 0.004, c.z);
+    sketchFx.add(flat);
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(flatGeo), sketchEdge);
+    outline.rotation.x = -Math.PI / 2;
+    outline.position.set(c.x, 0.0045, c.z);
+    sketchFx.add(outline);
+    if (s.phase !== "pull") return;
+    const solidGeo =
+      s.kind === "rect" ? new THREE.BoxGeometry(w, s.height, d) : new THREE.CylinderGeometry(r, r, s.height, 48);
+    const solid = new THREE.Mesh(solidGeo, pullMat);
+    solid.position.set(c.x, s.height / 2, c.z);
+    sketchFx.add(solid);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(solidGeo), sketchEdge);
+    edges.position.copy(solid.position);
+    sketchFx.add(edges);
+  }
+
+  function sketchOverlay() {
+    if (!sketch) return;
+    const s = sketch;
+    const c = sketchCenter(s);
+    const size =
+      s.kind === "rect"
+        ? `${asMm(Math.abs(s.b.x - s.a.x))} × ${asMm(Math.abs(s.b.z - s.a.z))} mm`
+        : `Ø ${asMm(2 * Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z))} mm`;
+    const tail = s.phase === "pull" ? ` · H ${asMm(s.height)} mm` : "";
+    c.y = s.phase === "pull" ? s.height + 0.02 : 0.02;
+    placeDims(
+      c,
+      `<strong>${size}${tail}</strong><small>${
+        s.phase === "pull" ? "click to build · Esc cancels" : "release, then pull up"
+      }</small>`,
+    );
+  }
+
+  function pullHeight(ev) {
+    pointAt(ev);
+    const c = sketchCenter(sketch);
+    const n = new THREE.Vector3().subVectors(camera.position, c);
+    n.y = 0;
+    if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+    n.normalize();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, c);
+    const out = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(plane, out)) return null;
+    return Math.min(1.2, Math.max(0.01, snap10(out.y)));
+  }
+
+  function sketchDown(ev) {
+    if (sketch?.phase === "pull") {
+      commitSketch();
+      return;
+    }
+    const hit = castBench(ev);
+    if (!hit) return;
+    const a = new THREE.Vector3(snap10(hit.x), 0, snap10(hit.z));
+    sketch = { kind: cadTool === "sketch-rect" ? "rect" : "circle", phase: "draw", a, b: a.clone(), height: 0.05 };
+    redrawSketch();
+  }
+
+  window.addEventListener("pointermove", (ev) => {
+    if (!sketch) return;
+    if (sketch.phase === "draw") {
+      const hit = castBench(ev);
+      if (!hit) return;
+      sketch.b.set(snap10(hit.x), 0, snap10(hit.z));
+    } else {
+      const h = pullHeight(ev);
+      if (h == null) return;
+      sketch.height = h;
+    }
+    redrawSketch();
+    sketchOverlay();
+  });
+
+  window.addEventListener("pointerup", () => {
+    if (!sketch || sketch.phase !== "draw") return;
+    const size =
+      sketch.kind === "rect"
+        ? Math.min(Math.abs(sketch.b.x - sketch.a.x), Math.abs(sketch.b.z - sketch.a.z))
+        : Math.hypot(sketch.b.x - sketch.a.x, sketch.b.z - sketch.a.z);
+    if (size < 0.01) {
+      clearSketch();
+      return;
+    }
+    sketch.phase = "pull";
+    sketch.height = 0.05;
+    redrawSketch();
+    sketchOverlay();
+  });
+
+  function commitSketch() {
+    if (!sketch || cadBusy) return;
+    const s = sketch;
+    clearSketch();
+    const stock = s.kind === "rect" ? LAB_STOCK.box : LAB_STOCK.cyl;
+    const dims = knownParts[stock.partId]?.dimsMm || stock.dims;
+    let pose;
+    let label;
+    if (s.kind === "rect") {
+      const w = Math.max(Math.abs(s.b.x - s.a.x), 0.01);
+      const d = Math.max(Math.abs(s.b.z - s.a.z), 0.01);
+      pose = {
+        x: round4((s.a.x + s.b.x) / 2),
+        y: round4(s.height / 2),
+        z: round4((s.a.z + s.b.z) / 2),
+        sx: round4(w / (dims.x * MM)),
+        sy: round4(s.height / (dims.z * MM)),
+        sz: round4(d / (dims.y * MM)),
+        texture: "lab-box",
+        color: LAB_GRAY,
+      };
+      label = `Extrude box ${asMm(w)} × ${asMm(d)} × ${asMm(s.height)} mm`;
+    } else {
+      const r = Math.max(Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z), 0.005);
+      pose = {
+        x: round4(s.a.x),
+        y: round4(s.height / 2),
+        z: round4(s.a.z),
+        sx: round4((2 * r) / (dims.x * MM)),
+        sy: round4(s.height / (dims.z * MM)),
+        sz: round4((2 * r) / (dims.y * MM)),
+        texture: "lab-cyl",
+        color: LAB_GRAY,
+      };
+      label = `Extrude cylinder Ø ${asMm(2 * r)} × ${asMm(s.height)} mm`;
+    }
+    cadBusy = true;
+    suppressDiff += 1; // the refresh after api.add would double-count this op
+    pushOp("E", label);
+    Promise.resolve(onSketchCommit({ partId: stock.partId, pose, label }))
+      .catch(() => {})
+      .finally(() => {
+        cadBusy = false;
+      });
+    setCadTool(null);
+  }
+
+  function mateMoves(aMesh, bMesh) {
+    const a = aMesh.userData;
+    const b = bMesh.userData;
+    const boxA = new THREE.Box3().setFromObject(aMesh);
+    const boxB = new THREE.Box3().setFromObject(bMesh);
+    if (boxA.isEmpty() || boxB.isEmpty()) return null;
+    const hA = boxA.max.y - boxA.min.y;
+    const cA = boxA.getCenter(new THREE.Vector3());
+    const cB = boxB.getCenter(new THREE.Vector3());
+    const moves = [];
+    const plain = !labKindOf(a.piece) && !labKindOf(b.piece);
+    const legToTop = plain && isTableLeg(a.part) && isTableTop(b.part);
+    const topToLeg = plain && isTableTop(a.part) && isTableLeg(b.part);
+    let target;
+    let label;
+    if (legToTop) {
+      const tw = boxB.max.x - boxB.min.x;
+      const td = boxB.max.z - boxB.min.z;
+      const inset = Math.min(0.05, tw * 0.09);
+      const sx = cA.x >= cB.x ? 1 : -1;
+      const sz = cA.z >= cB.z ? 1 : -1;
+      let y = boxB.min.y - hA / 2;
+      if (y < hA / 2 - 1e-6) {
+        // No room under the top: stand the leg on the floor, lift the top onto it.
+        y = hA / 2;
+        moves.push({ id: b.piece.id, pose: { y: round4(cB.y + (hA - boxB.min.y)) } });
+      }
+      target = { x: cB.x + sx * (tw / 2 - inset), y, z: cB.z + sz * (td / 2 - inset) };
+      label = `Joint ${a.part.name} under ${b.part.name}, flush`;
+    } else if (topToLeg) {
+      const tw = boxA.max.x - boxA.min.x;
+      const td = boxA.max.z - boxA.min.z;
+      const inset = Math.min(0.05, tw * 0.09);
+      const sx = cB.x >= cA.x ? 1 : -1;
+      const sz = cB.z >= cA.z ? 1 : -1;
+      target = {
+        x: cB.x - sx * (tw / 2 - inset),
+        y: boxB.max.y + hA / 2,
+        z: cB.z - sz * (td / 2 - inset),
+      };
+      label = `Joint ${a.part.name} onto ${b.part.name}, flush`;
+    } else {
+      target = { x: cB.x, y: boxB.max.y + hA / 2, z: cB.z };
+      label = `Joint ${a.part.name} flush on ${b.part.name}`;
+    }
+    moves.unshift({
+      id: a.piece.id,
+      pose: { x: round4(target.x), y: round4(target.y), z: round4(target.z), rx: 0, ry: 0, rz: 0 },
+    });
+    return {
+      moves,
+      joint: { fromPiece: a.piece.id, toPiece: b.piece.id, kind: "mate-flush", note: label },
+      label,
+    };
+  }
+
+  function jointPick(ev) {
+    pointAt(ev);
+    const hits = ray.intersectObjects(group.children, true);
+    const mesh = hits.length ? hitsWalk(hits[0].object) : null;
+    if (!mesh?.userData?.piece) return;
+    if (!jointFirstMesh) {
+      jointFirstMesh = mesh;
+      jointMark = new THREE.BoxHelper(mesh, 0xffffff);
+      scene.add(jointMark);
+      return;
+    }
+    if (mesh === jointFirstMesh) return;
+    const payload = mateMoves(jointFirstMesh, mesh);
+    setCadTool(null);
+    if (!payload || cadBusy) return;
+    cadBusy = true;
+    pushOp("J", payload.label);
+    Promise.resolve(onJointCommit(payload))
+      .catch(() => {})
+      .finally(() => {
+        cadBusy = false;
+      });
+  }
+
+  function pushOp(chip, label) {
+    ops.push({ chip, label });
+    if (ops.length > 30) ops.shift();
+    renderTimeline();
+  }
+
+  function renderTimeline() {
+    if (!timelineEl) return;
+    if (!ops.length) {
+      timelineEl.innerHTML = "";
+      return;
+    }
+    const last = ops[ops.length - 1];
+    const chips = ops
+      .slice(-8)
+      .map((op) => `<span class="cad-chip" title="${escText(op.label)}">${escText(op.chip)}</span>`)
+      .join("");
+    timelineEl.innerHTML =
+      `<span class="cad-tl-kicker">Timeline</span>${chips}` +
+      `<span class="cad-tl-last" title="${escText(last.label)}">${escText(last.label)}</span>` +
+      `<button type="button" class="cad-tl-undo" title="Undo the last op (Ctrl+Z)">Undo</button>`;
+  }
+
+  timelineEl?.addEventListener("click", (ev) => {
+    if (ev.target.closest(".cad-tl-undo")) document.getElementById("undo-edit")?.click();
+  });
+
+  // Place / delete chips fall out of the piece-list diff between syncs, so
+  // shelf adds, chat adds and deletes all land on the timeline for free.
+  function trackPieces(project, partsById) {
+    const next = new Map();
+    for (const piece of project.pieces) {
+      next.set(piece.id, partsById[piece.partId]?.name || piece.partId);
+    }
+    if (suppressDiff > 0) {
+      suppressDiff -= 1;
+    } else if (prevPieceLabels) {
+      const added = [...next.keys()].filter((id) => !prevPieceLabels.has(id));
+      const removed = [...prevPieceLabels.keys()].filter((id) => !next.has(id));
+      if (added.length && !removed.length) {
+        pushOp("P", added.length === 1 ? `Place ${next.get(added[0])}` : `Place ${added.length} pieces`);
+      } else if (removed.length && !added.length) {
+        pushOp(
+          "D",
+          removed.length === 1 ? `Delete ${prevPieceLabels.get(removed[0])}` : `Delete ${removed.length} pieces`,
+        );
+      }
+    }
+    prevPieceLabels = next;
+  }
+
+  function noteHistory(direction) {
+    suppressDiff += 1;
+    if (direction === "redo") {
+      pushOp("Y", "Redo the last undone op");
+      return;
+    }
+    ops.pop();
+    renderTimeline();
+  }
+
+  // Transform ops become timeline chips; the pose itself is persisted by the
+  // dragging-changed listener above through onPoseCommit.
+  let chipPoseBefore = null;
+  transform.addEventListener("dragging-changed", (e) => {
+    if (e.value) {
+      chipPoseBefore = selected ? JSON.stringify(readPose(selected)) : null;
+      return;
+    }
+    if (!selected || !chipPoseBefore) return;
+    const after = JSON.stringify(readPose(selected));
+    const changed = after !== chipPoseBefore;
+    chipPoseBefore = null;
+    if (!changed) return;
+    const verbs = { translate: "Move", rotate: "Rotate", scale: "Scale" };
+    const verb = verbs[editMode] || "Move";
+    pushOp(verb[0], `${verb} ${selected.userData.part?.name || "piece"}`);
+  });
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-cad-tool]");
+    if (!btn) return;
+    const next = btn.dataset.cadTool;
+    setCadTool(cadTool === next ? null : next);
+  });
+
+  window.addEventListener("keydown", (ev) => {
+    const tag = ev.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+    if (ev.key === "Escape" && cadTool) setCadTool(null);
+  });
+
   function meshFor(piece, part) {
-    const mat = materialFor(part, piece);
-    const root = bodyFor(inferShape(part), part, mat);
+    const lab = labKindOf(piece);
+    const root = lab ? makeLabSolid(lab, part, piece) : bodyFor(inferShape(part), part, materialFor(part, piece));
     shadow(root);
     root.userData = { piece, part, ports: part.ports || [] };
+    if (!lab) addEdaDecor(root, piece, part);
     return root;
   }
 
@@ -686,6 +1554,7 @@ export function createWorkshop(canvas) {
       const part = partsById[piece.partId];
       const mesh = meshes.get(piece.id);
       if (!part || !mesh) continue;
+      if (labKindOf(piece)) continue; // sketched bodies are stock, not table parts
       if (isTableTop(part)) tops.push({ piece, part, mesh });
       else if (isTableLeg(part)) legs.push({ piece, part, mesh });
     }
@@ -731,8 +1600,16 @@ export function createWorkshop(canvas) {
   }
 
   function sync(project, partsById) {
+    knownParts = partsById;
+    trackPieces(project, partsById);
+    const keepId = selected?.userData?.piece?.id || project.selection || null;
+    transform.detach();
     group.clear();
     meshes.clear();
+    portMarkers.clear();
+    cableObjects.length = 0;
+    selected = null;
+    markSelected(null);
     for (const piece of project.pieces) {
       const part = partsById[piece.partId];
       if (!part) continue;
@@ -741,31 +1618,51 @@ export function createWorkshop(canvas) {
       group.add(mesh);
       meshes.set(piece.id, mesh);
     }
-    groupTables(project, partsById);
     cableGroup.clear();
+    const cableNets = project.netlist?.cableNets || {};
+    const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
     for (const cable of project.cables) {
       const a = meshes.get(cable.fromPiece);
       const b = meshes.get(cable.toPiece);
       if (!a || !b) continue;
-      const aPos = new THREE.Vector3();
-      const bPos = new THREE.Vector3();
-      a.getWorldPosition(aPos);
-      b.getWorldPosition(bPos);
-      const curve = new THREE.CatmullRomCurve3([
-        aPos.clone(),
-        aPos.clone().lerp(bPos, 0.5).add(new THREE.Vector3(0, 0.06, 0)),
-        bPos.clone(),
-      ]);
-      const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 16, 0.002, 6, false),
-        new THREE.MeshStandardMaterial({
-          color: cable.locked ? 0x2f6f3a : 0xb6402a,
-          roughness: 0.45,
-          metalness: 0.05,
-        }),
-      );
-      cableGroup.add(tube);
+      const aPos = portWorld(a, cable.fromPort) || worldCenter(a);
+      const bPos = portWorld(b, cable.toPort) || worldCenter(b);
+      const netName = cableNets[cable.id] || cable.net || null;
+      const color = netColor(netName ? netByName.get(netName) : null);
+      const mid = aPos.clone().lerp(bPos, 0.5).add(new THREE.Vector3(0, cable.locked ? 0.045 : 0.02, 0));
+      let obj;
+      let baseOpacity;
+      if (cable.locked) {
+        // Routed wire: a tube colored by net class.
+        const curve = new THREE.CatmullRomCurve3([aPos.clone(), mid, bPos.clone()]);
+        obj = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, 20, 0.0016, 6, false),
+          new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05, transparent: true }),
+        );
+        baseOpacity = 1;
+      } else {
+        // Unlocked connection: dashed air-line — the ratsnest.
+        const geo = new THREE.BufferGeometry().setFromPoints([aPos.clone(), mid, bPos.clone()]);
+        obj = new THREE.Line(
+          geo,
+          new THREE.LineDashedMaterial({ color, dashSize: 0.011, gapSize: 0.007, transparent: true }),
+        );
+        obj.computeLineDistances();
+        baseOpacity = 0.85;
+      }
+      obj.material.opacity = baseOpacity;
+      obj.userData.cableId = cable.id;
+      cableGroup.add(obj);
+      let label = null;
+      if (netName) {
+        label = textSprite(netName, { heightM: 0.013 });
+        label.position.copy(mid).add(new THREE.Vector3(0, 0.011, 0));
+        label.visible = edaOn;
+        cableGroup.add(label);
+      }
+      cableObjects.push({ obj, label, net: netName, cableId: cable.id, baseOpacity });
     }
+    drawBoardSubstrates(project);
     for (const tape of project.tapes || []) {
       const first = meshes.get(tape.pieceIds?.[0]);
       if (!first) continue;
@@ -779,24 +1676,49 @@ export function createWorkshop(canvas) {
       group.add(strip);
     }
     applyShading();
+    applyHighlightGlow();
+    applyPendingGlow();
+    if (keepId && meshes.has(keepId)) attach(meshes.get(keepId), true);
   }
 
   function pick(ev) {
+    if (transform.axis || transform.dragging) return;
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
-    const hits = ray.intersectObjects(group.children, true);
-    if (!hits.length) return;
+    const hits = ray
+      .intersectObjects(group.children, true)
+      .filter((h) => !h.object.isSprite && h.object.visible !== false);
+    if (!hits.length) {
+      attach(null);
+      return;
+    }
+    // Gold pads outrank the piece under them: a click wires, not drags.
+    const portRef = edaOn ? hits[0].object.userData?.portRef : null;
+    if (portRef) {
+      onPortClick({ ...portRef });
+      return;
+    }
     const mesh = hitsWalk(hits[0].object);
-    if (!mesh) return;
-    selected = mesh;
-    transform.attach(mesh);
-    onSelect(mesh.userData);
+    if (!mesh) {
+      attach(null);
+      return;
+    }
+    attach(mesh);
   }
 
   canvas.addEventListener("pointerdown", (ev) => {
-    if (ev.button === 0 && !transform.dragging) pick(ev);
+    if (ev.button !== 0 || transform.dragging) return;
+    if (cadTool === "sketch-rect" || cadTool === "sketch-circle") {
+      sketchDown(ev);
+      return;
+    }
+    if (cadTool === "joint") {
+      jointPick(ev);
+      return;
+    }
+    pick(ev);
   });
 
   function resize() {
@@ -901,6 +1823,9 @@ export function createWorkshop(canvas) {
         }
       }
     }
+    if (boxHelper && selected) boxHelper.update();
+    if (jointMark && jointFirstMesh) jointMark.update();
+    updateDims();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -916,24 +1841,45 @@ export function createWorkshop(canvas) {
     explode,
     setLed,
     resize,
+    select: (id) => selectById(id),
+    clearSelect: () => attach(null),
+    applyPose,
+    setEda,
+    highlightNet,
+    setPendingPort,
+    onPortClick: (fn) => {
+      onPortClick = fn;
+    },
     onSelect: (fn) => {
       onSelect = fn;
     },
+    onPoseCommit: (fn) => {
+      onPoseCommit = fn;
+    },
     getSelected: () => selected?.userData || null,
-    getSelectedPose: () => {
-      if (!selected) return null;
-      const pos = new THREE.Vector3();
-      selected.getWorldPosition(pos);
-      return {
-        id: selected.userData.piece.id,
-        x: pos.x,
-        y: pos.y,
-        z: pos.z,
-        ry: selected.rotation.y,
-      };
+    getSelectedPose: () => readPose(selected),
+    onSketch: (fn) => {
+      onSketchCommit = fn;
     },
+    onJoint: (fn) => {
+      onJointCommit = fn;
+    },
+    noteHistory,
+    setCadTool,
+    getCadTool: () => cadTool,
     setMode: (mode) => {
+      if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
+      if (cadTool) setCadTool(null);
+      editMode = mode;
       transform.setMode(mode);
+      return editMode;
     },
+    getMode: () => editMode,
+    setSnap: (on) => {
+      snapOn = Boolean(on);
+      applySnap();
+      return snapOn;
+    },
+    getSnap: () => snapOn,
   };
 }

@@ -32,4 +32,4 @@ npm run electron
 | `guides/` | Official building guides |
 | `docs/` | Short product notes |
 
-Lab opens Bench and House in one workspace: a 3D workbench for the parts, and a house plate that drops the piece into your room. IKEAlive (upload / watch) stays the default tab.
+Lab is one workspace with three spaces: **Desk** (3D edit), **House** (photo + measurements in the same rails, not a separate product), and **AR** (the `#ar-photo` room-camera overlay). IKEAlive (upload / watch) stays the default tab.

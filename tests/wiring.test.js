@@ -116,21 +116,26 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
   );
 });
 
-test("electronics stays a Lab feature of the main IKEAlive app", () => {
+test("electronics stays off the Lab header and inspect", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
-  assert.match(html, /id="house-drawer"/);
-  assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
+  assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
+  assert.match(html, /id="lab-spaces"/);
+  assert.doesNotMatch(html, /id="electronics-only"/);
+  assert.doesNotMatch(html, /id="flash-btn"/);
+  assert.doesNotMatch(html, /id="isolate-btn"/);
+  assert.doesNotMatch(html, /id="cables-panel"/);
+  assert.doesNotMatch(html, />Arduino</);
 });
 
-test("bench chrome is driven by one class the server can switch off", () => {
-  assert.match(html, /class="[^"]*electronics-chrome/, "electronics controls need the shared class");
-  assert.match(main, /electronics-chrome/, "main.js must toggle the electronics chrome");
-  assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js must read the server's chrome flag");
+test("Lab electronics chrome stays hidden even if the server still knows about boards", () => {
+  assert.doesNotMatch(html, /electronics-chrome/, "electronics controls stay off the Lab markup");
+  assert.match(main, /electronics-chrome/, "main.js still hides leftover electronics chrome");
+  assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
 test("the bench catalog scrolls in one well of sample cards", () => {
@@ -147,17 +152,46 @@ test("lab tests stay behind a details fold", () => {
 });
 
 test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo"]) {
+  for (const id of ["room-photo", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "scan-btn", "scan-out"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
   assert.match(main, /back-ikealive/);
-  assert.match(html, /id="house-drawer"/);
+  assert.match(html, /id="lab-room"/);
+  assert.equal(/id="house-drawer"/.test(html), false, "House is not a far drawer");
   assert.match(house, /api\.adapt/);
+  assert.match(house, /api\.scan/);
+  assert.match(house, /you could end up with this/);
+  assert.match(house, /Add to bench/);
   assert.match(house, /CHEAPER FITS/);
   assert.match(house, /drawImage/);
   assert.match(house, /drawPiece|fillRect/);
   assert.match(apiSource, /^\s{2}adapt:/m);
+  assert.match(apiSource, /^\s{2}scan:/m);
+});
+
+test("Lab spaces are Desk, House, AR, then Scan", () => {
+  const spacesAt = html.indexOf('id="lab-spaces"');
+  assert.ok(spacesAt > 0, "Lab space switcher must exist");
+  const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
+  assert.match(spaces, /data-lab="desk"/);
+  assert.match(spaces, /data-lab="house"/);
+  assert.match(spaces, /data-lab="ar"/);
+  assert.match(spaces, /id="scan-btn"/);
+  assert.ok(spaces.indexOf('data-lab="ar"') < spaces.indexOf('id="scan-btn"'), "Scan sits after AR/House");
+  assert.match(html, /id="view"/);
+  assert.match(html, /id="ar-photo"/);
+  assert.match(html, /id="catalog-well"/);
+  assert.match(html, /id="delete-piece"/);
+  const left = html.slice(html.indexOf("lab-browser"), html.indexOf("lab-viewport"));
+  assert.match(left, /id="room-photo"/);
+  assert.match(left, /id="room-w"/);
+  assert.match(left, /id="adapt-btn"/);
+  assert.match(main, /setLabSpace/);
+  assert.match(main, /data-lab/);
+  const css = read("client/src/styles.css");
+  assert.match(css, /data-lab="ar"/);
+  assert.doesNotMatch(css, /\.house-drawer/);
 });
 
 test("the lab strip assigns jobs and runs one behavior suite", () => {
@@ -169,7 +203,8 @@ test("the lab strip assigns jobs and runs one behavior suite", () => {
   assert.match(html, /data-fn="sense"/);
   assert.match(html, /data-fn="control"/);
   assert.match(html, /data-fn="decorate"/);
-  const strip = html.slice(html.indexOf('id="lab-strip"'), html.indexOf('id="electronics-only"'));
+  const stripStart = html.indexOf('id="lab-strip"');
+  const strip = html.slice(stripStart, html.indexOf("</details>", stripStart));
   assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
   assert.match(main, /simBehavior/);
   assert.match(main, /data-fn/);
@@ -197,6 +232,38 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
 });
 
+test("bench editing controls are wired for furniture first", () => {
+  for (const id of [
+    "edit-bar",
+    "edit-move",
+    "edit-rotate",
+    "edit-scale",
+    "edit-snap",
+    "edit-pose",
+    "duplicate-piece",
+    "delete-piece",
+    "undo-edit",
+    "redo-edit",
+    "edit-tools",
+    "snap-flag",
+  ]) {
+    assert.ok(markupIds.has(id), `bench editing markup is missing #${id}`);
+  }
+  assert.match(main, /api\.move/);
+  assert.match(main, /api\.duplicate/);
+  assert.match(main, /api\.undo/);
+  assert.match(main, /api\.redo/);
+  assert.match(main, /onPoseCommit|commitPose/);
+  assert.match(main, /setEditMode/);
+  assert.match(main, /shop\.setSnap|setSnap\(/);
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /setTranslationSnap/);
+  assert.match(workshop, /onPoseCommit/);
+  assert.match(apiSource, /^\s{2}duplicate:/m);
+  assert.match(apiSource, /^\s{2}undo:/m);
+  assert.match(apiSource, /^\s{2}redo:/m);
+});
+
 test("empty inspect is quiet — no ports, no Arduino", () => {
   const start = html.indexOf('id="inspect"');
   const block = html.slice(start, html.indexOf("</div>", start) + 6);
@@ -205,6 +272,9 @@ test("empty inspect is quiet — no ports, no Arduino", () => {
   assert.doesNotMatch(block, /Arduino/i);
   assert.match(main, /EMPTY_INSPECT|showEmptyInspect/, "main.js must restore the empty inspect");
   assert.match(main, /syncDeleteButton/, "delete should track whether a piece is selected");
+  assert.doesNotMatch(main, /Plugs:/);
+  assert.doesNotMatch(main, /api\.flash\(/);
+  assert.doesNotMatch(main, /The light blinks/);
 });
 
 test("Lab chrome is a CAD browser, viewport, and inspector", () => {
@@ -215,7 +285,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /Bodies/);
   assert.match(html, /Parameters/);
   assert.match(html, /Functions/);
-  assert.match(html, /Nets/);
+  assert.doesNotMatch(html, /Parameters · Functions · Nets/);
+  assert.doesNotMatch(html, /<summary class="lab-sheet-sum">Nets<\/summary>/);
   const css = read("client/src/styles.css");
   assert.match(css, /\.lab-browser/);
   assert.match(css, /\.lab-viewport/);
