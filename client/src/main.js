@@ -157,10 +157,11 @@ house = initHouse({
   api,
   hud,
   onPhoto() {
-    if (isLab()) setLabSpace("ar");
+    // Fresh photos mean a fresh 3D room — jump straight into it.
+    if (isLab()) setLabSpace("house");
   },
   onPlan() {
-    if (isLab()) setLabSpace("ar");
+    if (isLab()) setLabSpace("house");
   },
   getSelectedPart: () => selectedPiece()?.part || null,
   onAdd: (partId) => addPartToBench(partId),
@@ -339,7 +340,7 @@ async function applyShopActions(actions) {
       if (ids.length) await api.isolate(ids, action.label || "board");
     } else if (action.type === "adaptation" && action.plan) {
       setMode("lab");
-      setLabSpace("ar");
+      setLabSpace("house");
       house?.applyPlan(action.plan);
     } else if (action.type === "firmware") {
       continue;
@@ -740,7 +741,7 @@ function isLab() {
 
 function labHud(space) {
   if (space === "ar") return "AR — the room camera. Drop a photo or place a table.";
-  if (space === "house") return "House sits with the bench. Measure the room, then open AR for the overlay.";
+  if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
     ? "Bench — pick a piece, or fit it in the room."
     : "Bench — add a piece from the shelf, or measure the room below.";
@@ -759,7 +760,7 @@ function setLabSpace(space) {
   }
   const room = $("lab-room");
   if (room && space === "house") room.open = true;
-  house?.setActive(space === "ar");
+  house?.setSpace(space);
   if (isLab()) hud(labHud(space));
   shop.resize();
   if (isLab()) console.log("[ikealive:lab]", "space", space);
@@ -796,7 +797,7 @@ function setMode(mode) {
     applyChrome(project.chrome);
     setLabSpace(app.dataset.lab || "desk");
   } else {
-    house?.setActive(false);
+    house?.setSpace("desk");
   }
   shop.resize();
   console.log("[ikealive:lab]", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });

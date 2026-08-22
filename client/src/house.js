@@ -1,8 +1,14 @@
 /**
- * Lab → House: a room photo, measurements and a budget become a placement
- * plan. Photo + measurements sit in the Lab rails with the bench. AR owns
- * #ar-photo as the room-camera overlay.
+ * Lab → House: room photos, measurements and a budget become a real 3D
+ * scene. Every photo is read locally (no upload): the wall/floor horizon is
+ * found, colours are pulled, and the photo bands become wall and floor
+ * textures. room-builder.js decides the model, house3d.js builds the meshes,
+ * and the adaptation plan drops furniture on the floor. AR still owns
+ * #ar-photo as the flat room-camera overlay.
  */
+
+import { WALL_IDS, analyzeRoomPhoto, buildRoomModel, layoutFurniture } from "./room-builder.js";
+import { createHouseScene } from "./house3d.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -165,6 +171,39 @@ function fmtMm(dims) {
   return parts.length ? `${parts.map((n) => Math.round(n)).join(" × ")} mm` : "";
 }
 
+async function photoEntryFromFile(file) {
+  const bitmap = await createImageBitmap(file);
+  const maxSide = 1024;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const full = document.createElement("canvas");
+  full.width = Math.max(16, Math.round(bitmap.width * scale));
+  full.height = Math.max(16, Math.round(bitmap.height * scale));
+  full.getContext("2d").drawImage(bitmap, 0, 0, full.width, full.height);
+  const small = document.createElement("canvas");
+  small.width = 128;
+  small.height = Math.max(16, Math.round((full.height / full.width) * 128));
+  const smallCtx = small.getContext("2d", { willReadFrequently: true });
+  smallCtx.drawImage(full, 0, 0, small.width, small.height);
+  const analysis = analyzeRoomPhoto(smallCtx.getImageData(0, 0, small.width, small.height));
+  return {
+    name: file.name || "room.jpg",
+    image: bitmap,
+    analysis,
+    wallCanvas: cropBand(full, Math.min(0.04, analysis.horizon * 0.2), analysis.horizon),
+    floorCanvas: cropBand(full, analysis.horizon, 1),
+  };
+}
+
+function cropBand(source, fromRatio, toRatio) {
+  const y = Math.round(source.height * fromRatio);
+  const h = Math.max(8, Math.round(source.height * (toRatio - fromRatio)));
+  const out = document.createElement("canvas");
+  out.width = source.width;
+  out.height = h;
+  out.getContext("2d").drawImage(source, 0, y, source.width, h, 0, 0, source.width, h);
+  return out;
+}
+
 export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPart, onAdd } = {}) {
   if (!api?.adapt) throw new Error("initHouse requires api.adapt");
 
@@ -174,15 +213,88 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
   const scanBtn = $("scan-btn");
   const scanOut = $("scan-out");
   const canvas = $("ar-photo");
+  const houseCanvas = $("house-view");
+  const buildBtn = $("house-build");
+  const houseOut = $("house-out");
+  const photoStrip = $("house-photos");
   if (!adaptBtn || !canvas) {
-    return { applyPlan() {}, draw() {}, setActive() {}, hasPhoto: () => false };
+    return { applyPlan() {}, draw() {}, setSpace() {}, hasPhoto: () => false };
   }
 
   let photo = null;
+  let photos = [];
   let lastPlan = null;
+  let scene = null;
+  let sceneBuilt = false;
 
   function markPhoto() {
     $("app")?.classList.toggle("has-room-photo", Boolean(photo));
+  }
+
+  function roomDims() {
+    return {
+      widthM: readNumber("room-w", 3.2),
+      depthM: readNumber("room-d", 3.8),
+      heightM: readNumber("room-h", 2.5),
+    };
+  }
+
+  function renderPhotoStrip() {
+    if (!photoStrip) return;
+    if (!photos.length) {
+      photoStrip.innerHTML = "";
+      return;
+    }
+    photoStrip.innerHTML = photos
+      .map((entry, i) => {
+        const a = entry.analysis;
+        return `<span class="house-chip" title="${escapeHtml(entry.name)} — wall ${escapeHtml(a.wallColor)}, floor ${escapeHtml(a.floorColor)}">
+          <i style="background:${escapeHtml(a.wallColor)}"></i><i style="background:${escapeHtml(a.floorColor)}"></i>
+          ${escapeHtml(WALL_IDS[i % WALL_IDS.length])}
+        </span>`;
+      })
+      .join("");
+  }
+
+  function ensureScene() {
+    if (scene || !houseCanvas) return scene;
+    try {
+      scene = createHouseScene(houseCanvas);
+    } catch (err) {
+      hud(err?.message || "The 3D room needs WebGL.");
+    }
+    return scene;
+  }
+
+  function rebuildScene(reason = "rebuild") {
+    if (!ensureScene()) return null;
+    const model = buildRoomModel({ ...roomDims(), photos: photos.map((entry) => entry.analysis) });
+    const placements = layoutFurniture(lastPlan, model.room);
+    scene.rebuild({
+      model,
+      placements,
+      textures: {
+        walls: photos.map((entry) => entry.wallCanvas),
+        floor: photos[0]?.floorCanvas || null,
+      },
+    });
+    sceneBuilt = true;
+    if (houseOut) {
+      const fromPhotos = model.photoCount
+        ? `from ${model.photoCount} photo${model.photoCount === 1 ? "" : "s"}`
+        : "with a neutral finish — add photos for the real one";
+      const placed = placements.length
+        ? ` ${placements.length} piece${placements.length === 1 ? "" : "s"} placed.`
+        : "";
+      houseOut.textContent =
+        `Rebuilt the ${model.room.widthM} × ${model.room.depthM} m room ${fromPhotos}. ` +
+        `Floor ${model.floor.color}, ${model.walls.length} walls.${placed}`;
+    }
+    console.log("[ikealive:house]", reason, {
+      photos: photos.length,
+      placements: placements.length,
+    });
+    return model;
   }
 
   function draw(plan = lastPlan) {
@@ -206,12 +318,21 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
     lastPlan = plan;
     writeNotes(plan);
     draw(plan);
+    if (sceneBuilt || photos.length) rebuildScene("plan");
   }
 
-  function setActive(on) {
+  function setSpace(space) {
     markPhoto();
-    canvas.classList.toggle("hidden", !on);
-    if (on) draw(lastPlan);
+    canvas.classList.toggle("hidden", space !== "ar");
+    if (space === "ar") draw(lastPlan);
+    houseCanvas?.classList.toggle("hidden", space !== "house");
+    if (space === "house") {
+      if (!sceneBuilt) rebuildScene("first-open");
+      scene?.setActive(true);
+      scene?.resize();
+    } else {
+      scene?.setActive(false);
+    }
   }
 
   async function adaptRoom() {
@@ -328,18 +449,32 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
     }
   });
 
-  photoInput?.addEventListener("change", (ev) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      photo = img;
-      markPhoto();
-      onPhoto?.(img);
-      draw(lastPlan);
-      URL.revokeObjectURL(img.src);
-    };
-    img.src = URL.createObjectURL(file);
+  photoInput?.addEventListener("change", async (ev) => {
+    const files = [...(ev.target.files || [])];
+    if (!files.length) return;
+    hud(`Reading ${files.length} room photo${files.length === 1 ? "" : "s"}…`);
+    try {
+      photos = await Promise.all(files.map(photoEntryFromFile));
+    } catch (err) {
+      hud(err?.message || "Could not read those photos.");
+      return;
+    }
+    photo = photos[0]?.image || null; // first photo doubles as the AR backdrop
+    markPhoto();
+    renderPhotoStrip();
+    rebuildScene("photos");
+    onPhoto?.(photos);
+    draw(lastPlan);
+    hud(
+      photos.length === 1
+        ? "Built the room from 1 photo. More angles dress more walls."
+        : `Built the room from ${photos.length} photos — one wall each.`,
+    );
+  });
+
+  buildBtn?.addEventListener("click", () => {
+    rebuildScene("button");
+    onPhoto?.(photos);
   });
 
   window.addEventListener("resize", () => {
@@ -350,7 +485,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPar
   return {
     applyPlan,
     draw,
-    setActive,
+    setSpace,
     hasPhoto: () => Boolean(photo),
+    photoCount: () => photos.length,
   };
 }

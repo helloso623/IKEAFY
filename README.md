@@ -33,4 +33,6 @@ npm run electron
 | `guides/` | Official building guides |
 | `docs/` | Short product notes |
 
-Lab is one workspace with three spaces: **Bench** (3D edit), **House** (photo + measurements in the same rails, not a separate product), and **AR** (the `#ar-photo` room-camera overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+Lab is one workspace with three spaces: **Bench** (3D edit), **House** (your room photos rebuilt as a real 3D scene), and **AR** (the `#ar-photo` room-camera overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+
+House takes several photos of the room (one per wall — back, right, front, left, wrapping if you add fewer). Each photo is read locally in the browser: the wall/floor horizon is detected, the band above it becomes that wall's texture, the bands below it tile the floor, and the room's brightness sets the light. Width / depth / height set the geometry, and "Put a table in there" drops the adaptation plan's pick onto the 3D floor. Orbit with the mouse — walls facing away from you drop out so you can look straight in. No photo ever leaves the machine.

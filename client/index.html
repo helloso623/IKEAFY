@@ -153,6 +153,7 @@
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
+        <canvas id="house-view" class="hidden" aria-label="The room rebuilt in 3D"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
@@ -337,11 +338,12 @@
               This room
             </summary>
             <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
+              <p class="hint lab-hint house-caption">Add a few photos of the room — each one dresses a wall, together they make the floor. House shows the rebuilt 3D room; AR keeps the flat overlay.</p>
               <label class="field file-field" for="room-photo">
-                <span>Room photo</span>
-                <input id="room-photo" type="file" accept="image/*" />
+                <span>Room photos (several angles)</span>
+                <input id="room-photo" type="file" accept="image/*" multiple />
               </label>
+              <div id="house-photos" class="house-photo-strip" aria-label="Photos read for the room"></div>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
                   <span>Width (m)</span>
@@ -351,11 +353,17 @@
                   <span>Depth (m)</span>
                   <input id="room-d" type="number" step="0.1" value="3.8" />
                 </label>
+                <label class="field" for="room-h">
+                  <span>Height (m)</span>
+                  <input id="room-h" type="number" step="0.1" value="2.5" />
+                </label>
               </div>
               <label class="field" for="room-budget">
                 <span>Budget ($)</span>
                 <input id="room-budget" type="number" value="40" />
               </label>
+              <button id="house-build" class="house-go">Rebuild the 3D room</button>
+              <p id="house-out" class="hint house-status" aria-live="polite"></p>
               <button id="adapt-btn" class="primary house-go">Put a table in there</button>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
