@@ -1205,17 +1205,24 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   font-weight: 500;
 }
 .render-mode-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
   margin: 0;
-  align-items: stretch;
 }
 .render-mode {
-  flex: 1 1 8rem;
-  min-height: 2.6rem;
-  padding: 0.62rem 0.85rem;
-  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.3rem;
+  padding: 0.4rem 0.35rem;
+  font-size: 0.76rem;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+}
+@media (max-width: 420px) {
+  .render-mode-picks { grid-template-columns: 1fr; }
 }
 
 .upload-official {
