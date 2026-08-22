@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>IKEAFY — workshop</title>
+    <title>IKEAFY — build anything like it came flat-packed</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,52 +13,67 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <div id="app">
+    <div id="app" class="mode-ikeafy" data-mode="ikeafy" data-guide-mode="official">
       <header class="top">
         <div class="brand">
           <span class="mark">IF</span>
           <div>
             <strong>IKEAFY</strong>
-            <small>bench · film · house</small>
+            <small>studio · bench · house</small>
           </div>
         </div>
-        <nav class="modes" id="modes">
-          <button data-mode="bench" class="on">Bench</button>
-          <button data-mode="ikeafy">Ikeafy</button>
+        <nav class="modes" id="modes" aria-label="Product tabs">
+          <button data-mode="ikeafy" class="main-idea on" title="IKEAFY — the main idea">
+            IKEAFY
+            <small class="badge">the main idea</small>
+          </button>
+          <button data-mode="bench">Bench</button>
           <button data-mode="house">House</button>
         </nav>
         <div class="top-actions">
-          <label class="toggle">
+          <label class="toggle bench-only">
             <input type="checkbox" id="sim-toggle" />
             Sim
           </label>
-          <button id="reset-sim">Reset</button>
-          <button id="print-btn">Print</button>
-          <button id="flash-btn">Arduino</button>
+          <button id="reset-sim" class="bench-only">Reset</button>
+          <button id="print-btn" class="bench-only">Print</button>
+          <button id="flash-btn" class="bench-only electronics-chrome">Arduino</button>
         </div>
       </header>
 
-      <aside class="rail left">
+      <!-- ================= IKEAFY STUDIO — left column: source + steps ================= -->
+      <section class="studio-in" data-pane="ikeafy" aria-label="Guide source and steps">
         <div class="panel">
-          <h2>Pieces</h2>
-          <div class="row">
-            <input id="cost" type="number" min="0" step="1" placeholder="Cost barrier $" />
-            <input id="search" type="search" placeholder="Find a part" />
+          <h2>Where the steps come from</h2>
+          <div class="row source-toggle">
+            <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
+            <button id="custom-mode" aria-pressed="false">My own guide</button>
           </div>
-          <div id="catalog" class="list"></div>
-        </div>
-        <div class="panel">
-          <h2>Cables</h2>
-          <p class="hint">Click two ports. Compatible ones lock.</p>
-          <div id="cables" class="list thin"></div>
-          <div class="row">
-            <button id="bundle-loose">Loose</button>
-            <button id="bundle-zip">Zip</button>
-            <button id="bundle-race">Raceway</button>
+          <div id="official-source">
+            <select id="official-product" aria-label="Official IKEA product"></select>
+            <p class="hint" id="official-lock-note">
+              The official sheet is read-only and runs in order. Steps you have not reached stay
+              closed.
+            </p>
+          </div>
+          <div id="custom-source" class="hidden">
+            <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
+            <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
+            <div class="row">
+              <button id="parse-guide" class="primary">Parse into a film</button>
+              <button id="clear-custom-session">Delete session</button>
+            </div>
+            <p class="hint">Your own guide is editable and skippable. The official one is not.</p>
           </div>
         </div>
-      </aside>
+        <div class="panel steps-panel">
+          <h2>Steps</h2>
+          <div id="lock-banner" class="lock-banner"></div>
+          <div id="steps" class="list"></div>
+        </div>
+      </section>
 
+      <!-- ================= STAGE — 3D bench, and the plate/film in studio mode ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
@@ -66,18 +81,31 @@
         <div id="film" class="film hidden">
           <canvas id="film-frame"></canvas>
           <p id="film-caption"></p>
-          <div class="row">
-            <button id="film-back">Back</button>
-            <button id="film-wait" class="primary">I did this — next</button>
+          <label class="confirm" id="step-confirm-row">
+            <input type="checkbox" id="step-confirm" />
+            <span id="step-confirm-label">Confirm this step before the next plate.</span>
+          </label>
+          <div class="row wrap">
+            <button id="film-back">Back a step</button>
+            <button id="film-wait" class="primary" disabled>I did this — next</button>
             <button id="film-stuck">Stuck</button>
+            <button id="step-skip">Skip</button>
+            <button id="colorize">Colorize plate</button>
+            <button id="render-video">Render film</button>
           </div>
+          <p class="hint" id="render-video-out"></p>
+          <div id="step-detail" class="copy"></div>
         </div>
       </main>
 
+      <!-- ================= RIGHT RAIL — bench/house panels, plus the studio column ======== -->
       <aside class="rail right">
-        <div class="panel" data-pane="bench">
+        <div class="panel hidden" data-pane="bench">
           <h2>Inspect</h2>
           <div id="inspect" class="copy"></div>
+          <div class="row">
+            <button id="delete-piece">Delete piece</button>
+          </div>
           <div class="row wrap" id="lab-btns">
             <button data-test="strength">Strength</button>
             <button data-test="pressure">Pressure</button>
@@ -96,28 +124,12 @@
             <button id="tape-elec">Electrical tape</button>
             <button id="tape-gaff">Gaffer</button>
           </div>
-          <div class="row">
-            <button id="isolate-btn">Isolate as board</button>
-            <button id="label-btn">Label function</button>
-          </div>
-        </div>
-
-        <div class="panel hidden" data-pane="ikeafy">
-          <h2>Building guide</h2>
-          <textarea id="guide-in" rows="7" placeholder="Paste a building guide…"></textarea>
-          <input id="guide-notes" placeholder="Tools you have, extra comments…" />
-          <div class="row">
-            <button id="parse-guide" class="primary">Parse into steps</button>
-            <button id="colorize">Colorize plate</button>
-          </div>
-          <div id="steps" class="list"></div>
-          <h2>Kit vs extra</h2>
-          <div id="bom" class="copy"></div>
-          <h2>Reviews</h2>
-          <div id="reviews" class="copy"></div>
-          <div class="row">
-            <input id="broken-note" placeholder="Broken part on this step…" />
-            <button id="broken-btn">Attach break</button>
+          <div id="electronics-only" class="electronics-chrome hidden">
+            <h2>Electronics</h2>
+            <div class="row">
+              <button id="isolate-btn">Isolate as board</button>
+              <button id="label-btn">Label function</button>
+            </div>
           </div>
         </div>
 
@@ -134,6 +146,51 @@
           <div id="adapt-out" class="copy"></div>
         </div>
 
+        <!-- Studio column. .rail.right becomes display:contents in studio mode so this
+             sits directly in the app grid. -->
+        <section class="studio-side" data-pane="ikeafy" aria-label="Kit, reviews and spares">
+          <div class="panel">
+            <h2>Kit vs extra</h2>
+            <p class="hint">What ships in the box against what you have to buy.</p>
+            <div id="bom" class="copy"></div>
+          </div>
+          <div class="panel">
+            <h2>Reviews &amp; difficulties</h2>
+            <div id="reviews" class="copy"></div>
+          </div>
+          <div class="panel">
+            <h2>Missing or broken fitting</h2>
+            <p class="hint">
+              IKEA replaces assembly fittings — screws, nails, dowels, cam locks, shelf pins, Allen
+              keys — free of charge. Whole panels are a paid part.
+            </p>
+            <input id="broken-photo" type="file" accept="image/*" aria-label="Photo of the broken fitting" />
+            <input id="broken-note" placeholder="What broke, and how…" />
+            <div class="row">
+              <input id="spare-article" placeholder="Fitting no. (e.g. 100347)" />
+              <input id="spare-qty" type="number" min="1" value="1" aria-label="Quantity" />
+            </div>
+            <div class="row">
+              <input id="spare-name" placeholder="Your name" />
+              <input id="spare-email" type="email" placeholder="Your email" />
+            </div>
+            <div class="row">
+              <button id="broken-btn">Identify from the step</button>
+              <button id="spare-request" class="primary">Request free fittings</button>
+            </div>
+            <div id="spare-out" class="copy"></div>
+          </div>
+          <div class="panel chat-panel">
+            <h2>Ask the shop</h2>
+            <div id="ikea-agent-bar" class="agent-bar"></div>
+            <div id="ikea-chat-log" class="chat-log"></div>
+            <form id="ikea-chat-form">
+              <input id="ikea-chat-in" autocomplete="off" placeholder="Ask about this step, a tool, a part…" />
+              <button type="submit">Send</button>
+            </form>
+          </div>
+        </section>
+
         <div class="panel chat">
           <h2>Shop chat</h2>
           <div id="agent-bar" class="agent-bar"></div>
@@ -142,6 +199,35 @@
             <input id="chat-in" autocomplete="off" placeholder="Ask, add a part, move the camera…" />
             <button type="submit">Send</button>
           </form>
+        </div>
+      </aside>
+
+      <!-- ================= BENCH — left rail ================= -->
+      <aside class="rail left hidden" data-pane="bench">
+        <div class="panel">
+          <h2>Pieces</h2>
+          <div class="row">
+            <input id="cost" type="number" min="0" step="1" placeholder="Cost barrier $" />
+            <input id="search" type="search" placeholder="Find a part" />
+          </div>
+          <p class="hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalog.</p>
+          <div id="catalog-well" class="well scroll">
+            <div id="catalog" class="list"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>On the bench</h2>
+          <div id="bench-pieces" class="list thin"></div>
+        </div>
+        <div class="panel electronics-chrome hidden" id="cables-panel">
+          <h2>Cables</h2>
+          <p class="hint">Click two ports. Compatible ones lock.</p>
+          <div id="cables" class="list thin"></div>
+          <div class="row">
+            <button id="bundle-loose">Loose</button>
+            <button id="bundle-zip">Zip</button>
+            <button id="bundle-race">Raceway</button>
+          </div>
         </div>
       </aside>
     </div>

@@ -1,34 +1,39 @@
 # IKEAFY
 
-A workshop for building things you can actually put in a room.
+Build anything like it came flat-packed.
 
-The first system is **not** an AI product. It is a bench: parts with real sizes, cables that lock, tape that holds or peels, weather and load tests, Arduino as one abstraction and physics as another, a 3D printer queue, and an IKEA-style film of the plan. Ten shop agents sit on top of that bench. If no hosted key is present they still run, as a local steward.
+IKEAFY is the main idea and it gets its own full-page tab. Pick an official IKEA product (LACK is unlocked) or paste any building guide, and the studio turns it into numbered steps with an IKEA-style instruction film: one black-and-white plate per step that waits for you, colorizes on demand, and never lets official mode skip ahead. Around the film sit the things you actually need mid-build — what's in the kit vs what to buy, other builders' reviews and difficulty notes, a broken-part photo desk that requests free spare fittings from IKEA, and a quick chat.
+
+The Bench and House tabs support it: a bench with real-size parts, cables, tape, and physics tests, and a house view that places the finished piece in your room photo.
 
 ## Run
 
 ```bash
-cp .env.example .env   # optional. Leave OPENAI_API_KEY empty to stay local.
+cp .env.example .env   # optional. Leave keys empty to stay local.
 npm install
 npm test
 npm run dev
 ```
 
-- Bench UI: `http://localhost:5173`
+- UI: `http://localhost:5173`
 - API: `http://localhost:8787`
 
-Do not put keys in the repo. `.env` is gitignored. Rotate any key that was pasted in chat.
+Do not put keys in the repo. `.env` is gitignored. Rotate any key that was pasted in chat. `FAL_KEY` is optional — it enables Veed Fabric 1.0 film renders; without it the studio uses the local canvas storyboard.
 
-## What the bench does
+## The IKEAFY studio (the main tab)
 
-- **Sandbox** — drop furniture and electronics, rescale, retexture, move, rotate (`G` / `R` / `Shift+S`).
-- **Cables** — ports mate or refuse. JST / header / screw lock in. Loose / zip / raceway disposition.
-- **Lab** — strength, pressure, wave, flow, aero, speed+force, heat/cold, rain. Tape changes hold and IP. **Reset** after a run.
-- **Electronics** — cost barrier, min specs, isolate a cluster as a named board, label functions, flash a Nano sketch and see the LED.
-- **Print** — printable bodies become ASCII STL jobs.
-- **Ikeafy** — paste a guide + optional tool notes → structured steps → birch-workshop film per step → wait on you → expand if you are stuck → kit vs extra (IKEA / Amazon / hardware links, catalog list only) → reviews and difficulties → attach a broken-part note to a step → spare + fix.
+Open the **IKEAFY** tab and the bench rails disappear — the studio takes the full page in three columns:
+
+1. **Pick or paste** (left) — choose an official IKEA product (only **LACK** is unlocked; KALLAX, BILLY, MALM are shown locked) or paste any custom building guide, add optional notes about the tools you have, and hit **Parse into steps**.
+2. **Watch and build** (center) — a large film stage plays one plate per step, black and white first, **Colorize plate** when you want it. The caption tells you exactly what to do. Press **I did this — next** when you're done, **Back** to review, or **Stuck** to expand the step into smaller moves. In official mode the plates unlock strictly in order — no skipping ahead.
+3. **Everything around the build** (right) — **Kit vs extra** splits what ships in the box from what you need to buy, with IKEA and Amazon links (catalog list only, no live scrape). **Reviews & difficulties** shows where other builders struggled. **Broken part** attaches a photo and note to the current step, identifies the part, and files a **free spare-fittings request with IKEA** (screws, cam locks, dowels). **Quick chat** answers questions about the step, a tool, or a part.
+
+Partner hooks (Veed Fabric 1.0 via fal, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and stand in locally — see `docs/IKEAFY.md`.
+
+## The supporting tabs
+
+- **Bench** — drop furniture and electronics, rescale, retexture, move, rotate (`G` / `R` / `Shift+S`). The catalog is a scrollable shelf — keep scrolling to add more pieces — with a cost barrier and a **Delete** button for mistakes. Cables mate or refuse (JST / header / screw; loose / zip / raceway). The lab runs strength, pressure, wave, flow, aero, speed+force, heat/cold, and rain tests; tape changes hold and IP; **Reset** after a run. Electronics controls (isolate a cluster as a named board, label functions) live in their own corner of the inspect panel, and a Nano sketch can be flashed to blink the LED. Printable bodies become ASCII STL jobs.
 - **House** — photo + room measurements + budget → adaptation plan that places the piece and lists cheaper stand-ins. Overlay is the same render as the bench.
-
-Online research is a **list**, not a live scrape. Partner hooks (Veed, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and left uncalled.
 
 ## Ten agents
 
