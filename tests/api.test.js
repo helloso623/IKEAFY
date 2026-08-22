@@ -49,7 +49,7 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(url);
-      if (res.ok) return;
+      if (res.ok) return res.json();
       lastError = `HTTP ${res.status}`;
     } catch (error) {
       lastError = String(error?.message || error);
@@ -68,7 +68,11 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   });
   t.after(() => child.kill("SIGTERM"));
   const base = `http://127.0.0.1:${port}`;
-  await waitForHealth(`${base}/api/health`);
+  const health = await waitForHealth(`${base}/api/health`);
+  assert.equal(health.build.version, "0.1.0");
+  assert.match(health.build.revision, /^[0-9a-f]{40}$/);
+  assert.equal(health.build.port, port);
+  assert.ok(health.build.pid);
 
   const added = await fetch(`${base}/api/project/add`, {
     method: "POST",

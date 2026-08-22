@@ -88,6 +88,7 @@ import { PLATE_VISION_ENDPOINT, PLATE_VISION_MODEL } from "./lib/plate-vision.js
 import { logGliner2Configuration } from "./lib/gliner2.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import { finishFurnitureBuild } from "./lib/build-plan.js";
+import { runtimeBuild } from "../runtime-build.js";
 import {
   addCable,
   addJoint,
@@ -119,7 +120,10 @@ import {
 } from "./lib/project.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-loadDotEnv(path.join(__dirname, "..", ".env"));
+const ROOT = path.join(__dirname, "..");
+loadDotEnv(path.join(ROOT, ".env"));
+const SERVER_STARTED_AT = new Date().toISOString();
+const SERVER_BUILD = runtimeBuild(ROOT);
 
 const VIDEO_PARTNERS = {
   seedance: {
@@ -192,6 +196,12 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     name: "IKEAlive",
+    build: {
+      ...SERVER_BUILD,
+      pid: process.pid,
+      port: Number(process.env.PORT || 8787),
+      startedAt: SERVER_STARTED_AT,
+    },
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
     video: {

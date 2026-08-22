@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, apiRoot } from "./api.js";
 import { bindAiDock, buildSceneContext, captureViewThumb, renderCommandHistory } from "./ai-dock.js";
 import { catalogNeedle, parseBudget } from "./omnibox.js";
 import { sceneContext } from "./scene-context.js";
@@ -16,6 +16,24 @@ import { openBuildPacketPrint } from "./build-packet.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
+const RENDERER_BUILD =
+  typeof __IKEALIVE_RENDERER_BUILD__ === "undefined"
+    ? { version: "unknown", revision: "unknown", id: "unknown@unknown" }
+    : __IKEALIVE_RENDERER_BUILD__;
+const runtimeHealth = api.health().then((health) => {
+  const serverBuild = health.build || null;
+  const match =
+    Boolean(serverBuild) &&
+    RENDERER_BUILD.version === serverBuild.version &&
+    RENDERER_BUILD.revision === serverBuild.revision;
+  ikealiveLog("runtime", "renderer startup", {
+    renderer: RENDERER_BUILD,
+    server: serverBuild,
+    apiOrigin: apiRoot() || globalThis.location?.origin || "",
+    match,
+  });
+  return health;
+});
 const view = $("view");
 const shop = createWorkshop(view);
 const partsById = {};
@@ -1808,7 +1826,7 @@ window.addEventListener("keydown", (ev) => {
 });
 
 async function boot() {
-  const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
+  const [health, agents, all] = await Promise.all([runtimeHealth, api.agents(), api.catalog({})]);
   for (const p of filterLabCatalog(all, "")) partsById[p.id] = p;
   const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
   $("agent-bar").innerHTML = roster;

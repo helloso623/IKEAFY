@@ -10,10 +10,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { rendererConsoleText } from "./log.js";
+import { buildsMatch, runtimeBuild } from "../runtime-build.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const DIST_INDEX = path.join(ROOT, "dist", "index.html");
+const ELECTRON_BUILD = runtimeBuild(ROOT);
 
 export const SERVER_PORT = Number(process.env.PORT || 8787);
 export const CLIENT_PORT = Number(process.env.CLIENT_PORT || process.env.VITE_PORT || 5173);
@@ -25,6 +27,7 @@ const WAIT_MS = isDev ? 90_000 : 45_000;
 
 let serverProcess = null;
 let quitting = false;
+let mainWindow = null;
 
 function trustedRenderer(url) {
   try {
@@ -81,12 +84,16 @@ export async function waitForUrl(url, timeoutMs = WAIT_MS) {
   throw new Error(`Timed out waiting for ${url} (${lastError})`);
 }
 
-async function urlReady(url) {
+async function serverHealth() {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(1200) });
-    return res.ok;
+    const res = await fetch(`${SERVER_ORIGIN}/api/health`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!res.ok) return null;
+    return await res.json();
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -95,7 +102,11 @@ function startExpress() {
   const child = spawn(nodeBin, [path.join(ROOT, "server/index.js")], {
     cwd: ROOT,
     stdio: "inherit",
-    env: { ...process.env, PORT: String(SERVER_PORT) },
+    env: {
+      ...process.env,
+      PORT: String(SERVER_PORT),
+      IKEALIVE_REVISION: ELECTRON_BUILD.revision,
+    },
   });
   child.on("exit", (code, signal) => {
     if (!quitting && code && code !== 0) {
@@ -106,9 +117,27 @@ function startExpress() {
 }
 
 export async function ensureServer() {
-  if (await urlReady(`${SERVER_ORIGIN}/api/health`)) return;
+  const existing = await serverHealth();
+  if (existing) {
+    if (!buildsMatch(ELECTRON_BUILD, existing.build)) {
+      throw new Error(
+        `Port ${SERVER_PORT} is serving stale IKEAlive code (${existing.build?.id || "unknown build"}); ` +
+          `expected ${ELECTRON_BUILD.id}. Stop that server and relaunch Electron.`,
+      );
+    }
+    console.log(`[ikealive:runtime] server ready ${existing.build.id} pid=${existing.build.pid} match=true`);
+    return existing;
+  }
   serverProcess = startExpress();
   await waitForUrl(`${SERVER_ORIGIN}/api/health`);
+  const started = await serverHealth();
+  if (!buildsMatch(ELECTRON_BUILD, started?.build)) {
+    throw new Error(
+      `Express started with ${started?.build?.id || "unknown build"}; expected ${ELECTRON_BUILD.id}.`,
+    );
+  }
+  console.log(`[ikealive:runtime] server started ${started.build.id} pid=${started.build.pid} match=true`);
+  return started;
 }
 
 export async function clientUrl() {
@@ -117,7 +146,6 @@ export async function clientUrl() {
     await waitForUrl(CLIENT_ORIGIN);
     return CLIENT_ORIGIN;
   }
-  if (await urlReady(CLIENT_ORIGIN)) return CLIENT_ORIGIN;
   const fileUrl = fileClientUrl();
   if (fileUrl) return fileUrl;
   return SERVER_ORIGIN;
@@ -147,13 +175,25 @@ function createWindow(url) {
   });
   attachRendererLogs(win);
   win.loadURL(url);
+  mainWindow = win;
+  win.on("closed", () => {
+    if (mainWindow === win) mainWindow = null;
+  });
   return win;
 }
 
 const launchedAsElectron = Boolean(app);
+const singleInstance = launchedAsElectron ? app.requestSingleInstanceLock() : false;
 
-if (launchedAsElectron) {
+if (launchedAsElectron && !singleInstance) {
+  app.quit();
+} else if (launchedAsElectron) {
   app.setName("IKEAlive");
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
 
   app.whenReady().then(async () => {
     try {
