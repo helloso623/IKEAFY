@@ -125,7 +125,7 @@ test("piece-plan source is numbered for the IKEAlive parser", () => {
     pieces: [piece("generic-shelf-board", "shelf")],
   });
   const source = buildPlanSource(plan);
-  assert.match(source, /Candidate piece routes:/);
+  assert.match(source, /Construction ways:/);
   assert.match(source, /Furniture pieces:/);
   assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
   assert.match(source, /^1\. Freeze this model revision/m);
