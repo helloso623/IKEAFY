@@ -2,6 +2,8 @@ import { storyboardForStep } from "./ikeafy.js";
 
 export const MODEL = "bytedance/seedance-2.5/text-to-video";
 export const PARTNER = "Seedance";
+export const FAL_REQUIRED =
+  "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 const MODEL_ROOT = "https://queue.fal.run/bytedance/seedance-2.5";
 const QUEUE = `${MODEL_ROOT}/text-to-video`;
 const POLL_MS = 1500;
@@ -118,7 +120,9 @@ export async function renderStepVideo(
 
   const prompt = promptForStep(guide, stepNumber, extra);
   const local = {
-    provider: "local-storyboard",
+    ok: false,
+    live: false,
+    provider: "none",
     partner: PARTNER,
     model: MODEL,
     prompt,
@@ -126,30 +130,30 @@ export async function renderStepVideo(
     frames,
     continuous: true,
     theme,
+    reason: FAL_REQUIRED,
   };
 
   if (!hasFal()) return local;
 
-  try {
-    const result = await falQueue(
-      {
-        prompt,
-        resolution: "480p",
-        duration: "5",
-        aspect_ratio: "16:9",
-        generate_audio: true,
-        bitrate_mode: "standard",
-      },
-      deps,
-    );
-    const videoUrl = videoUrlFrom(result);
-    if (!videoUrl) return local;
-    return {
-      ...local,
-      provider: "seedance-2.5",
-      videoUrl,
-    };
-  } catch {
-    return local;
-  }
+  const result = await falQueue(
+    {
+      prompt,
+      resolution: "480p",
+      duration: "5",
+      aspect_ratio: "16:9",
+      generate_audio: true,
+      bitrate_mode: "standard",
+    },
+    deps,
+  );
+  const videoUrl = videoUrlFrom(result);
+  if (!videoUrl) throw new Error("fal returned no video url");
+  return {
+    ...local,
+    ok: true,
+    live: true,
+    provider: "seedance-2.5",
+    videoUrl,
+    reason: null,
+  };
 }

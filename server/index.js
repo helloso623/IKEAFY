@@ -26,7 +26,6 @@ import {
   reviewsForGuide,
   searchOfficialProducts,
   shoppingListAsync,
-  storyboardForStep,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
 import {
@@ -48,7 +47,7 @@ import {
   listFreeFittings,
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
-import { hasFal, renderStepVideo } from "./lib/video.js";
+import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
 import { hasTavily } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
@@ -86,7 +85,7 @@ const VIDEO_PARTNERS = {
     name: "ByteDance Seedance 2.5",
     model: "bytedance/seedance-2.5/text-to-video",
     status: "optional",
-    note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
+    note: "Rendered through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not play a canvas stand-in.",
   },
   fal: {
     name: "fal.ai",
@@ -114,7 +113,7 @@ app.get("/api/health", (_req, res) => {
     partners: PARTNERS,
     video: {
       partners: VIDEO_PARTNERS,
-      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "local-storyboard",
+      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "none",
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
@@ -218,15 +217,19 @@ app.post("/api/cables/bundle", (req, res) => {
 });
 
 app.post("/api/ikeafy/parse", async (req, res) => {
+  const images = req.body?.images || [];
+  const hasPlates = images.some((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
   let raw = req.body?.guide || "";
-  if (req.body?.pdfBase64) {
+  if (!hasPlates && req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
   const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
-    images: req.body?.images || [],
+    images,
   });
   state.guide = guide;
   res.json(guide);
@@ -282,13 +285,24 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       extra: body.instructions || body.extra || "",
     });
     if (stored?.guide) state.guide = stored.guide;
+    if (!result.videoUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_REQUIRED,
+        videoUrl: null,
+        partners: VIDEO_PARTNERS,
+      });
+    }
     res.json({
       ok: true,
       stepNumber,
-      live: result.provider !== "local-storyboard",
+      live: true,
       partners: VIDEO_PARTNERS,
-      plan: result.frames.length ? result.frames : storyboardForStep(guide, stepNumber),
-      ...result,
+      videoUrl: result.videoUrl,
+      provider: result.provider,
+      prompt: result.prompt,
     });
   } catch (err) {
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
@@ -298,28 +312,49 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
+  if (!hasFal()) {
+    return res.status(503).json({
+      ok: false,
+      reel: true,
+      live: false,
+      error: FAL_REQUIRED,
+      videoUrl: null,
+      steps: [],
+      partners: VIDEO_PARTNERS,
+    });
+  }
   const steps = [];
   try {
     for (const step of guide?.steps || []) {
       const result = await renderStepVideo({
         guide,
         stepNumber: step.number,
-        imageDataUrl: body.imageDataUrl,
+        extra: body.instructions || body.extra || "",
       });
+      if (!result.videoUrl) {
+        return res.status(503).json({
+          ok: false,
+          reel: true,
+          live: false,
+          error: result.reason || FAL_REQUIRED,
+          videoUrl: null,
+          steps,
+          partners: VIDEO_PARTNERS,
+        });
+      }
       steps.push({
         number: step.number,
-        live: result.provider !== "local-storyboard",
-        plan: result.frames.length ? result.frames : storyboardForStep(guide, step.number),
-        ...result,
+        live: true,
+        videoUrl: result.videoUrl,
+        provider: result.provider,
       });
     }
-    const live = steps.find((step) => step.videoUrl);
     res.json({
       ok: true,
       reel: true,
-      live: Boolean(live),
+      live: true,
       partners: VIDEO_PARTNERS,
-      videoUrl: live?.videoUrl || null,
+      videoUrl: steps[0]?.videoUrl || null,
       steps,
     });
   } catch (err) {

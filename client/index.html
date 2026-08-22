@@ -61,7 +61,7 @@
           <p class="kicker">IKEAlive</p>
           <h1>Your manual has a next move.</h1>
           <p class="lede">
-            Upload the IKEA instructions PDF. We parse the plates, Veed builds a reel, and you watch one step at a time.
+            Upload the IKEA instructions PDF. We read the plates, Seedance 2.5 builds a reel, and you watch one step at a time.
           </p>
 
           <form id="upload-form" class="card upload-card">
@@ -82,12 +82,13 @@
               <button type="submit" id="parse-guide" class="primary">Build the reel</button>
               <button type="button" id="clear-custom-session" class="quiet">Clear</button>
             </div>
+            <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
           </form>
 
           <ul class="upload-process">
             <li><strong>Upload</strong> the IKEA instructions PDF, or paste a guide</li>
-            <li><strong>Reel</strong> — Veed Fabric turns each plate into a short film</li>
-            <li><strong>Watch</strong> the steps, one plate at a time</li>
+            <li><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</li>
+            <li><strong>Watch</strong> the steps, one film at a time</li>
             <li><strong>Help</strong> is on the right: inventory, troubles, identify, small parts</li>
           </ul>
 
@@ -117,8 +118,9 @@
         <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
-            <canvas id="film-frame"></canvas>
+            <canvas id="film-frame" class="hidden"></canvas>
             <video id="film-video" class="hidden" playsinline></video>
+            <p id="film-status" class="film-status">Upload a PDF to build the Seedance reel.</p>
           </div>
           <p id="film-caption"></p>
           <div class="row wrap film-actions" role="group" aria-label="Watch transport">

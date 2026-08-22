@@ -80,17 +80,23 @@ test("the css does not hide the custom guide inputs while the studio is open", (
   assert.equal(guideHidden, false, "a blanket display:none on #guide-in kills the custom guide");
 });
 
-test("IKEAlive starts on PDF upload and plays a Veed reel on watch", () => {
+test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="pdf-upload"/);
   assert.match(html, /id="upload-form"/);
+  assert.match(html, /id="upload-progress"/);
   assert.match(html, /id="film-video"/);
+  assert.match(html, /id="film-status"/);
   assert.match(html, /id="film-play"/);
   assert.match(html, /id="film-wait"/);
   assert.match(html, /id="film-back"/);
   assert.match(html, /id="film-scrub"/);
-  assert.match(studio, /video\/reel|bootReel|parseCustom/);
+  assert.match(studio, /bootReel|parseCustom/);
   assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
+  assert.match(studio, /FAL_KEY/);
+  assert.match(studio, /renderVideo/);
   assert.match(studio, /bom\.owned|You have this/);
+  const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
+  assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
 });
 
 test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
@@ -99,7 +105,12 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
     false,
     "studio.js must not invent a placeholder guide when the user drops photos",
   );
-  assert.match(studio, /pdfBase64|pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.match(studio, /pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.equal(
+    /plates\.text/.test(studio),
+    false,
+    "extracted PDF text must not be stuffed into the guide textarea",
+  );
 });
 
 test("electronics stays a Lab feature of the main IKEAlive app", () => {
