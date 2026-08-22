@@ -1007,13 +1007,6 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
   await askShop(message);
 });
 
-bindVoice({
-  button: $("lab-voice"),
-  status: $("lab-voice-status"),
-  input: $("chat-in"),
-  onHear: (text) => askShop(text),
-});
-
 window.__ikeafyApplyShop = applyShopActions;
 
 window.addEventListener("keydown", (ev) => {

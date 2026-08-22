@@ -113,7 +113,7 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /panel watch chat/);
   assert.match(html, /id="ikea-chat-form"/);
   assert.match(html, /id="ikea-voice"/);
-  assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="ai-mic"/);
   assert.equal(/<details class="studio-chat">/.test(html), false);
   assert.match(studio, /bindVoice/);
   assert.match(main, /bindVoice/);
