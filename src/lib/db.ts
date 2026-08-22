@@ -1,11 +1,12 @@
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
 import Database from "better-sqlite3";
+import type { BuildPlan, PlanSummary, PlanSourceType, PlanOrigin } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "ikeafy.db");
 
-let db: Database.Database | null = null;
+let db: Database.Database | undefined;
 
 function getDb(): Database.Database {
   if (db) return db;
@@ -14,72 +15,93 @@ function getDb(): Database.Database {
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS orders (
+    CREATE TABLE IF NOT EXISTS plans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_name TEXT NOT NULL,
-      total_cents INTEGER NOT NULL,
-      items_json TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      step_count INTEGER NOT NULL,
+      plan_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
   return db;
 }
 
-export type OrderItem = {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-};
-
-export type Order = {
+type Row = {
   id: number;
-  customerName: string;
-  total: number;
-  items: OrderItem[];
-  createdAt: string;
-};
-
-export function createOrder(customerName: string, items: OrderItem[]): Order {
-  const database = getDb();
-  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const totalCents = Math.round(total * 100);
-
-  const stmt = database.prepare(
-    `INSERT INTO orders (customer_name, total_cents, items_json)
-     VALUES (?, ?, ?)`
-  );
-  const result = stmt.run(customerName, totalCents, JSON.stringify(items));
-  const id = Number(result.lastInsertRowid);
-
-  return {
-    id,
-    customerName,
-    total,
-    items,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-type OrderRow = {
-  id: number;
-  customer_name: string;
-  total_cents: number;
-  items_json: string;
+  title: string;
+  source_type: string;
+  origin: string;
+  step_count: number;
+  plan_json: string;
   created_at: string;
 };
 
-export function listOrders(): Order[] {
+type StoredPlan = Omit<BuildPlan, "id" | "createdAt">;
+
+export function savePlan(plan: BuildPlan): BuildPlan {
   const database = getDb();
+
+  const { id: _id, createdAt: _createdAt, ...planBody } = plan;
+  void _id;
+  void _createdAt;
+
+  const stepCount = plan.steps.length;
+
+  const info = database
+    .prepare(
+      `INSERT INTO plans (title, source_type, origin, step_count, plan_json)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(plan.title, plan.sourceType, plan.origin, stepCount, JSON.stringify(planBody));
+
+  const id = Number(info.lastInsertRowid);
+
+  const row = database
+    .prepare(`SELECT created_at FROM plans WHERE id = ?`)
+    .get(id) as Pick<Row, "created_at"> | undefined;
+
+  return {
+    ...planBody,
+    id,
+    createdAt: row?.created_at ?? new Date().toISOString(),
+  };
+}
+
+export function getPlan(id: number): BuildPlan | undefined {
+  const database = getDb();
+
+  const row = database.prepare(`SELECT * FROM plans WHERE id = ?`).get(id) as Row | undefined;
+  if (!row) return undefined;
+
+  const parsed = JSON.parse(row.plan_json) as StoredPlan;
+
+  return {
+    ...parsed,
+    id: row.id,
+    createdAt: row.created_at,
+  };
+}
+
+export function listPlans(): PlanSummary[] {
+  const database = getDb();
+
   const rows = database
-    .prepare(`SELECT * FROM orders ORDER BY id DESC`)
-    .all() as OrderRow[];
+    .prepare(
+      `SELECT id, title, source_type, origin, step_count, created_at
+       FROM plans
+       ORDER BY id DESC`
+    )
+    .all() as Array<Omit<Row, "plan_json">>;
 
   return rows.map((row) => ({
     id: row.id,
-    customerName: row.customer_name,
-    total: row.total_cents / 100,
-    items: JSON.parse(row.items_json) as OrderItem[],
+    title: row.title,
+    sourceType: row.source_type as PlanSourceType,
+    origin: row.origin as PlanOrigin,
+    stepCount: row.step_count,
     createdAt: row.created_at,
   }));
 }
