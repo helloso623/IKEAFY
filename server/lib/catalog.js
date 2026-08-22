@@ -2,6 +2,7 @@ const PARTS = [
   {
     id: "lack-table",
     sku: "IKEA-LACK-304.499.08",
+    ikeaArticle: "304.499.08",
     name: "LACK side table 55×55",
     brand: "IKEA-like",
     category: "furniture",
@@ -24,6 +25,7 @@ const PARTS = [
   {
     id: "lack-top",
     sku: "IKEA-LACK-TOP",
+    ikeaArticle: "304.499.08-TOP",
     name: "LACK table top 550×550×36",
     brand: "IKEA-like",
     category: "furniture",
@@ -50,6 +52,7 @@ const PARTS = [
   {
     id: "lack-leg",
     sku: "IKEA-LACK-LEG",
+    ikeaArticle: "304.499.08-LEG",
     name: "LACK leg 414 mm",
     brand: "IKEA-like",
     category: "furniture",
@@ -71,6 +74,7 @@ const PARTS = [
   {
     id: "linmon-top",
     sku: "IKEA-LINNMON",
+    ikeaArticle: "002.511.35",
     name: "LINNMON table top 100×60",
     brand: "IKEA-like",
     category: "furniture",
@@ -90,6 +94,7 @@ const PARTS = [
   {
     id: "adils-leg",
     sku: "IKEA-ADILS",
+    ikeaArticle: "902.179.72",
     name: "ADILS leg",
     brand: "IKEA-like",
     category: "furniture",
@@ -109,6 +114,7 @@ const PARTS = [
   {
     id: "arduino-nano",
     sku: "ARD-NANO-CH340",
+    ikeaArticle: null,
     name: "Arduino Nano",
     brand: "Arduino-like",
     category: "electronics",
@@ -137,6 +143,7 @@ const PARTS = [
   {
     id: "esp32-dev",
     sku: "ESP32-WROOM",
+    ikeaArticle: null,
     name: "ESP32 DevKit",
     brand: "Espressif-like",
     category: "electronics",
@@ -160,6 +167,7 @@ const PARTS = [
   {
     id: "led-5mm",
     sku: "LED-5MM-W",
+    ikeaArticle: null,
     name: "5 mm white LED",
     brand: "Shop",
     category: "electronics",
@@ -182,6 +190,7 @@ const PARTS = [
   {
     id: "ws2812-strip",
     sku: "WS2812-30",
+    ikeaArticle: null,
     name: "WS2812 30-LED strip 0.5 m",
     brand: "Shop",
     category: "electronics",
@@ -205,6 +214,7 @@ const PARTS = [
   {
     id: "tactile-btn",
     sku: "BTN-6MM",
+    ikeaArticle: null,
     name: "Tactile button 6 mm",
     brand: "Shop",
     category: "electronics",
@@ -227,6 +237,7 @@ const PARTS = [
   {
     id: "breadboard",
     sku: "BB-400",
+    ikeaArticle: null,
     name: "Half breadboard",
     brand: "Shop",
     category: "electronics",
@@ -245,6 +256,7 @@ const PARTS = [
   {
     id: "resistor-220",
     sku: "R-220-025",
+    ikeaArticle: null,
     name: "220 Ω resistor",
     brand: "Shop",
     category: "electronics",
@@ -266,6 +278,7 @@ const PARTS = [
   {
     id: "psu-5v2a",
     sku: "PSU-5V2A",
+    ikeaArticle: null,
     name: "5 V 2 A wall supply",
     brand: "Shop",
     category: "electronics",
@@ -284,6 +297,7 @@ const PARTS = [
   {
     id: "jumper-m2m",
     sku: "JMP-M2M",
+    ikeaArticle: null,
     name: "Male-male jumper pack",
     brand: "Shop",
     category: "cable",
@@ -305,6 +319,7 @@ const PARTS = [
   {
     id: "usb-mini-cable",
     sku: "USB-MINI-1M",
+    ikeaArticle: null,
     name: "USB-A to Mini-B cable",
     brand: "Shop",
     category: "cable",
@@ -326,6 +341,7 @@ const PARTS = [
   {
     id: "tape-electrical",
     sku: "TAPE-ELEC",
+    ikeaArticle: null,
     name: "Electrical tape roll",
     brand: "Shop",
     category: "tape",
@@ -344,6 +360,7 @@ const PARTS = [
   {
     id: "tape-gaffer",
     sku: "TAPE-GAFF",
+    ikeaArticle: null,
     name: "Gaffer tape",
     brand: "Shop",
     category: "tape",
@@ -362,6 +379,7 @@ const PARTS = [
   {
     id: "tape-packing",
     sku: "TAPE-PACK",
+    ikeaArticle: null,
     name: "Packing tape",
     brand: "Shop",
     category: "tape",
@@ -380,6 +398,7 @@ const PARTS = [
   {
     id: "zip-tie",
     sku: "ZIP-100",
+    ikeaArticle: null,
     name: "Zip ties 100 mm",
     brand: "Shop",
     category: "fastener",
@@ -398,6 +417,7 @@ const PARTS = [
   {
     id: "m6-screw",
     sku: "SCR-M6-12",
+    ikeaArticle: "100224",
     name: "M6 × 12 machine screw",
     brand: "Shop",
     category: "fastener",
@@ -417,6 +437,7 @@ const PARTS = [
   {
     id: "allen-key",
     sku: "TOOL-ALLEN-4",
+    ikeaArticle: "100049",
     name: "4 mm Allen key",
     brand: "IKEA-like",
     category: "tool",
@@ -437,6 +458,7 @@ const PARTS = [
   {
     id: "screwdriver",
     sku: "TOOL-PH2",
+    ikeaArticle: null,
     name: "Phillips screwdriver",
     brand: "Shop",
     category: "tool",
@@ -456,6 +478,7 @@ const PARTS = [
   {
     id: "soldering-iron",
     sku: "TOOL-IRON",
+    ikeaArticle: null,
     name: "Soldering iron 40 W",
     brand: "Shop",
     category: "tool",
@@ -475,6 +498,7 @@ const PARTS = [
   {
     id: "multimeter",
     sku: "TOOL-DMM",
+    ikeaArticle: null,
     name: "Digital multimeter",
     brand: "Shop",
     category: "tool",
@@ -494,6 +518,7 @@ const PARTS = [
   {
     id: "enclosure-print",
     sku: "PRINT-BOX",
+    ikeaArticle: null,
     name: "Printable lamp enclosure",
     brand: "Workshop",
     category: "printable",
@@ -514,6 +539,7 @@ const PARTS = [
   {
     id: "pine-offcut",
     sku: "LUMBER-PINE-550",
+    ikeaArticle: null,
     name: "Pine offcut 550×550×18",
     brand: "Hardware",
     category: "furniture",
@@ -533,6 +559,7 @@ const PARTS = [
   {
     id: "dowel-18",
     sku: "DOWEL-18",
+    ikeaArticle: null,
     name: "Hardwood dowel 18×400",
     brand: "Hardware",
     category: "furniture",
@@ -572,7 +599,7 @@ export function searchParts({
     if (category && part.category !== category) return false;
     if (store && part.store !== store) return false;
     if (q) {
-      const hay = `${part.name} ${part.sku} ${part.brand} ${part.category} ${part.material}`.toLowerCase();
+      const hay = `${part.name} ${part.sku} ${part.ikeaArticle || ""} ${part.brand} ${part.category} ${part.material}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     for (const [key, min] of Object.entries(minSpecs || {})) {
@@ -621,6 +648,7 @@ export function bomFromIds(ids, { kit = "lack-kit" } = {}) {
         cost: part.cost,
         store: part.store,
         storeUrl: part.storeUrl,
+        ikeaArticle: part.ikeaArticle ?? null,
         included: (part.includedIn || []).includes(kit) || part.cost === 0,
         extra: Boolean(part.extra) || !(part.includedIn || []).includes(kit),
         category: part.category,
