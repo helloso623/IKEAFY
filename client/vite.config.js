@@ -20,7 +20,12 @@ export default defineConfig({
     port: clientPort,
     strictPort: true,
     proxy: {
-      "/api": `http://127.0.0.1:${serverPort}`,
+      // Seedance can poll fal for ~15 minutes; do not let the Vite proxy cut the socket first.
+      "/api": {
+        target: `http://127.0.0.1:${serverPort}`,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
       "/phone-upload": `http://127.0.0.1:${serverPort}`,
       "/phone": `http://127.0.0.1:${serverPort}`,
     },

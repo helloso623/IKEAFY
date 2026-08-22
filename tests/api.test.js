@@ -5,9 +5,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { apiRoot } from "../client/src/api.js";
+import { apiRoot, DEFAULT_REQUEST_TIMEOUT_MS, FAL_VIDEO_REQUEST_TIMEOUT_MS } from "../client/src/api.js";
 import { chat } from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
+import { DEFAULT_FAL_TIMEOUT_MS } from "../server/lib/video.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -17,6 +18,19 @@ test("apiRoot points Electron file pages at their requested local server port", 
     "http://127.0.0.1:9123",
   );
   assert.equal(apiRoot({ protocol: "https:", search: "" }), "");
+});
+
+test("video render client timeout outlasts the Seedance server poll deadline", () => {
+  assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000);
+  assert.equal(DEFAULT_FAL_TIMEOUT_MS, 15 * 60 * 1000);
+  assert.ok(
+    FAL_VIDEO_REQUEST_TIMEOUT_MS > DEFAULT_FAL_TIMEOUT_MS,
+    "browser must not AbortError while fal is still IN_PROGRESS",
+  );
+  const api = readFileSync(path.join(root, "client/src/api.js"), "utf8");
+  assert.match(api, /renderVideo:[\s\S]*?timeoutMs:\s*FAL_VIDEO_REQUEST_TIMEOUT_MS/);
+  assert.match(api, /renderReel:[\s\S]*?timeoutMs:\s*FAL_VIDEO_REQUEST_TIMEOUT_MS/);
+  assert.match(api, /The AI request timed out/);
 });
 
 test("chat client and server support the canonical and compatibility routes", () => {
