@@ -92,6 +92,43 @@ function drawEmptyRoom(ctx, width, height, room) {
   return { x: width * 0.08, y: height * 0.42, w: width * 0.84, h: height * 0.5 };
 }
 
+// Lens atmosphere over the room photo: a depth-ish gradient that cools the
+// far (top) edge plus a light vignette. Plain 2D gradients painted once per
+// event-driven redraw — there is no animation loop here, so nothing flickers.
+function applyAtmosphere(ctx, width, height) {
+  const depth = ctx.createLinearGradient(0, 0, 0, height);
+  depth.addColorStop(0, "rgba(22, 28, 36, 0.16)");
+  depth.addColorStop(0.55, "rgba(22, 28, 36, 0)");
+  ctx.fillStyle = depth;
+  ctx.fillRect(0, 0, width, height);
+  const radius = Math.hypot(width, height) / 2;
+  const vignette = ctx.createRadialGradient(
+    width / 2, height / 2, radius * 0.55,
+    width / 2, height / 2, radius,
+  );
+  vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+  vignette.addColorStop(1, "rgba(0, 0, 0, 0.18)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, width, height);
+}
+
+// A soft elliptical blob under the piece so it sits on the photo floor
+// instead of floating over it — the 2D twin of the Lab's contact shadow.
+function drawContactShadow(ctx, cx, cy, radius) {
+  const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+  grad.addColorStop(0, "rgba(14, 17, 21, 0.32)");
+  grad.addColorStop(1, "rgba(14, 17, 21, 0)");
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, 0.36);
+  ctx.translate(-cx, -cy);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function shade(hex, amount = -22) {
   const raw = String(hex || "#f3efe6").replace("#", "");
   if (raw.length < 6) return "#d8c7a1";
@@ -118,6 +155,8 @@ function drawPiece(ctx, plan, floor) {
   const skew = topD * 0.45;
 
   ctx.save();
+  const legDrop = shape !== "slab" ? height : 0;
+  drawContactShadow(ctx, x + topW / 2 - skew / 2, y + topD * 0.85 + legDrop, Math.max(topW, topD) * 0.72);
   ctx.globalAlpha = 0.92;
   ctx.fillStyle = color;
   ctx.strokeStyle = "rgba(17, 17, 17, 0.35)";
@@ -267,6 +306,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     const backdrop = live ? cameraVideo : photo || capturedFrames.at(-1);
     const floor = backdrop ? drawPhoto(ctx, backdrop, width, height) : drawEmptyRoom(ctx, width, height, room);
     if (plan?.ordered?.[0]) drawPiece(ctx, plan, floor);
+    applyAtmosphere(ctx, width, height);
     if (!view3d) canvas.classList.remove("hidden");
   }
 
