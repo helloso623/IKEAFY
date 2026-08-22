@@ -99,42 +99,14 @@ Lab → **Scan** accepts aligned front, side, and top photos, the live browser/E
 Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
 
 
-### Phone upload (LAN)
+### Send from phone
 
-Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR like `http://192.168.1.20:5173/phone-upload` (or `:8787/phone-upload` on the API). On the phone, record a 30-second walk of the room and send it. The page POSTs the clip to `/api/scan/video`. The Lab computer pulls stills in the browser and rebuilds the 3D house. Nothing is uploaded to a paid reconstruction model. `npm run dev` already binds Vite on `0.0.0.0:5173` and the API on `0.0.0.0:8787`.
+Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
 
+`http://<lan-ip>:5173/phone-upload`
 
-### Tailscale (optional)
+(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). On the phone, record or upload a ~30s walk around the room. The page POSTs the clip to `/api/scan/video`. The Lab computer pulls stills in the browser and rebuilds the 3D house. Nothing is uploaded to a paid reconstruction model. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
 
-Serve **both** the Vite UI and the API on your tailnet. Vite proxies `/api` to Express on `8787`:
-
-```bash
-npm run dev
-tailscale serve --bg 5173
-```
-
-Open `https://<your-machine>.ts.net` from a phone on the tailnet. To share only the API:
-
-```bash
-tailscale serve --bg 8787
-```
-
-POST a walk-around clip or stills to `/api/scan/video`. In Lab → **Scan**, leave the URL empty and click **Pull frames** to load the last POST.
-
-```bash
-# video file (`-T` is PUT; the API accepts POST and PUT)
-curl -T clip.mp4 -H "Content-Type: video/mp4" https://<your-machine>.ts.net/api/scan/video
-
-# JPEG/PNG frames (base64)
-curl -X POST https://<your-machine>.ts.net/api/scan/video \
-  -H "Content-Type: application/json" \
-  -d '{"frames":[{"name":"front.jpg","mime":"image/jpeg","data":"<base64>"}]}'
-```
-
-The API stores the last POST and proxies a video URL so CORS does not block a phone on MagicDNS. Nothing is uploaded to a paid reconstruction model.
-
-
----
 
 ## Social preview
 

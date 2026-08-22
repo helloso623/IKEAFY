@@ -117,8 +117,7 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(readme, /Send from phone/);
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
-  assert.match(readme, /tailscale serve --bg 5173/);
-  assert.match(readme, /curl -T clip\.mp4/);
+  assert.doesNotMatch(readme, /tailscale serve|MagicDNS|ts\.net/i);
 
   assert.match(server, /app\.post\("\/api\/scan\/video"/);
   assert.match(main, /pullScanInbox/);
