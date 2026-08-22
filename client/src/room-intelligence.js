@@ -287,6 +287,15 @@ export function detectDesignIssues({ room = {}, target, grid, model = null, door
   }
   const table = model || {};
   const undersideM = finite(table.undersideM, target.h - finite(table.topThicknessM, 0.04));
+  const modeledHeightM = Math.max(finite(target.h), finite(table.heightM));
+  if (modeledHeightM > finite(room.heightM, 2.7)) {
+    add(
+      "room-height",
+      "error",
+      "Table exceeds room height",
+      `${Math.round(modeledHeightM * 100)} cm model height exceeds the ${Math.round(finite(room.heightM, 2.7) * 100)} cm room.`,
+    );
+  }
   if (undersideM < 0.62) {
     add("chair-height", "warning", "Chair and knee clearance", `${Math.round(undersideM * 100)} cm under the top is below the 62 cm seated-clearance check.`);
   } else if (target.h > 0.9) {
