@@ -3,12 +3,12 @@ import test from "node:test";
 
 import { buildPacketHtml } from "../client/src/build-packet.js";
 
-test("print packet contains furniture pieces and parsed todo steps", () => {
+test("print packet contains construction ways, cut pieces, and parsed todo steps", () => {
   const html = buildPacketHtml({
-    pdf: { filename: "table-piece-plan.pdf" },
+    pdf: { filename: "table-ways-to-make.pdf" },
     bom: {
       name: "Table <one>",
-      scope: "Furniture pieces matched by shape and millimetres",
+      scope: "Construction ways and cut pieces for this model",
       estimatedTotal: 34.5,
       currency: "USD",
       ways: [
@@ -33,24 +33,11 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
           sources: [{ store: "Cut-to-size search", url: "https://example.com/cut-panel" }],
         },
       ],
-      hardwareLines: [
-        {
-          qty: 4,
-          name: "Table-leg mounting plate",
-          why: "Connects each modeled leg.",
-          dimensions: "80 × 80 mm",
-          shape: "square fixing plate",
-          material: "zinc-plated steel",
-          estimatedCost: 18,
-          sources: [{ store: "Hardware search", url: "https://example.com/mounting-plate" }],
-        },
-      ],
-      lines: [],
       liveSources: [
         {
-          group: "hardware",
-          title: "Live mounting plates",
-          url: "https://example.com/live-plates",
+          group: "method",
+          title: "Cut-to-size table plan",
+          url: "https://example.com/live-plan",
         },
       ],
       disclaimer: "Verify before cutting.",
@@ -63,16 +50,15 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
   });
 
   assert.match(html, /Table &lt;one&gt;/);
-  assert.match(html, /Ways to make the final model/);
+  assert.match(html, /Candidate piece routes/);
   assert.match(html, /Cut top \+ ready-made legs/);
-  assert.match(html, /Cut list and shaped pieces/);
+  assert.match(html, /Pieces for this table/);
   assert.match(html, /birch plywood/);
-  assert.match(html, /Connection hardware/);
-  assert.match(html, /Table-leg mounting plate/);
-  assert.match(html, /hardware:<\/strong>/);
+  assert.match(html, /Live piece matches/);
+  assert.match(html, /Cut-to-size table plan/);
   assert.match(html, /IKEAlive watch \/ plan \/ todo/);
   assert.match(html, /Cut the top to its modeled size/);
-  assert.doesNotMatch(html, /McMaster/i);
+  assert.doesNotMatch(html, /hardware|McMaster/i);
   assert.match(html, /@page/);
 });
 

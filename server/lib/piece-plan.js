@@ -483,7 +483,7 @@ export function buildWaysForProject(project = {}) {
   return {
     ok: true,
     name: String(project.name || "Custom table").trim() || "Custom table",
-    scope: "Construction ways, cut stock, tops, legs, and visible table bodies for this exact modeled shape",
+    scope: "Furniture pieces matched to the current model by shape and millimetres",
     components,
     modelDimensionsMm: modelDimensionsMm(components),
     modelSignature: modelSignature(components),
@@ -531,12 +531,12 @@ export function buildPlanSource(build) {
     })
     .join("\n");
   return [
-    `${build.name} — ways to make the final model`,
+    `${build.name} — pieces for this table`,
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
-    `Build scope: ${build.scope}.`,
+    `Piece-list scope: ${build.scope}.`,
     match,
-    `Cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
-    "Construction ways:",
+    `Furniture pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    "Candidate piece routes:",
     alternatives,
     "",
     ...numberedSteps(build),
@@ -567,7 +567,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
     planSource: buildPlanSource(build),
     pdf: {
       method: "client-print",
-      filename: `${slug(build.name) || "table"}-ways-to-make.pdf`,
+      filename: `${slug(build.name) || "table"}-piece-plan.pdf`,
       note: "The browser creates the PDF locally; no model geometry is uploaded to a PDF service.",
     },
   };
