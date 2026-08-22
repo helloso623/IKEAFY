@@ -81,7 +81,7 @@ test("finishing a 3D table returns a printable hardware BOM and parsed assembly 
   assert.ok(packet.bom.lines.some((line) => line.id === "m6-machine-screw"));
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
-  assert.ok(packet.assembly.guide.steps.length >= 5);
+  assert.ok(packet.assembly.outline.length >= 5);
 });
 
 test("POST /api/chat creates a room and table via steward actions", async (t) => {

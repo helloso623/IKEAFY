@@ -29,7 +29,7 @@ function sourceLinks(line) {
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
   const lines = bom.lines || [];
-  const steps = packet.assembly?.guide?.steps || [];
+  const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || [];
   const rows = lines
     .map(
