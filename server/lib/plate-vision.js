@@ -33,6 +33,71 @@ function promptForPlates({ raw = "", instructions = "", availableTools = [] } = 
     .join("\n\n");
 }
 
+/**
+ * fal plate vision already returns structured JSON with `body` fields.
+ * Prefer that payload when GLiNER 2 cannot re-map it into assembly_step.instruction.
+ */
+export function parseFalVisionGuide(visionText) {
+  const raw = String(visionText || "").trim();
+  if (!raw) return null;
+
+  const candidates = [raw];
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) candidates.unshift(fenced[1].trim());
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  if (objectMatch?.[0] && objectMatch[0] !== raw) candidates.push(objectMatch[0]);
+
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        continue;
+      }
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    const rows = Array.isArray(parsed.steps)
+      ? parsed.steps
+      : Array.isArray(parsed.assembly_step)
+        ? parsed.assembly_step
+        : null;
+    if (!rows?.length) continue;
+    const steps = rows
+      .map((row, index) => {
+        const body = String(
+          row?.body || row?.instruction || row?.text || row?.description || "",
+        ).trim();
+        if (!body) return null;
+        return {
+          number: Number.parseInt(row?.number ?? row?.sequence_number, 10) || index + 1,
+          body,
+          action: String(row?.action || "").trim(),
+          partsUsed: Array.isArray(row?.partsUsed)
+            ? row.partsUsed.map(String)
+            : Array.isArray(row?.parts)
+              ? row.parts.map(String)
+              : [],
+          toolRequired: row?.toolRequired || row?.tool || null,
+          warnings: Array.isArray(row?.warnings) ? row.warnings.map(String) : [],
+        };
+      })
+      .filter(Boolean);
+    if (!steps.length) continue;
+    const nestedTitle = Array.isArray(parsed.assembly_guide) ? parsed.assembly_guide[0]?.title : "";
+    return {
+      title: String(parsed.title || nestedTitle || "Custom build").trim() || "Custom build",
+      steps,
+    };
+  }
+  return null;
+}
+
 export async function readPlatesWithFal(
   { raw = "", images = [], instructions = "", availableTools = [], requestId = null } = {},
   { fetchFn = fetch, falVisionFn } = {},

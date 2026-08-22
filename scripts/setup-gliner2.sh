@@ -35,9 +35,19 @@ echo "[ikealive:gliner2] creating $VENV with $("$PYTHON" --version 2>&1)"
 "$VENV/bin/python" -m pip install --upgrade pip
 "$VENV/bin/python" -m pip install -r "$ROOT/requirements-gliner2.txt"
 
-echo "[ikealive:gliner2] downloading and checking fastino/gliner2-base-v1"
-GLINER2_MODEL="${GLINER2_MODEL:-fastino/gliner2-base-v1}" \
-  "$VENV/bin/python" "$ROOT/server/gliner2_sidecar.py" --health
+echo "[ikealive:gliner2] checking GLiNER 2 sidecar"
+if [[ -n "${PIONEER_API_KEY:-}${GLINER2_API_KEY:-}" ]]; then
+  echo "[ikealive:gliner2] Pioneer API key detected — health check uses cloud API (no HF download)"
+  GLINER2_MODE="${GLINER2_MODE:-auto}" \
+    "$VENV/bin/python" "$ROOT/server/gliner2_sidecar.py" --health
+else
+  echo "[ikealive:gliner2] no PIONEER_API_KEY — optional local checkpoint fastino/gliner2-base-v1"
+  echo "[ikealive:gliner2] Prefer setting PIONEER_API_KEY from https://gliner.pioneer.ai"
+  GLINER2_MODEL="${GLINER2_MODEL:-fastino/gliner2-base-v1}" \
+  GLINER2_MODE=local \
+    "$VENV/bin/python" "$ROOT/server/gliner2_sidecar.py" --health
+fi
 
 echo "[ikealive:gliner2] ready"
 echo "IKEAlive will use $VENV/bin/python automatically."
+echo "Set PIONEER_API_KEY in .env for Pioneer-hosted GLiNER 2 (recommended)."

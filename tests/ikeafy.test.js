@@ -452,3 +452,57 @@ test("drawing PDF uses fal vision then GLiNER 2 normalization without OpenAI", a
     else process.env.OPENAI_API_KEY = previousOpenAi;
   }
 });
+
+test("fal vision structured JSON is used when GLiNER normalize returns empty steps", async () => {
+  let falCalls = 0;
+  const guide = await parseGuideAsync(
+    "ALHULT.pdf: drawing plates with little extractable text.",
+    { images: [{ name: "ALHULT p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => {
+        falCalls += 1;
+        return {
+          title: "ALHULT cabinet",
+          steps: [
+            { number: 1, action: "place", body: "Place side panel A against base B." },
+            { number: 2, action: "fasten", body: "Fasten with screws 100001.", partsUsed: ["100001"] },
+          ],
+        };
+      },
+      // Mimic the production failure: GLiNER returns schema keys but no usable instruction bodies.
+      glinerInfer: async () => ({
+        assembly_guide: [{ title: "ALHULT cabinet" }],
+        assembly_step: [{ sequence_number: "1", instruction: "", action: "", parts: [], tool: "", warnings: [] }],
+      }),
+    },
+  );
+  assert.equal(falCalls, 1);
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.title, "ALHULT cabinet");
+  assert.equal(guide.steps.length, 2);
+  assert.match(guide.steps[0].body, /side panel A/i);
+  assert.match(guide.steps[1].body, /screws 100001/i);
+  assert.equal(guide.parseError, undefined);
+});
+
+test("fal vision still yields steps when GLiNER sidecar is unavailable", async () => {
+  const guide = await parseGuideAsync(
+    "ALHULT.pdf: drawing only.",
+    { images: [{ name: "ALHULT p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => ({
+        title: "ALHULT",
+        steps: [{ number: 1, body: "Attach the door hinge.", action: "fasten" }],
+      }),
+      glinerInfer: async () => {
+        const error = new Error("GLiNER 2 local runtime is unavailable (sidecar exited).");
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_RUNTIME_UNAVAILABLE";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.steps.length, 1);
+  assert.match(guide.steps[0].body, /door hinge/i);
+});
