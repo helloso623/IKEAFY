@@ -180,10 +180,14 @@
             <p id="film-status" class="film-status">Upload a PDF to build the Seedance reel.</p>
           </div>
           <p id="film-caption"></p>
-          <div class="row wrap film-actions" role="group" aria-label="Watch transport">
-            <button id="film-back" type="button">Back</button>
+          <div class="row film-actions" role="group" aria-label="Watch transport">
+            <button id="film-back" type="button" class="film-arrow" aria-label="Back one step" title="Back one step (←)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" /></svg>
+            </button>
             <button id="film-play" type="button" class="primary" aria-pressed="false">Play</button>
-            <button id="film-wait" type="button">Next</button>
+            <button id="film-wait" type="button" class="film-arrow" aria-label="Next step" title="Next step (→)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" /></svg>
+            </button>
           </div>
           <nav id="film-scrub" class="film-scrub" aria-label="Jump to a step"></nav>
           <p class="hint" id="render-video-out"></p>
@@ -295,7 +299,7 @@
               Scan object
             </summary>
             <div class="lab-folder-body">
-              <p class="hint lab-hint">Use a plain backdrop. Keep the object upright and fill each frame.</p>
+              <p class="hint lab-hint">Use a plain backdrop. Photos, a walk-around video, or a video URL all work. Scale is local: known object, vanishing line, or tap two points = 1 m.</p>
               <div class="scan-views">
                 <label class="field" for="scan-front">
                   <span>Front photo</span>
@@ -313,19 +317,44 @@
                   <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
                 </label>
               </div>
-              <div class="scan-scale">
+              <label class="field file-field" for="scan-video">
+                <span>Video or extra frames</span>
+                <input id="scan-video" type="file" accept="video/*,image/*" multiple />
+              </label>
+              <div class="scan-url-row">
+                <label class="field" for="scan-video-url">
+                  <span>Video URL</span>
+                  <input id="scan-video-url" type="url" inputmode="url" placeholder="https://phone.ts.net/clip.mp4" />
+                </label>
+                <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
+              </div>
+              <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
                 <label class="field" for="scan-scale-kind">
                   <span>Scale from</span>
                   <select id="scan-scale-kind">
                     <option value="circumference">Circumference</option>
                     <option value="length">Known longest length</option>
+                    <option value="known">Known object</option>
+                    <option value="vanishing">Vanishing / horizon</option>
+                    <option value="taps">Tap two points = 1 m</option>
                   </select>
                 </label>
-                <label class="field" for="scan-scale-mm">
+                <label class="field" for="scan-scale-mm" data-scale-field="length">
                   <span>Scale (mm)</span>
                   <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
                 </label>
+                <label class="field" for="scan-known-object" data-scale-field="known">
+                  <span>Known object</span>
+                  <select id="scan-known-object">
+                    <option value="credit-card">Credit card (85.6 mm)</option>
+                    <option value="a4">A4 paper (210 mm)</option>
+                    <option value="side-table">Side table (550 mm)</option>
+                    <option value="door">Door height (2032 mm)</option>
+                  </select>
+                </label>
               </div>
+              <canvas id="scan-scale-frame" width="0" height="0" aria-label="Tap two points that are 1 m apart"></canvas>
+              <p class="hint lab-hint" id="scan-scale-hint">Circumference or a known length sets millimetres. Vanishing uses the wall/floor horizon. Tap two points on the frame that are 1 m apart.</p>
               <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
               <div class="row wrap scan-after">
                 <button type="button" id="scan-place-room" class="quiet">Place in the room</button>
@@ -379,6 +408,25 @@
                 <span>More room photos (3D rebuild)</span>
                 <input id="room-photos" type="file" accept="image/*" multiple />
               </label>
+              <label class="field" for="room-scale-kind">
+                <span>Scale from</span>
+                <select id="room-scale-kind">
+                  <option value="measure">Width / depth</option>
+                  <option value="vanishing">Vanishing / horizon</option>
+                  <option value="known">Known object (tap its ends)</option>
+                  <option value="taps">Tap two points = 1 m</option>
+                </select>
+              </label>
+              <label class="field" for="room-known-object" data-room-scale="known">
+                <span>Known object</span>
+                <select id="room-known-object">
+                  <option value="side-table">Side table (550 mm)</option>
+                  <option value="door">Door height (2032 mm)</option>
+                  <option value="credit-card">Credit card (85.6 mm)</option>
+                  <option value="a4">A4 paper (210 mm)</option>
+                </select>
+              </label>
+              <p class="hint lab-hint" id="room-scale-hint">Width and depth set metres. Otherwise the vanishing line, a known object, or two taps = 1 m on the photo.</p>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
                   <span>Width (m)</span>
