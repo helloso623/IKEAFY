@@ -124,7 +124,11 @@ export function modelComponents(project = {}, model = []) {
           y: Number(piece.y) || 0,
           z: Number(piece.z) || 0,
         },
-        rotationRad: rotationRad(piece),
+        rotationRad: {
+          x: Number(piece.rx) || 0,
+          y: Number(piece.ry) || 0,
+          z: Number(piece.rz) || 0,
+        },
       };
     })
     .filter(Boolean);
