@@ -18,6 +18,7 @@ const html = read("client/index.html");
 const main = read("client/src/main.js");
 const studio = read("client/src/studio.js");
 const house = read("client/src/house.js");
+const lab = read("client/src/lab.js");
 const apiSource = read("client/src/api.js");
 
 const markupIds = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
@@ -320,10 +321,12 @@ test("the bench catalog ids stay hidden and empty — no parts shelf", () => {
   assert.match(main, /shelf\.replaceChildren\(\)/);
 });
 
-test("lab tests stay behind a details fold", () => {
-  const start = html.indexOf('id="lab-btns"');
-  assert.ok(start > 0, "lab buttons must exist");
-  assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
+test("dead simulation controls stay out of the Lab", () => {
+  assert.doesNotMatch(html, /id="lab-btns"/);
+  assert.doesNotMatch(html, /id="sim-behavior"/);
+  assert.doesNotMatch(html, /data-test=/);
+  assert.doesNotMatch(html, /id="tape-elec"|id="tape-gaff"/);
+  assert.doesNotMatch(lab, /Run sim|data-sim|simRun/);
 });
 
 test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", () => {
@@ -351,8 +354,15 @@ test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", ()
   assert.match(main, /scan-bake-plan/);
   assert.match(main, /startFromGuide/);
   assert.match(studio, /startFromGuide/);
-  assert.match(house, /makeIkeaTestTable/);
+  const startFromGuide = studio.slice(studio.indexOf("async function startFromGuide"), studio.indexOf("async function startOfficial"));
+  assert.match(startFromGuide, /afterGuideReady/);
+  assert.doesNotMatch(startFromGuide, /await bootReel\(/);
+  assert.match(house, /makeGenericSideTable/);
   assert.match(house, /KeyW/);
+  assert.match(house, /maxPolarAngle = Math.PI \/ 2/);
+  assert.doesNotMatch(html, /id="sim-toggle"/);
+  assert.doesNotMatch(html, /id="reset-sim"/);
+  assert.doesNotMatch(html, /id="print-btn"/);
 });
 
 test("Lab spaces are Bench, House, AR, then Scan", () => {
@@ -384,21 +394,16 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
   assert.doesNotMatch(css, /\.house-drawer/);
 });
 
-test("the lab strip assigns jobs and runs one behavior suite", () => {
-  assert.match(html, /id="lab-strip"/);
-  assert.match(html, /id="fn-btns"/);
-  assert.match(html, /id="sim-behavior"/);
-  assert.match(html, /data-fn="support"/);
-  assert.match(html, /data-fn="light"/);
-  assert.match(html, /data-fn="sense"/);
-  assert.match(html, /data-fn="control"/);
-  assert.match(html, /data-fn="decorate"/);
-  const stripStart = html.indexOf('id="lab-strip"');
-  const strip = html.slice(stripStart, html.indexOf("</details>", stripStart));
-  assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
-  assert.match(main, /simBehavior/);
-  assert.match(main, /data-fn/);
-  assert.match(apiSource, /simBehavior/);
+test("the removed function and simulation strips stay out of the Lab", () => {
+  assert.doesNotMatch(html, /id="lab-strip"|id="fn-btns"|data-fn=/);
+  assert.doesNotMatch(lab, /simRun|data-sim|Run sim/);
+  assert.doesNotMatch(main, /shopLine|part\.store|Job: \$\{piece/);
+  assert.match(html, /data-watch-card="bom"/);
+  assert.match(html, /data-watch-card="reviews"/);
+  assert.match(html, /data-watch-card="broken"/);
+  assert.match(html, /data-watch-card="spare"/);
+  assert.match(html, /id="broken-btn"/);
+  assert.match(html, /id="bom"/);
 });
 
 test("the workshop is the app — no leftover Next store", () => {
@@ -442,12 +447,10 @@ test("Lab AI is a bottom-right orb, not a header Ask", () => {
 
 test("bench editing controls are wired for furniture first", () => {
   for (const id of [
-    "edit-bar",
     "edit-move",
     "edit-rotate",
     "edit-scale",
     "edit-snap",
-    "edit-pose",
     "duplicate-piece",
     "delete-piece",
     "undo-edit",
@@ -505,8 +508,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
   assert.match(html, /Bodies/);
   assert.doesNotMatch(html, /Add · Catalog/);
-  assert.match(html, /Parameters/);
-  assert.match(html, /Functions/);
+  assert.match(html, /Materials/);
+  assert.doesNotMatch(html, />Functions</);
   assert.doesNotMatch(html, /Parameters · Functions · Nets/);
   assert.doesNotMatch(html, /<summary class="lab-sheet-sum">Nets<\/summary>/);
   const css = read("client/src/styles.css");

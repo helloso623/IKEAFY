@@ -127,4 +127,5 @@ export const api = {
   adapt: (body) => post("/api/adaptation/plan", body),
   scan: (body) => post("/api/adaptation/scan", body),
   scanPlan: (body) => post("/api/ikeafy/scan-plan", body),
+  scanVideoUrl: (url) => `/api/scan/video?url=${encodeURIComponent(url)}`,
 };

@@ -6,6 +6,8 @@ import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
+import { knownObject } from "./frame-scale.js";
+import { grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
@@ -31,7 +33,6 @@ function hud(text) {
 }
 
 const EMPTY_INSPECT = "Nothing selected.";
-const PIECE_FUNCTIONS = ["support", "light", "sense", "control", "decorate"];
 
 function inspect(text) {
   $("inspect").textContent = text;
@@ -39,7 +40,7 @@ function inspect(text) {
 
 function showEmptyInspect() {
   inspect(EMPTY_INSPECT);
-  syncFunctionStrip();
+  syncMaterialPanel();
 }
 
 function selectedPieceId() {
@@ -57,63 +58,27 @@ function syncDeleteButton() {
   syncEditButtons();
 }
 
-function poseHint(piece) {
-  if (!piece) return "Click a piece to move it. G move, R rotate, S scale.";
-  const mm = (n) => Math.round((Number(n) || 0) * 1000);
-  const deg = (n) => Math.round(((Number(n) || 0) * 180) / Math.PI);
-  return `${mm(piece.x)} × ${mm(piece.z)} mm · ${deg(piece.ry)}° · ×${Number(piece.sx || 1).toFixed(1)}`;
-}
-
 function syncEditButtons() {
   const available = Boolean(selectedPieceId());
   const edit = project.edit || {};
-  const deleteBtn = $("delete-piece");
-  if (deleteBtn) {
-    deleteBtn.disabled = !available;
-    deleteBtn.classList.toggle("refuses", !available);
-    deleteBtn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
-  }
-  const dup = $("duplicate-piece");
-  if (dup) {
-    dup.disabled = !available;
-    dup.title = available ? "Duplicate this piece" : "Pick a piece, then Duplicate.";
-  }
-  const undoBtn = $("undo-edit");
-  if (undoBtn) undoBtn.disabled = !edit.canUndo;
-  const redoBtn = $("redo-edit");
-  if (redoBtn) redoBtn.disabled = !edit.canRedo;
   for (const btn of document.querySelectorAll("[data-undo]")) btn.disabled = !edit.canUndo;
   for (const btn of document.querySelectorAll("[data-redo]")) btn.disabled = !edit.canRedo;
   for (const btn of document.querySelectorAll("[data-duplicate]")) btn.disabled = !available;
-  const pose = $("edit-pose");
-  if (pose) {
-    const picked = selectedPiece();
-    pose.textContent = available
-      ? `${poseHint(picked?.piece || shop.getSelectedPose())}. Delete / Ctrl+D / Ctrl+Z.`
-      : "Click a piece to move it. G move, R rotate, S scale.";
+  for (const btn of document.querySelectorAll("[data-delete]")) {
+    btn.disabled = !available;
+    btn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
   }
   const mode = shop.getMode?.() || "translate";
   for (const btn of document.querySelectorAll("[data-edit]")) {
     btn.classList.toggle("on", btn.dataset.edit === mode);
   }
   const snapOn = shop.getSnap?.() !== false;
-  const snapBtn = $("edit-snap");
-  if (snapBtn) {
-    snapBtn.classList.toggle("on", snapOn);
-    snapBtn.setAttribute("aria-pressed", snapOn ? "true" : "false");
-  }
   for (const btn of document.querySelectorAll("[data-snap]")) {
     btn.classList.toggle("on", snapOn);
     btn.setAttribute("aria-pressed", snapOn ? "true" : "false");
   }
   const flag = $("snap-flag");
   if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
-}
-
-function money(n) {
-  const value = Number(n);
-  if (!Number.isFinite(value)) return "";
-  return `$${value % 1 ? value.toFixed(2) : value}`;
 }
 
 function sizePlain(part) {
@@ -201,7 +166,6 @@ house = initHouse({
 applyChrome(project.chrome);
 showEmptyInspect();
 syncDeleteButton();
-syncFunctionStrip();
 
 let lastChromeNote = "";
 function hudChromeNote(chrome) {
@@ -222,7 +186,7 @@ async function refreshProject() {
   else if (selectedIds[0]) shop.select(selectedIds[0]);
   syncEditButtons();
   renderBenchPieces();
-  syncFunctionStrip();
+  syncMaterialPanel();
   aiDock?.refreshScene();
 }
 
@@ -240,10 +204,9 @@ function renderBenchPieces() {
   list.innerHTML = [...regular, ...scanBodies]
     .map(({ piece, part: entryPart }) => {
       const part = entryPart || partsById[piece.partId];
-      const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
       const on = piece.id === current ? " on" : "";
       const scan = piece.reconstructed ? ` · ${part?.dimsMm ? `${Math.round(part.dimsMm.x)}×${Math.round(part.dimsMm.y)}×${Math.round(part.dimsMm.z)} mm` : "mesh"}` : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
 
     })
     .join("");
@@ -317,12 +280,8 @@ function isElectronicsQuery(query) {
   return ELECTRONICS_SEARCH.test(String(query || ""));
 }
 
-function showElectronicsOn() {
-  return false;
-}
-
 function filterLabCatalog(parts, typed) {
-  if (showElectronicsOn() || isElectronicsQuery(typed)) return parts;
+  if (isElectronicsQuery(typed)) return parts;
   return parts.filter(isLabShelfPart);
 }
 
@@ -332,7 +291,6 @@ async function loadCatalog(raw) {
   const budget = $("cost")?.value || parseBudget(typed);
   if (budget) q.maxCost = budget;
 
-  if (showElectronicsOn()) q.electronics = "1";
   const parts = filterLabCatalog(await api.catalog(q), typed);
 
   for (const p of parts) partsById[p.id] = p;
@@ -674,6 +632,7 @@ function selectedPiece() {
   return { piece, part: partsById[piece.partId] };
 }
 
+
 /* ---- Materials: color, roughness, finish presets on the selected piece ---- */
 
 const MAT_FINISH_TEXTURES = { foil: "birch-foil", wood: "oak-open", metal: "metal" };
@@ -761,10 +720,7 @@ $("mat-finish")?.addEventListener("click", (ev) => {
 function showPart(part, piece) {
   const lines = [part.name];
   const size = sizePlain(part);
-  const price = money(part.cost);
-  const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
-  if (shopLine) lines.push(shopLine);
-  if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
+  if (size) lines.push(size);
 
   if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
 
@@ -1026,14 +982,163 @@ for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
   });
 }
 
-for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
-  btn.addEventListener("click", () => {
-    setMode("lab");
-    setLabSpace(btn.dataset.lab);
-  });
+let scanSequence = 0;
+let scanTaps = [];
+let scanTapImage = null;
+
+function setFileInput(input, file) {
+  if (!input || !file || typeof DataTransfer !== "function") return;
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
 }
 
-let scanSequence = 0;
+function scanScaleKind() {
+  return $("scan-scale-kind")?.value || "circumference";
+}
+
+function syncScanScaleUi() {
+  const kind = scanScaleKind();
+  $("scan-scale-box")?.setAttribute("data-scale-kind", kind);
+  const hint = $("scan-scale-hint");
+  const canvas = $("scan-scale-frame");
+  const tapping = kind === "taps" || kind === "known";
+  if (canvas) canvas.classList.toggle("is-live", tapping && canvas.width > 0);
+  if (!hint) return;
+  if (kind === "taps") {
+    hint.textContent =
+      scanTaps.length < 2
+        ? "Tap two points on the frame that are 1 m apart."
+        : `1 m across ${Math.round(Math.hypot(scanTaps[1].x - scanTaps[0].x, scanTaps[1].y - scanTaps[0].y))} px. Reconstruct when the three views are ready.`;
+  } else if (kind === "known") {
+    const spec = knownObject($("scan-known-object")?.value) || knownObject("credit-card");
+    hint.textContent = `The silhouette is a ${spec.name} (${Math.round(spec.wMm)} mm). Or tap its ends on the frame.`;
+  } else if (kind === "vanishing") {
+    hint.textContent = "The wall/floor vanishing line and a 1.5 m eye-level camera size the object. No paid depth model.";
+  } else if (kind === "length") {
+    hint.textContent = "Type the object's longest millimetre length.";
+  } else {
+    hint.textContent = "Type the circumference in millimetres, or switch to tap / known object / vanishing.";
+  }
+}
+
+function drawScanTapFrame() {
+  const canvas = $("scan-scale-frame");
+  if (!canvas || !scanTapImage) return;
+  const width = scanTapImage.videoWidth || scanTapImage.naturalWidth || scanTapImage.width;
+  const height = scanTapImage.videoHeight || scanTapImage.naturalHeight || scanTapImage.height;
+  if (!width || !height) return;
+  const scale = Math.min(1, 480 / Math.max(width, height));
+  canvas.width = Math.max(16, Math.round(width * scale));
+  canvas.height = Math.max(16, Math.round(height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(scanTapImage, 0, 0, canvas.width, canvas.height);
+  if (scanTaps.length) {
+    ctx.strokeStyle = "#7ac7b7";
+    ctx.fillStyle = "#7ac7b7";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (const point of scanTaps) ctx.lineTo(point.x, point.y);
+    if (scanTaps.length > 1) ctx.stroke();
+    for (const point of scanTaps) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  canvas.classList.add("is-live");
+  syncScanScaleUi();
+}
+
+async function showScanTapSource(file) {
+  if (!file || !file.type?.startsWith("image/")) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = url;
+  });
+  URL.revokeObjectURL(url);
+  scanTapImage = img;
+  drawScanTapFrame();
+}
+
+async function pullScanVideo(source) {
+  const output = $("scan-reconstruct-out");
+  if (output) output.textContent = "Pulling stills from the video locally…";
+  hud("Pulling scan frames from the video…");
+  const grabbed = await grabVideoFrames(source, { count: 3 });
+  const views = grabbed.views;
+  setFileInput($("scan-front"), views.front);
+  setFileInput($("scan-side"), views.side);
+  setFileInput($("scan-top"), views.top);
+  if (views.front) await showScanTapSource(views.front);
+  const message = `Pulled ${grabbed.files.length} frames for front, side and top. Scale is still local — tap 1 m, a known object, or vanishing.`;
+  if (output) output.textContent = message;
+  hud(message);
+  ikealiveLog("scan", "video frames", { count: grabbed.files.length });
+}
+
+$("scan-scale-kind")?.addEventListener("change", syncScanScaleUi);
+$("scan-known-object")?.addEventListener("change", syncScanScaleUi);
+$("scan-scale-frame")?.addEventListener("click", (ev) => {
+  const kind = scanScaleKind();
+  if (kind !== "taps" && kind !== "known") return;
+  const canvas = $("scan-scale-frame");
+  if (!canvas?.width) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width;
+  const y = ((ev.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height;
+  scanTaps = [...scanTaps, { x, y }].slice(-2);
+  drawScanTapFrame();
+});
+$("scan-front")?.addEventListener("change", () => showScanTapSource($("scan-front")?.files?.[0]));
+$("scan-video")?.addEventListener("change", async () => {
+  const files = [...($("scan-video")?.files || [])];
+  if (!files.length) return;
+  const video = files.find((file) => file.type.startsWith("video/"));
+  const images = files.filter((file) => file.type.startsWith("image/"));
+  try {
+    if (video) {
+      const url = URL.createObjectURL(video);
+      try {
+        await pullScanVideo(url);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } else if (images.length) {
+      setFileInput($("scan-front"), images[0]);
+      setFileInput($("scan-side"), images[1] || images[0]);
+      setFileInput($("scan-top"), images[2] || images[0]);
+      await showScanTapSource(images[0]);
+      hud(`Loaded ${images.length} still${images.length === 1 ? "" : "s"} into front / side / top.`);
+    }
+  } catch (err) {
+    const message = err?.message || "Could not read those frames.";
+    const output = $("scan-reconstruct-out");
+    if (output) output.textContent = message;
+    hud(message);
+  }
+});
+$("scan-load-video")?.addEventListener("click", async () => {
+  const raw = $("scan-video-url")?.value?.trim();
+  if (!raw) {
+    hud("Paste a video URL, then pull frames.");
+    return;
+  }
+  try {
+    await pullScanVideo(scanVideoProxyUrl(raw, ""));
+  } catch (err) {
+    const message = err?.message || "Could not pull frames from that URL.";
+    const output = $("scan-reconstruct-out");
+    if (output) output.textContent = message;
+    hud(message);
+  }
+});
+
+syncScanScaleUi();
+
 $("scan-btn")?.addEventListener("click", () => {
   setMode("lab");
   setLabSpace("desk");
@@ -1042,7 +1147,7 @@ $("scan-btn")?.addEventListener("click", () => {
     panel.open = true;
     panel.scrollIntoView({ block: "nearest" });
   }
-  hud("Scan object — add aligned front, side and top photos, then enter its scale.");
+  hud("Scan object — photos, a video, or a URL. Tap two points = 1 m, a known object, or vanishing.");
 });
 
 $("scan-reconstruct")?.addEventListener("click", async () => {
@@ -1067,7 +1172,13 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const result = await reconstructFromFiles(files, {
       scaleMm: Number($("scan-scale-mm")?.value),
-      scaleKind: $("scan-scale-kind")?.value || "circumference",
+      scaleKind: scanScaleKind(),
+      knownId: $("scan-known-object")?.value,
+      taps: scanTaps,
+      tapMetres: scanScaleKind() === "known" ? (knownObject($("scan-known-object")?.value)?.wMm || 550) / 1000 : 1,
+      frameSize: $("scan-scale-frame")?.width
+        ? { width: $("scan-scale-frame").width, height: $("scan-scale-frame").height }
+        : undefined,
       resolution: 28,
     });
     for (const viewName of ["front", "side", "top"]) {
@@ -1090,10 +1201,11 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
     showPart(added.part, added.piece);
     shop.frameSelected?.();
     const dims = result.dimensionsMm;
+    const method = result.scale?.method || scanScaleKind();
     const summary =
       `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
       `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
-      `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm.`;
+      `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm · scale ${method}.`;
     if (output) output.textContent = `${summary} Place it in the room to test position, or bake a custom IKEAlive plan.`;
     hud("Scanned mesh is on the bench — place it in the room or bake an IKEAlive plan.");
     if (house?.hasScene?.() || house?.hasPhoto?.()) house.rebuildHouse3d?.();
@@ -1215,7 +1327,7 @@ async function boot() {
   const studioBar = $("ikea-agent-bar");
   if (studioBar) studioBar.innerHTML = roster;
 
-  studio = initStudio({ api, hud });
+  studio = initStudio({ api, hud, shop, getParts: () => partsById });
   window.__ikeafyStudio = studio;
 
   await loadCatalog();

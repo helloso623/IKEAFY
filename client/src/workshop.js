@@ -988,6 +988,18 @@ function makeBox(part, mat) {
   return g;
 }
 
+function makeBracket(part, mat) {
+  const w = part.dimsMm.x * MM;
+  const d = part.dimsMm.y * MM;
+  const h = part.dimsMm.z * MM;
+  const g = new THREE.Group();
+  add(g, new THREE.BoxGeometry(w, h, Math.max(w, d * 0.12)), mat, 0, 0, -d * 0.44);
+  add(g, new THREE.BoxGeometry(w, Math.max(w, h * 0.12), d), mat, 0, -h * 0.44, 0);
+  const brace = add(g, new THREE.BoxGeometry(w * 0.72, Math.hypot(d, h) * 0.72, w), mat.clone());
+  brace.rotation.x = -Math.atan2(d, h);
+  return g;
+}
+
 function bodyFor(shape, part, mat) {
   if (shape === "table") return makeTable(part, mat);
   if (shape === "slab")
@@ -997,6 +1009,7 @@ function bodyFor(shape, part, mat) {
     });
   if (shape === "post")
     return makePost(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, part.material === "steel");
+  if (shape === "bracket") return makeBracket(part, mat);
   if (shape === "board") return makeBoard(part, mat);
   if (shape === "led") return makeLed(part, mat);
   if (shape === "led-strip") return makeLedStrip(part, mat);

@@ -41,12 +41,6 @@
         </nav>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
-          <label class="toggle bench-only hidden">
-            <input type="checkbox" id="sim-toggle" />
-            Simulate
-          </label>
-          <button id="reset-sim" class="bench-only hidden">Reset</button>
-          <button id="print-btn" class="bench-only hidden">3D print</button>
           <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
         </div>
       </header>
@@ -171,9 +165,9 @@
         <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
-        <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
-        <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
-        <div id="vs-out" class="vs-out bench-only hidden" aria-live="polite"></div>
+        <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
+        <div id="viewport-strip" class="viewport-strip hidden" aria-hidden="true"></div>
+        <div id="vs-out" class="vs-out hidden" aria-live="polite"></div>
         <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
         <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
         <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
@@ -186,10 +180,14 @@
             <p id="film-status" class="film-status">Upload a PDF to build the Seedance reel.</p>
           </div>
           <p id="film-caption"></p>
-          <div class="row wrap film-actions" role="group" aria-label="Watch transport">
-            <button id="film-back" type="button">Back</button>
+          <div class="row film-actions" role="group" aria-label="Watch transport">
+            <button id="film-back" type="button" class="film-arrow" aria-label="Back one step" title="Back one step (←)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" /></svg>
+            </button>
             <button id="film-play" type="button" class="primary" aria-pressed="false">Play</button>
-            <button id="film-wait" type="button">Next</button>
+            <button id="film-wait" type="button" class="film-arrow" aria-label="Next step" title="Next step (→)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" /></svg>
+            </button>
           </div>
           <nav id="film-scrub" class="film-scrub" aria-label="Jump to a step"></nav>
           <p class="hint" id="render-video-out"></p>
@@ -301,7 +299,7 @@
               Scan object
             </summary>
             <div class="lab-folder-body">
-              <p class="hint lab-hint">Use a plain backdrop. Keep the object upright and fill each frame.</p>
+              <p class="hint lab-hint">Use a plain backdrop. Photos, a walk-around video, or a video URL all work. Scale is local: known object, vanishing line, or tap two points = 1 m.</p>
               <div class="scan-views">
                 <label class="field" for="scan-front">
                   <span>Front photo</span>
@@ -319,19 +317,44 @@
                   <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
                 </label>
               </div>
-              <div class="scan-scale">
+              <label class="field file-field" for="scan-video">
+                <span>Video or extra frames</span>
+                <input id="scan-video" type="file" accept="video/*,image/*" multiple />
+              </label>
+              <div class="scan-url-row">
+                <label class="field" for="scan-video-url">
+                  <span>Video URL</span>
+                  <input id="scan-video-url" type="url" inputmode="url" placeholder="https://phone.ts.net/clip.mp4" />
+                </label>
+                <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
+              </div>
+              <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
                 <label class="field" for="scan-scale-kind">
                   <span>Scale from</span>
                   <select id="scan-scale-kind">
                     <option value="circumference">Circumference</option>
                     <option value="length">Known longest length</option>
+                    <option value="known">Known object</option>
+                    <option value="vanishing">Vanishing / horizon</option>
+                    <option value="taps">Tap two points = 1 m</option>
                   </select>
                 </label>
-                <label class="field" for="scan-scale-mm">
+                <label class="field" for="scan-scale-mm" data-scale-field="length">
                   <span>Scale (mm)</span>
                   <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
                 </label>
+                <label class="field" for="scan-known-object" data-scale-field="known">
+                  <span>Known object</span>
+                  <select id="scan-known-object">
+                    <option value="credit-card">Credit card (85.6 mm)</option>
+                    <option value="a4">A4 paper (210 mm)</option>
+                    <option value="side-table">Side table (550 mm)</option>
+                    <option value="door">Door height (2032 mm)</option>
+                  </select>
+                </label>
               </div>
+              <canvas id="scan-scale-frame" width="0" height="0" aria-label="Tap two points that are 1 m apart"></canvas>
+              <p class="hint lab-hint" id="scan-scale-hint">Circumference or a known length sets millimetres. Vanishing uses the wall/floor horizon. Tap two points on the frame that are 1 m apart.</p>
               <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
               <div class="row wrap scan-after">
                 <button type="button" id="scan-place-room" class="quiet">Place in the room</button>
@@ -343,9 +366,8 @@
               </div>
             </div>
           </details>
-          <!-- Wiring hooks stay hidden. Lab adds via scan, AI, sketch, or an explicit electronics search. -->
+          <!-- Wiring hooks stay hidden. Catalog cards, shop labels, and electronics dumps stay off the Lab. -->
           <div class="hidden" aria-hidden="true">
-            <span>Catalog</span>
             <form id="omnibox-form" class="omnibox-form" role="search" hidden>
               <input
                 id="omnibox"
@@ -385,6 +407,25 @@
                 <span>More room photos (3D rebuild)</span>
                 <input id="room-photos" type="file" accept="image/*" multiple />
               </label>
+              <label class="field" for="room-scale-kind">
+                <span>Scale from</span>
+                <select id="room-scale-kind">
+                  <option value="measure">Width / depth</option>
+                  <option value="vanishing">Vanishing / horizon</option>
+                  <option value="known">Known object (tap its ends)</option>
+                  <option value="taps">Tap two points = 1 m</option>
+                </select>
+              </label>
+              <label class="field" for="room-known-object" data-room-scale="known">
+                <span>Known object</span>
+                <select id="room-known-object">
+                  <option value="side-table">Side table (550 mm)</option>
+                  <option value="door">Door height (2032 mm)</option>
+                  <option value="credit-card">Credit card (85.6 mm)</option>
+                  <option value="a4">A4 paper (210 mm)</option>
+                </select>
+              </label>
+              <p class="hint lab-hint" id="room-scale-hint">Width and depth set metres. Otherwise the vanishing line, a known object, or two taps = 1 m on the photo.</p>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
                   <span>Width (m)</span>
@@ -425,19 +466,20 @@
       <div class="lab-viewport" aria-hidden="true">
         <button type="button" class="lab-edge-tab lab-edge-left" id="lab-show-left" data-lab-toggle="left" title="Show outliner ([)" hidden>[</button>
         <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
-        <div class="lab-view-bar">
+        <div class="lab-view-bar" id="edit-bar">
           <div class="lab-view-tools" id="edit-tools">
             <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
             <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool on" data-edit="translate">Move</button>
-            <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
-            <button type="button" class="lab-tool" data-edit="scale">Scale</button>
+            <button type="button" class="lab-tool on" id="edit-move" data-edit="translate">Move</button>
+            <button type="button" class="lab-tool" id="edit-rotate" data-edit="rotate">Rotate</button>
+            <button type="button" class="lab-tool" id="edit-scale" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool on" data-snap aria-pressed="true">Snap</button>
-            <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
-            <button type="button" class="lab-tool" data-undo disabled>Undo</button>
-            <button type="button" class="lab-tool" data-redo disabled>Redo</button>
+            <button type="button" class="lab-tool on" id="edit-snap" data-snap aria-pressed="true">Snap</button>
+            <button type="button" class="lab-tool" id="duplicate-piece" data-duplicate>Duplicate</button>
+            <button type="button" class="lab-tool" id="delete-piece" data-delete disabled>Delete</button>
+            <button type="button" class="lab-tool" id="undo-edit" data-undo disabled>Undo</button>
+            <button type="button" class="lab-tool" id="redo-edit" data-redo disabled>Redo</button>
             <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
             <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
@@ -455,6 +497,7 @@
             </label>
           </div>
         </div>
+        <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
           <span class="lab-cube-top">TOP</span>
           <span class="lab-cube-front">FRONT</span>
@@ -473,82 +516,49 @@
         </div>
       </div>
 
-      <!-- ============ LAB — right inspector (parameters / functions) ============ -->
+      <!-- ============ LAB — right inspector (materials) ============ -->
       <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Parameters · Functions</strong>
+          <strong class="lab-pane-title">Materials</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Parameters</summary>
+            <summary class="lab-sheet-sum">Selection</summary>
             <div class="lab-sheet-body">
               <div class="lab-param-grid">
                 <span class="lab-param-key">Selection</span>
                 <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
               </div>
-              <div id="edit-bar" class="edit-bar">
-                <div class="row wrap">
-                  <button type="button" id="edit-move" data-edit="translate" class="on">Move</button>
-                  <button type="button" id="edit-rotate" data-edit="rotate">Rotate</button>
-                  <button type="button" id="edit-scale" data-edit="scale">Scale</button>
-                  <button type="button" id="edit-snap" aria-pressed="true">Snap</button>
-                </div>
-                <div class="row wrap lab-actions">
-                  <button type="button" id="duplicate-piece" disabled>Duplicate</button>
-                  <button type="button" id="delete-piece" disabled>Delete piece</button>
-                </div>
-                <div class="row wrap">
-                  <button type="button" id="undo-edit" disabled>Undo</button>
-                  <button type="button" id="redo-edit" disabled>Redo</button>
-                </div>
-                <div class="row wrap" aria-label="Lab CAD tools">
-                  <button type="button" data-cad-tool="sketch-rect">Sketch rect</button>
-                  <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
-                  <button type="button" data-cad-tool="joint">Joint</button>
-                </div>
-                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale. L Look, M Measure, F Look at.</p>
-              </div>
             </div>
           </details>
           <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Functions</summary>
-            <div class="lab-sheet-body">
-              <div id="lab-strip" class="lab-strip">
-                <p class="hint lab-hint" id="fn-hint">Assign a job on the selected piece.</p>
-                <div class="row wrap" id="fn-btns">
-                  <button type="button" data-fn="support">Support</button>
-                  <button type="button" data-fn="light">Light</button>
-                  <button type="button" data-fn="sense">Sense</button>
-                  <button type="button" data-fn="control">Control</button>
-                  <button type="button" data-fn="decorate">Decorate</button>
+            <summary class="lab-sheet-sum">Materials</summary>
+            <div class="lab-sheet-body material-bar" id="material-panel">
+              <div class="mat-row">
+                <label class="mat-key" for="mat-color">Color</label>
+                <input id="mat-color" type="color" value="#ecdfc6" disabled />
+                <div id="mat-swatches" class="mat-swatches" aria-label="Material colors">
+                  <button type="button" data-mat-color="#ecdfc6" style="--sw: #ecdfc6" title="Birch" aria-label="Birch" disabled></button>
+                  <button type="button" data-mat-color="#f2f2f2" style="--sw: #f2f2f2" title="White" aria-label="White" disabled></button>
+                  <button type="button" data-mat-color="#8a5a2b" style="--sw: #8a5a2b" title="Oak" aria-label="Oak" disabled></button>
+                  <button type="button" data-mat-color="#30343a" style="--sw: #30343a" title="Charcoal" aria-label="Charcoal" disabled></button>
+                  <button type="button" data-mat-color="#b8bcc0" style="--sw: #b8bcc0" title="Steel" aria-label="Steel" disabled></button>
+                  <button type="button" data-mat-color="#c0392b" style="--sw: #c0392b" title="Red" aria-label="Red" disabled></button>
                 </div>
-                <div class="row">
-                  <button type="button" id="sim-behavior" class="primary">Simulate behavior</button>
-                </div>
-                <details class="more-tools">
-                  <summary>More bench tools</summary>
-                  <div class="row wrap" id="lab-btns">
-                    <button data-test="strength">Strength</button>
-                    <button data-test="pressure">Pressure</button>
-                    <button data-test="wave">Wave</button>
-                    <button data-test="flow">Flow</button>
-                    <button data-test="aero">Aero</button>
-                    <button data-test="speed">Speed</button>
-                    <button data-test="weather">Weather</button>
-                    <button data-test="tape">Tape hold</button>
-                  </div>
-                  <div class="row">
-                    <label>Heat <input id="temp" type="range" min="-10" max="70" value="22" /></label>
-                    <label>Rain <input id="rain" type="checkbox" /></label>
-                  </div>
-                  <div class="row">
-                    <button id="tape-elec">Electrical tape</button>
-                    <button id="tape-gaff">Gaffer</button>
-                  </div>
-                </details>
               </div>
+              <div class="mat-row">
+                <label class="mat-key" for="mat-rough">Roughness</label>
+                <input id="mat-rough" type="range" min="0" max="100" value="60" disabled />
+                <output id="mat-rough-out" for="mat-rough">0.60</output>
+              </div>
+              <div id="mat-finish" class="row mat-finish" aria-label="Material finish">
+                <button type="button" data-mat-finish="foil" title="Printed foil on particleboard" disabled>Foil</button>
+                <button type="button" data-mat-finish="wood" title="Open-grain wood" disabled>Wood</button>
+                <button type="button" data-mat-finish="metal" title="Brushed metal" disabled>Metal</button>
+              </div>
+              <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
             </div>
           </details>
         </div>

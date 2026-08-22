@@ -57,8 +57,16 @@ Names only.
 
 Lab is one workspace with three spaces: **Bench** (3D edit), **House** (your room photos rebuilt as a real 3D scene), and **AR** (a live `#ar-photo` camera/furniture overlay). Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
 
-AR requests the browser/Electron camera and captures a six-frame burst locally; those frames update the textured `#room-scene` house while furniture from the plan, bench, and scans is placed inside. The single-photo and multi-file photo inputs remain available when camera access is unavailable. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room. No room image leaves the machine.
+AR requests the browser/Electron camera and captures a six-frame burst locally; those frames update the textured `#room-scene` house while furniture from the plan, bench, and scans is placed inside. The single-photo and multi-file photo inputs remain available when camera access is unavailable. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
 
 ### Object scans
 
-Lab → **Scan** accepts aligned front, side, and top photos plus a circumference or known length. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
+Lab → **Scan** accepts aligned front, side, and top photos, extra stills, a walk-around video, or a video URL. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` (and `client/src/frame-scale.js`) is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
+
+### Tailscale (optional)
+
+`npm run dev` already binds the app on `0.0.0.0:5173`. On a tailnet, open that site from another device, then send a video URL or frames into Lab → **Scan** (paste the URL and **Pull frames**, or upload the clip). Stills are grabbed in the browser; the API only proxies the file so CORS does not block a phone on MagicDNS. Nothing is uploaded to a paid reconstruction model.
+
+---
+
+<p align="center"><sub>IKEAFY is the repo. All rights reserved.</sub></p>

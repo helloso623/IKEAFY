@@ -21,9 +21,9 @@ import {
   overlayFloorFromHorizon,
   overlayFootprintPx,
   placeFurniture,
-  roomFromPhotos,
   wallBoxes,
 } from "./photogram.js";
+import { knownObject, resolveRoomScale } from "./frame-scale.js";
 import { GENERIC_SIDE_TABLE_M, makeGenericSideTable } from "./generic-table.js";
 
 const $ = (id) => document.getElementById(id);
@@ -296,6 +296,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
   let cameraRequestRun = 0;
   let cameraDenied = false;
   let capturedFrames = [];
+  let roomTaps = [];
+  let lastPhotoRect = null;
 
   function allPhotos() {
     const list = [...capturedFrames, photo, ...extraPhotos].filter(Boolean);
@@ -318,9 +320,25 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       cameraVideo?.readyState >= (globalThis.HTMLMediaElement?.HAVE_CURRENT_DATA ?? 2);
     const backdrop = live ? cameraVideo : photo || capturedFrames.at(-1);
     const photoRect = backdrop ? drawPhoto(ctx, backdrop, width, height) : drawEmptyRoom(ctx, width, height, room);
+    lastPhotoRect = photoRect;
     const horizon = backdrop ? horizonOf(backdrop) : 0.55;
     const floor = backdrop ? overlayFloorFromHorizon(photoRect, horizon) : photoRect;
     if (plan?.ordered?.[0]) drawPiece(ctx, plan, floor);
+    if (roomTaps.length && photoRect) {
+      ctx.fillStyle = "#7ac7b7";
+      ctx.strokeStyle = "#7ac7b7";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const point of roomTaps) {
+        ctx.lineTo(photoRect.x + point.nx * photoRect.w, photoRect.y + point.ny * photoRect.h);
+      }
+      if (roomTaps.length > 1) ctx.stroke();
+      for (const point of roomTaps) {
+        ctx.beginPath();
+        ctx.arc(photoRect.x + point.nx * photoRect.w, photoRect.y + point.ny * photoRect.h, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     applyAtmosphere(ctx, width, height);
     if (!view3d) canvas.classList.remove("hidden");
   }
@@ -459,15 +477,21 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    sceneCanvas.style.touchAction = "none";
     const orbit = new OrbitControls(camera, sceneCanvas);
     orbit.enableDamping = true;
+    orbit.dampingFactor = 0.08;
     orbit.enablePan = true;
     orbit.screenSpacePanning = true;
-    orbit.minPolarAngle = 0.04;
-    orbit.maxPolarAngle = Math.PI * 0.88;
-    orbit.minDistance = 0.35;
-    orbit.maxDistance = 18;
-    orbit.zoomSpeed = 1.1;
+    orbit.enableRotate = true;
+    orbit.enableZoom = true;
+    orbit.rotateSpeed = 0.72;
+    orbit.panSpeed = 0.7;
+    orbit.zoomSpeed = 1.05;
+    orbit.minPolarAngle = 0.18;
+    orbit.maxPolarAngle = Math.PI / 2 - 0.05;
+    orbit.minDistance = 0.85;
+    orbit.maxDistance = 22;
     scene.add(new THREE.HemisphereLight(0xffffff, 0x2c2c34, 1.05));
     const sun = new THREE.DirectionalLight(0xfff2df, 1.1);
     sun.position.set(3, 6, 2);
@@ -544,9 +568,10 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     move.normalize().multiplyScalar(speed);
     const room = three.room || { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
     const next = three.camera.position.clone().add(move);
-    next.x = Math.min(room.widthM - 0.12, Math.max(0.12, next.x));
-    next.y = Math.min(room.heightM - 0.2, Math.max(0.35, next.y));
-    next.z = Math.min(room.depthM - 0.12, Math.max(0.12, next.z));
+    // The front wall is open, so walk can circle the house — not only the interior.
+    next.x = Math.min(room.widthM + 1.4, Math.max(-1.4, next.x));
+    next.y = Math.min(room.heightM + 0.45, Math.max(0.35, next.y));
+    next.z = Math.min(room.depthM + 2.4, Math.max(-0.6, next.z));
     const delta = next.sub(three.camera.position);
     three.camera.position.add(delta);
     three.orbit.target.add(delta);
@@ -562,6 +587,8 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     three.orbit.target.set(pose.target.x, pose.target.y, pose.target.z);
     three.orbit.minDistance = pose.minDistance;
     three.orbit.maxDistance = pose.maxDistance;
+    three.orbit.minPolarAngle = 0.18;
+    three.orbit.maxPolarAngle = Math.PI / 2 - 0.05;
     three.camera.near = 0.05;
     three.camera.far = 80;
     three.camera.updateProjectionMatrix();
@@ -677,12 +704,31 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     const primary = imgs[0] || null;
     const horizon = primary ? horizonOf(primary) : 0.55;
     const aspect = primary ? primary.width / Math.max(1, primary.height) : 4 / 3;
-    const room = roomFromPhotos({
+    const kind = $("room-scale-kind")?.value || "measure";
+    const frame = primary
+      ? { width: primary.width || primary.videoWidth || 800, height: primary.height || primary.videoHeight || 600, horizon }
+      : { width: 800, height: 600, horizon };
+    const tapPx = roomTaps.map((point) => ({ x: point.nx * frame.width, y: point.ny * frame.height }));
+    const room = resolveRoomScale({
+      kind,
       aspect,
       horizon,
-      widthM: describedRoom?.widthM || lastPlan?.room?.widthM || readNumber("room-w", 0),
-      depthM: describedRoom?.depthM || lastPlan?.room?.depthM || readNumber("room-d", 0),
+      widthM:
+        kind === "vanishing"
+          ? 0
+          : describedRoom?.widthM || lastPlan?.room?.widthM || readNumber("room-w", 0),
+      depthM:
+        kind === "vanishing"
+          ? 0
+          : describedRoom?.depthM || lastPlan?.room?.depthM || readNumber("room-d", 0),
+      taps: tapPx,
+      frame,
+      knownId: $("room-known-object")?.value,
     });
+    if (room.metric && (kind === "taps" || kind === "known" || kind === "known-object")) {
+      if ($("room-w")) $("room-w").value = String(room.widthM);
+      if ($("room-d")) $("room-d").value = String(room.depthM);
+    }
     if (Number(describedRoom?.heightM) > 0) room.heightM = Number(describedRoom.heightM);
     if (describedRoom?.kind) room.kind = describedRoom.kind;
 
@@ -994,6 +1040,45 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     onPhoto?.(imgs);
     syncViews();
     hud(`${allPhotos().length} room photo${allPhotos().length === 1 ? "" : "s"} ready for the 3D rebuild.`);
+  });
+
+  $("room-scale-kind")?.addEventListener("change", () => {
+    const kind = $("room-scale-kind")?.value;
+    const hint = $("room-scale-hint");
+    if (hint) {
+      if (kind === "taps") hint.textContent = "Click two points on the room photo that are 1 m apart.";
+      else if (kind === "known") hint.textContent = "Click both ends of the known object on the photo.";
+      else if (kind === "vanishing") hint.textContent = "Width and depth follow the vanishing line and photo aspect. Typed metres are ignored.";
+      else hint.textContent = "Width and depth set metres. Otherwise the vanishing line, a known object, or two taps = 1 m on the photo.";
+    }
+    if (kind === "taps" || kind === "known") roomTaps = [];
+    draw(lastPlan);
+    if (three?.built) rebuildHouse3d();
+  });
+
+  canvas.addEventListener("click", (ev) => {
+    const kind = $("room-scale-kind")?.value;
+    if (kind !== "taps" && kind !== "known") return;
+    if (view3d) return;
+    const rect = canvas.getBoundingClientRect();
+    const { width, height } = sizeCanvas(canvas);
+    const x = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * width;
+    const y = ((ev.clientY - rect.top) / Math.max(1, rect.height)) * height;
+    const box = lastPhotoRect || { x: 0, y: 0, w: width, h: height };
+    const nx = (x - box.x) / Math.max(1, box.w);
+    const ny = (y - box.y) / Math.max(1, box.h);
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+    roomTaps = [...roomTaps, { nx, ny }].slice(-2);
+    draw(lastPlan);
+    if (roomTaps.length === 2 && (photo || capturedFrames.length)) {
+      const room = rebuildHouse3d();
+      const spec = kind === "known" ? knownObject($("room-known-object")?.value) : null;
+      hud(
+        room
+          ? `Room scale ${room.widthM} × ${room.depthM} m${spec ? ` from a ${spec.name}` : " from two taps = 1 m"}.`
+          : "Add a room photo, then tap 1 m.",
+      );
+    }
   });
 
   window.addEventListener("resize", () => {

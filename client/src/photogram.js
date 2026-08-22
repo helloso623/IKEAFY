@@ -120,24 +120,25 @@ export function cropRegion(region, horizon = FALLBACK_HORIZON) {
 }
 
 /**
- * Camera pose that frames the whole room so orbit/walk can see the interior.
- * Position sits just inside the front-right, looking at the floor centre.
+ * Camera pose that frames the whole house so drag-orbit can see the interior.
+ * Target sits at table height in the open floor; the camera stands outside
+ * the missing front wall, 3/4 view, with room to orbit without clipping.
  */
 export function frameRoomCamera(room) {
   const w = num(room?.widthM) || 3.2;
   const d = num(room?.depthM) || 3.8;
   const h = num(room?.heightM) || 2.7;
-  const target = { x: w / 2, y: h * 0.22, z: d / 2 };
-  const radius = Math.max(w, d) * 0.62;
+  const target = { x: w / 2, y: Math.min(0.9, h * 0.32), z: d * 0.42 };
+  const radius = Math.max(w, d) * 0.78;
   return {
     target,
     position: {
-      x: clamp(target.x + radius * 0.42, 0.35, Math.max(0.4, w - 0.2)),
-      y: clamp(h * 0.55, 1.05, h * 0.78),
-      z: clamp(target.z + radius * 0.72, 0.45, Math.max(0.5, d - 0.12)),
+      x: target.x + radius * 0.36,
+      y: clamp(Math.max(h * 0.58, 1.35), 1.15, h + 0.55),
+      z: target.z + radius * 0.92,
     },
-    minDistance: 0.35,
-    maxDistance: Math.max(w, d, h) * 3.4,
+    minDistance: 0.85,
+    maxDistance: Math.max(w, d, h) * 4.2,
   };
 }
 

@@ -1798,6 +1798,24 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
   listen(el.play, "click", togglePlay);
   listen(el.next, "click", nextStep);
   listen(el.back, "click", backStep);
+  // The transport arrows also answer the keyboard: ← back a step, → forward.
+  listen(document, "keydown", (event) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const app = document.getElementById("app");
+    if (app?.getAttribute("data-interface") !== "watch") return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))
+    ) {
+      return;
+    }
+    if (!state.reel.length) return;
+    event.preventDefault();
+    if (event.key === "ArrowLeft") backStep();
+    else nextStep();
+  });
   listen(el.video, "ended", () => {
     if (state.playingOn) finishClip();
   });

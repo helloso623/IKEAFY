@@ -189,41 +189,46 @@ test(
   }),
 );
 
-test("hosted creative desk uses the key and returns bench actions", async () => {
+test("hosted path answers open questions; shop creates stay on the local steward", async () => {
   const previous = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "sk-test-hosted";
   try {
-    const project = emptyProject();
-    const reply = await chat("add a lack table", {
-      project,
-      fetchFn: async () => ({
+    let hostedCalls = 0;
+    const fetchFn = async () => {
+      hostedCalls += 1;
+      return {
         ok: true,
         json: async () => ({
           choices: [
             {
               message: {
                 content: JSON.stringify({
-                  text: "Dropped a LACK top and four legs on the bench.",
-                  actions: [
-                    { type: "add", partId: "lack-top", pose: { x: 0, y: 0.22, z: 0 } },
-                    { type: "add", partId: "lack-leg" },
-                    { type: "add", partId: "lack-leg" },
-                    { type: "add", partId: "lack-leg" },
-                    { type: "add", partId: "lack-leg" },
-                    { type: "camera", az: 40, el: 30 },
-                  ],
+                  text: "A light oak foil keeps a north-facing lounge from going cold.",
+                  actions: [{ type: "camera", az: 40, el: 30 }],
                 }),
               },
             },
           ],
         }),
-      }),
+      };
+    };
+
+    const project = emptyProject();
+    const created = await chat("add a lack table", {
+      project,
+      fetchFn: async () => {
+        throw new Error("hosted should not run for shop creates");
+      },
     });
-    assert.match(reply.backend, /^hosted:/);
-    assert.equal(reply.actions.filter((a) => a.type === "add").length, 5);
-    assert.ok(reply.actions.some((a) => a.type === "camera"));
-    assert.doesNotMatch(reply.text, /arduino|firmware|sketch/i);
+    assert.equal(created.backend, "local-steward");
+    assert.equal(created.actions.filter((a) => a.type === "add").length, 5);
     assert.equal(project.pieces.filter((p) => p.partId === "lack-leg").length, 4);
+    assert.doesNotMatch(created.text, /arduino|firmware|sketch/i);
+
+    const open = await chat("what wood tone suits a north-facing lounge?", { fetchFn });
+    assert.match(open.backend, /^hosted:/);
+    assert.ok(open.actions.some((a) => a.type === "camera"));
+    assert.equal(hostedCalls, 1);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
@@ -319,3 +324,57 @@ test(
     assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
   }),
 );
+
+test(
+  "local steward creates a room and table even when a hosted key is set",
+  async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "sk-test-hosted";
+    try {
+      const project = emptyProject();
+      const reply = await chat("make a warm living room with a table", {
+        project,
+        room: { widthM: 4.8, depthM: 3.6 },
+        fetchFn: async () => {
+          throw new Error("hosted should not run for room and table creates");
+        },
+      });
+      assert.equal(reply.backend, "local-steward");
+      assert.ok(reply.actions.some((action) => action.type === "room"));
+      assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
+      assert.equal(project.pieces[0].partId, "generic-side-table");
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  },
+);
+
+test(
+  "make a table places the generic side-table placeholder",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("make a table", { project });
+    assert.equal(reply.backend, "local-steward");
+    assert.ok(reply.actions.some((action) => action.type === "add" && action.partId === "generic-side-table"));
+    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-side-table"]);
+  }),
+);
+
+test("hosted failure still answers from the local steward", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test-hosted";
+  try {
+    const reply = await chat("what wood tone suits a north-facing lounge?", {
+      fetchFn: async () => ({
+        ok: false,
+        json: async () => ({ error: { message: "nope" } }),
+      }),
+    });
+    assert.equal(reply.backend, "local-steward");
+    assert.ok(String(reply.text || "").length > 0);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});

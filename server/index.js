@@ -58,10 +58,16 @@ import { FAL_SCENE_REQUIRED, MODEL as TRIPO_MODEL, QUEUE as TRIPO_QUEUE, renderS
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
+import {
+  SCAN_VIDEO_MAX_BYTES,
+  SCAN_VIDEO_TIMEOUT_MS,
+  isAllowedOrigin,
+  parseVideoUrl,
+} from "./lib/scan-video.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
 import { exportPrintJob } from "./lib/printer.js";
-import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
+import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import {
@@ -145,10 +151,8 @@ const app = express();
 app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (!origin || origin === "null" || origin === "file://") {
+  if (isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin || "*");
-  } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -879,34 +883,32 @@ app.get("/api/agents", (_req, res) => {
   res.json({ roster: ROSTER, hosted: hasHostedBrain(), fallback: "local-steward" });
 });
 
-app.post(["/api/chat", "/api/agents/chat"], async (req, res) => {
+async function handleChat(req, res) {
   const message = String(req.body?.message || "").trim();
+  const ctx = {
+    project: state.project,
+    guide: state.guide,
+    costBarrier: req.body?.costBarrier,
+    step: req.body?.step,
+    partId: req.body?.partId,
+    room: req.body?.room,
+    scene: req.body?.scene,
+    history: req.body?.history,
+    photoName: req.body?.photoName || "",
+  };
   try {
-    const reply = await chat(message, {
-      project: state.project,
-      guide: state.guide,
-      costBarrier: req.body?.costBarrier,
-      step: req.body?.step,
-      partId: req.body?.partId,
-      room: req.body?.room,
-      scene: req.body?.scene,
-      history: req.body?.history,
-      photoName: req.body?.photoName || "",
-    });
+    const reply = await chat(message, ctx);
     res.json({ ok: true, ...reply });
   } catch (error) {
+    // Chat must remain available when a hosted provider is unavailable. The
+    // steward still returns room/table actions so the client can apply them.
     ikealiveWarn("agents", "chat error", String(error?.message || error));
-    res.json({
-      ok: true,
-      agent: ROSTER.find((agent) => agent.id === "creative"),
-      backend: "local-steward",
-      text: message
-        ? "I couldn’t complete that edit. Try describing the room or object with dimensions."
-        : "Tell me what room or object you want to create.",
-      actions: [],
-    });
+    res.json({ ok: true, ...fallbackChat(message, ctx) });
   }
-});
+}
+
+app.post("/api/chat", handleChat);
+app.post("/api/agents/chat", handleChat);
 
 app.get("/api/project", (_req, res) => {
   res.json(projectPayload(state.project));
@@ -1101,6 +1103,49 @@ app.post("/api/firmware/run", (req, res) => {
   const result = runSketch(source, { buttonDown: Boolean(req.body?.buttonDown) });
   state.project.firmware.lastRun = result;
   res.json({ analysis: analyzeSketch(source), ...result });
+});
+
+app.get("/api/scan/video", async (req, res) => {
+  let target;
+  try {
+    target = parseVideoUrl(req.query?.url);
+  } catch (error) {
+    return res.status(400).json({ ok: false, reason: error.message || "Paste a video URL." });
+  }
+  let host = "";
+  try {
+    host = new URL(target).host;
+  } catch {
+    host = "";
+  }
+  ikealiveLog("scan", "video proxy", { host });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SCAN_VIDEO_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(target, {
+      signal: controller.signal,
+      headers: { Accept: "video/*,*/*" },
+      redirect: "follow",
+    });
+    if (!upstream.ok) {
+      return res.status(upstream.status === 404 ? 404 : 502).json({
+        ok: false,
+        reason: "Could not fetch that video.",
+      });
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > SCAN_VIDEO_MAX_BYTES) {
+      return res.status(413).json({ ok: false, reason: "Video is too large for a local scan (80 MB)." });
+    }
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(buf);
+  } catch (error) {
+    ikealiveWarn("scan", "video proxy failed", { host, reason: error?.message || "fetch" });
+    return res.status(502).json({ ok: false, reason: "Could not reach that video URL." });
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 app.post("/api/adaptation/plan", (req, res) => {

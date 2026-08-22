@@ -113,6 +113,13 @@ const ROOM_CREATE_ASK =
   /\b(make|model|build|create|design|furnish|generate)\b[\s\S]*\b(living\s+room|bedroom|dining\s+room|office|room|space|interior)\b/i;
 const GENERIC_TABLE_ASK =
   /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
+const MAKE_TABLE_ASK =
+  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\btables?\b/i;
+const MAKE_STOOL_ASK =
+  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
+const MAKE_SHELF_ASK =
+  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
+const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "studio", "scan", "move"]);
 const QTY_WORDS = {
   one: 1,
   two: 2,
@@ -267,19 +274,47 @@ function roomFromDescription(message, ctx = {}) {
   };
 }
 
-function genericTablePlan() {
-  const part = getPart("generic-side-table");
-  if (!part) return null;
-  const dims = part.dimsMm || { x: 550, y: 550, z: 450 };
+function genericFurniturePlan(kind) {
+  const spec = {
+    table: {
+      ids: ["generic-side-table"],
+      poses: [{ x: 0, y: 0, z: 0 }],
+      label: "side table",
+    },
+    stool: {
+      ids: ["generic-stool"],
+      poses: [{ x: 0, y: 0, z: 0 }],
+      label: "stool",
+    },
+    shelf: {
+      ids: ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"],
+      poses: [
+        { x: 0, y: 0.62, z: 0 },
+        { x: -0.28, y: 0.51, z: 0 },
+        { x: 0.28, y: 0.51, z: 0 },
+      ],
+      label: "wall shelf",
+    },
+  }[kind];
+  if (!spec) return null;
+  const parts = spec.ids.map(getPart);
+  if (parts.some((part) => !part)) return null;
+  const dims = parts[0].dimsMm;
   return {
-    part,
+    parts,
+    label: spec.label,
     specs: `${Math.round(dims.x)}×${Math.round(dims.y)}×${Math.round(dims.z)} mm`,
-    action: {
+    actions: parts.map((part, index) => ({
       type: "add",
       partId: part.id,
-      pose: { x: 0, y: Number(dims.z) / 2000, z: 0 },
-    },
+      pose: spec.poses[index],
+    })),
   };
+}
+
+function genericTablePlan() {
+  const plan = genericFurniturePlan("table");
+  return plan ? { ...plan, part: plan.parts[0], action: plan.actions[0] } : null;
 }
 
 function furnitureOnlyHits(hits, message) {
@@ -300,11 +335,6 @@ function resolveAddList(message, ctx = {}) {
   }
 
   if (isLampAsk(lower)) {
-    const table = getPart("lack-table");
-    return table ? expandPart(table) : [];
-  }
-
-  if (/\black\s+table\b/.test(lower)) {
     const table = getPart("lack-table");
     return table ? expandPart(table) : [];
   }
@@ -492,7 +522,7 @@ export function planCreativeActions(message, ctx = {}) {
   }
 
   if (
-    GENERIC_TABLE_ASK.test(lower) &&
+    (GENERIC_TABLE_ASK.test(lower) || (MAKE_TABLE_ASK.test(lower) && !/\black\b/.test(lower))) &&
     /\b(make|model|build|create|design|generate|add|place|put|drop)\b/.test(lower)
   ) {
     const table = genericTablePlan();
@@ -501,6 +531,22 @@ export function planCreativeActions(message, ctx = {}) {
         handles: true,
         text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Placing it now.`,
         actions: [table.action],
+      };
+    }
+  }
+
+  const furnitureKind = MAKE_SHELF_ASK.test(lower)
+    ? "shelf"
+    : MAKE_STOOL_ASK.test(lower)
+      ? "stool"
+      : null;
+  if (furnitureKind) {
+    const furniture = genericFurniturePlan(furnitureKind);
+    if (furniture) {
+      return {
+        handles: true,
+        text: `Using ${furniture.specs} IKEA-like proportions for a generic ${furniture.label}. Placing the editable kit now.`,
+        actions: furniture.actions,
       };
     }
   }
@@ -934,11 +980,10 @@ async function hostedReply(message, ctx, agent) {
   const deterministic = planCreativeActions(message, ctx);
   const mustCreateModel =
     deterministic.handles &&
-    deterministic.actions.some(
-      (action) => action.type === "room" || (action.type === "add" && action.partId === "generic-side-table"),
-    );
+    deterministic.actions.some((action) => SHOP_CREATE_TYPES.has(action.type));
   if (mustCreateModel) {
-    actions = sanitizeActions(deterministic.actions, { electronics });
+    const extras = actions.filter((action) => action.type === "camera");
+    actions = [...sanitizeActions(deterministic.actions, { electronics }), ...extras];
   } else if (!actions.length) {
     const studio = planStudioActions(message);
     if (studio.handles) actions = studio.actions.map((action) => ({ ...action }));
@@ -974,30 +1019,76 @@ export function mergeChatContext(ctx = {}) {
   };
 }
 
-export async function chat(message, ctx = {}) {
-  message = String(message || "").trim();
-  ctx = mergeChatContext(ctx);
-  const agent = routeAgent(message);
-  const escalate = shouldEscalate(message);
-  const creative = isCreativeAsk(message);
-  if (hasHostedBrain()) {
-    try {
-      const hosted = await hostedReply(message, ctx, agent);
-      if (hosted) {
-        return {
-          ...hosted,
-          escalated: escalate,
-          from: escalate ? "gliner-2-standin" : creative ? "creative-desk" : "conversation",
-        };
-      }
-    } catch {
-      // fall through to local steward — never leak key errors
-    }
-  }
+function hasShopCreate(actions) {
+  return (Array.isArray(actions) ? actions : []).some((action) => action && SHOP_CREATE_TYPES.has(action.type));
+}
+
+function stewardCanCreate(message, ctx = {}) {
+  const text = String(message || "");
+  if (planStudioActions(text).handles) return true;
+  const hardLabTask = CAD_HINTS.test(text) || EDA_HINTS.test(text) || SIM_HINTS.test(text);
+  if (hardLabTask) return false;
+  const planned = planCreativeActions(text, ctx);
+  return Boolean(planned.handles && hasShopCreate(planned.actions));
+}
+
+function finishLocal(message, ctx, { escalate = false, creative = false } = {}) {
   const local = localReply(message, ctx);
-  const ikeaSmall = !escalate && (agent.id === "assembler" || IKEA_HINTS.test(message));
+  const agent = local.agent || routeAgent(message);
+  const ikeaSmall = !escalate && (agent.id === "assembler" || IKEA_HINTS.test(String(message || "")));
   if (ikeaSmall) return { ...local, backend: "gliner-2-standin", escalated: false };
-  return local;
+  return { ...local, escalated: Boolean(escalate), from: creative ? "creative-desk" : "conversation" };
+}
+
+/** Last-resort shop reply. Never throws; always a local steward payload. */
+export function fallbackChat(message, ctx = {}) {
+  try {
+    return localReply(String(message || "").trim(), mergeChatContext(ctx));
+  } catch {
+    return {
+      agent: ROSTER.find((agent) => agent.id === "creative"),
+      backend: "local-steward",
+      text: String(message || "").trim()
+        ? "I couldn’t complete that edit. Try describing the room or object with dimensions."
+        : "Tell me what room or object you want to create.",
+      actions: [],
+    };
+  }
+}
+
+export async function chat(message, ctx = {}) {
+  try {
+    message = String(message || "").trim();
+    ctx = mergeChatContext(ctx);
+    const agent = routeAgent(message);
+    const escalate = shouldEscalate(message);
+    const creative = isCreativeAsk(message);
+
+    // Rooms, tables, catalog drops and reel commands are local. A hosted
+    // provider must not replace those actions with prose, and must not
+    // block the steward when the key is missing or the provider fails.
+    if (stewardCanCreate(message, ctx)) {
+      return finishLocal(message, ctx, { escalate, creative });
+    }
+
+    if (hasHostedBrain()) {
+      try {
+        const hosted = await hostedReply(message, ctx, agent);
+        if (hosted) {
+          return {
+            ...hosted,
+            escalated: escalate,
+            from: escalate ? "gliner-2-standin" : creative ? "creative-desk" : "conversation",
+          };
+        }
+      } catch {
+        // fall through to local steward — never leak key errors
+      }
+    }
+    return finishLocal(message, ctx, { escalate, creative });
+  } catch {
+    return fallbackChat(message, ctx);
+  }
 }
 
 export function hasHostedBrain() {
