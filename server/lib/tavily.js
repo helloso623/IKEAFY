@@ -111,22 +111,7 @@ export async function searchToolOffers(name, { fetchFn = fetch } = {}) {
   return offersFromResults(json.results || json.data || []);
 }
 
-/**
- * One legal search for construction methods around the current model. Results
- * may be plans, cut stock, tops, or legs; loose fasteners are excluded.
- */
-export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
-  const key = usableTavilyKey();
-  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
-  const items = [...(build.lines || []), ...methodCuts]
-    .slice(0, 10)
-    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
-    .filter(Boolean);
-  if (!key || !items.length) return [];
-  const dims = build.modelDimensionsMm || {};
-  const query =
-    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
+async function searchOfferQuery(query, key, fetchFn) {
   const res = await fetchFn(SEARCH_URL, {
     method: "POST",
     headers: {
@@ -143,6 +128,63 @@ export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {})
   if (!res.ok) return [];
   const json = await res.json();
   return offersFromResults(json.results || json.data || []);
+}
+
+/** One dimensions-bearing search for boards, tops, legs, and shaped stock. */
+export async function searchFurniturePieceOffers(lines = [], { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (lines || [])
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const query =
+    `buy cut-to-size furniture board tabletop table legs apron stretcher ${items.join(" OR ")} ` +
+    "-screws -bolts -fasteners";
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+/** One search for construction methods and shaped bodies for the current model. */
+export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
+  const items = [...(build.cutList || []), ...methodCuts]
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+/** A separate dimensions-bearing search for the current model's connection hardware. */
+export async function searchHardwareOffers(lines = [], { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (lines || [])
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const query = `buy furniture connection hardware ${items.join(" OR ")} -lumber -tabletop -wood board`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+/**
+ * Refresh construction/stock and connection-hardware research together.
+ * Group labels keep the two result sets distinct in the live DIY packet.
+ */
+export async function searchDiyOffers(build = {}, deps = {}) {
+  const [materials, hardware] = await Promise.all([
+    searchBuildWayOffers(build, deps),
+    searchHardwareOffers(build.hardwareLines || [], deps),
+  ]);
+  return [
+    ...materials.map((offer) => ({ ...offer, group: "boards-and-stock" })),
+    ...hardware.map((offer) => ({ ...offer, group: "hardware" })),
+  ];
 }
 
 function extraLineFromId(id) {

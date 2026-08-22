@@ -504,6 +504,8 @@ export function buildWaysForProject(project = {}) {
   };
 }
 
+export const pieceBomForProject = buildWaysForProject;
+
 function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
   return [
