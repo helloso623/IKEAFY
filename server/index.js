@@ -23,6 +23,7 @@ import {
   officialProducts,
   parseGuide,
   reviewsForGuide,
+  searchOfficialProducts,
   shoppingList,
   storyboardForStep,
   verifyOfficialGuide,
@@ -149,7 +150,7 @@ app.post("/api/search", (req, res) => {
   res.json({
     query: req.body?.query || "",
     results: searchParts(req.body || {}),
-    note: "List only — Tavily scrape is a later partner hook.",
+    note: "Tavily stand-in — catalog list with IKEA, Amazon and local offers. No live scrape yet.",
   });
 });
 
@@ -201,8 +202,12 @@ app.get("/api/ikeafy/official", (req, res) => {
   res.json(guide);
 });
 
-app.get("/api/ikeafy/official/products", (_req, res) => {
-  res.json({ products: officialProducts(), locked: true, policy: SPARES_POLICY.free });
+app.get("/api/ikeafy/official/products", (req, res) => {
+  res.json({
+    products: searchOfficialProducts(req.query.q || ""),
+    locked: true,
+    policy: SPARES_POLICY.free,
+  });
 });
 
 app.post("/api/ikeafy/official/verify", (req, res) => {

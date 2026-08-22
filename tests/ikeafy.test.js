@@ -14,6 +14,7 @@ import {
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
+  searchOfficialProducts,
   verifyOfficialGuide,
 } from "../server/lib/ikeafy.js";
 
@@ -101,8 +102,24 @@ test("official products list the LACK side table", () => {
   assert.ok(lack, "LACK side table is an official product");
   assert.match(lack.name, /LACK/);
   assert.equal(lack.partId, "lack-table");
+  assert.equal(lack.unlocked, true);
   assert.equal(officialGuide(lack.article).productArticle, lack.article);
   assert.equal(officialGuide("000.000.00").ok, false);
+});
+
+test("KALLAX, BILLY and MALM sit locked in the catalog until transcribed", () => {
+  const products = officialProducts();
+  for (const name of ["KALLAX", "BILLY", "MALM"]) {
+    const hit = products.find((p) => p.name.includes(name));
+    assert.ok(hit, `${name} should be searchable`);
+    assert.equal(hit.unlocked, false);
+    assert.equal(hit.locked, true);
+  }
+  const kallax = officialGuide("802.758.87");
+  assert.equal(kallax.ok, false);
+  assert.equal(kallax.locked, true);
+  assert.match(kallax.reason, /not transcribed/i);
+  assert.equal(searchOfficialProducts("billy")[0].name.includes("BILLY"), true);
 });
 
 test("locked guide keeps the rest of the pipeline working", () => {

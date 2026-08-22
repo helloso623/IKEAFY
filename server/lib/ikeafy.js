@@ -1,4 +1,4 @@
-import { bomFromIds, getPart, listParts, searchParts } from "./catalog.js";
+import { bomFromIds, getPart, listParts, searchParts, retailerOffers } from "./catalog.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -27,6 +27,46 @@ const OFFICIAL_PRODUCTS = [
     guide: OFFICIAL_LACK_GUIDE,
     stepCount: 5,
     toolsIncluded: ["allen-key"],
+    people: 2,
+  },
+];
+
+/** Visible in search, but there is no transcribed sheet yet. */
+const LOCKED_CATALOG = [
+  {
+    article: "802.758.87",
+    name: "KALLAX shelf unit",
+    size: "77×147 cm",
+    partId: "kallax",
+    kit: null,
+    store: "IKEA",
+    storeUrl: "https://www.ikea.com/search?q=KALLAX",
+    stepCount: 0,
+    toolsIncluded: [],
+    people: 2,
+  },
+  {
+    article: "002.638.50",
+    name: "BILLY bookcase",
+    size: "80×28×202 cm",
+    partId: "billy",
+    kit: null,
+    store: "IKEA",
+    storeUrl: "https://www.ikea.com/search?q=BILLY",
+    stepCount: 0,
+    toolsIncluded: [],
+    people: 2,
+  },
+  {
+    article: "802.314.86",
+    name: "MALM chest of 3 drawers",
+    size: "80×78 cm",
+    partId: "malm",
+    kit: null,
+    store: "IKEA",
+    storeUrl: "https://www.ikea.com/search?q=MALM",
+    stepCount: 0,
+    toolsIncluded: [],
     people: 2,
   },
 ];
@@ -228,7 +268,38 @@ export function parseGuide(
 }
 
 export function officialProducts() {
-  return OFFICIAL_PRODUCTS.map((p) => ({ ...p, toolsIncluded: [...p.toolsIncluded] }));
+  return [
+    ...OFFICIAL_PRODUCTS.map((p) => ({
+      ...p,
+      toolsIncluded: [...p.toolsIncluded],
+      unlocked: true,
+      locked: false,
+    })),
+    ...LOCKED_CATALOG.map((p) => ({
+      ...p,
+      toolsIncluded: [...p.toolsIncluded],
+      unlocked: false,
+      locked: true,
+    })),
+  ];
+}
+
+export function searchOfficialProducts(query = "") {
+  const q = String(query || "").trim().toLowerCase();
+  const all = officialProducts();
+  if (!q) return all;
+  return all.filter((p) => `${p.name} ${p.article} ${p.size || ""}`.toLowerCase().includes(q));
+}
+
+function findLockedProduct(article) {
+  if (!article) return null;
+  const wanted = String(article).trim().toLowerCase();
+  return (
+    LOCKED_CATALOG.find((p) => p.article === String(article).trim()) ||
+    LOCKED_CATALOG.find((p) => p.name.toLowerCase() === wanted) ||
+    LOCKED_CATALOG.find((p) => p.name.toLowerCase().includes(wanted)) ||
+    null
+  );
 }
 
 function findOfficialProduct(article) {
@@ -245,6 +316,16 @@ export function officialGuide(options = {}) {
   const opts = typeof options === "string" ? { article: options } : options || {};
   const product = findOfficialProduct(opts.article);
   if (!product) {
+    const lockedHit = findLockedProduct(opts.article);
+    if (lockedHit) {
+      return {
+        ok: false,
+        locked: true,
+        reason: `${lockedHit.name} is in the catalog but its official sheet is not transcribed yet.`,
+        product: lockedHit,
+        products: officialProducts(),
+      };
+    }
     return { ok: false, reason: `No official guide for article ${opts.article}.`, products: officialProducts() };
   }
   const guide = parseGuide(product.guide, {
@@ -453,12 +534,15 @@ export function shoppingList(guide) {
   const extras = searchParts({ category: "tool" }).filter((p) => p.extra);
   return {
     ...bom,
+    partner: "tavily-standin",
     suggestedExtras: extras.map((p) => ({
       id: p.id,
       name: p.name,
       store: p.store,
       storeUrl: p.storeUrl,
       cost: p.cost,
+      badge: "to purchase",
+      retailers: retailerOffers(p).offers,
       why: "Not in the flat-pack. Handy if a fastener strips.",
     })),
   };

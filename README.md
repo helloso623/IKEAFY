@@ -2,7 +2,7 @@
 
 Build anything like it came flat-packed.
 
-IKEAFY is the main idea and it gets its own full-page tab. Pick an official IKEA product (LACK is unlocked) or paste any building guide, and the studio turns it into numbered steps with an IKEA-style instruction film: one black-and-white plate per step that waits for you, colorizes on demand, and never lets official mode skip ahead. Around the film sit the things you actually need mid-build — what's in the kit vs what to buy, other builders' reviews and difficulty notes, a broken-part photo desk that requests free spare fittings from IKEA, and a quick chat.
+IKEAFY is the main idea and it gets its own full-page tab. Search an official IKEA product (LACK is unlocked) or drop any building guide, and the studio turns it into numbered steps with an IKEA-style instruction film: one black-and-white plate per step that waits for you, colorizes on demand, and never lets official mode skip ahead. Results split into **Instructions** (film, 3D scheme, chat, reviews, free spare fittings) and **Material** (included vs to-purchase, with several shop links). Electronics stays a Bench feature of this same app — isolate a board, run cables, flash a Nano — not a separate product.
 
 The Bench and House tabs support it: a bench with real-size parts, cables, tape, and physics tests, and a house view that places the finished piece in your room photo.
 
@@ -22,11 +22,14 @@ Do not put keys in the repo. `.env` is gitignored. Rotate any key that was paste
 
 ## The IKEAFY studio (the main tab)
 
-Open the **IKEAFY** tab and the bench rails disappear — the studio takes the full page in three columns:
+The studio takes the full page. It does not auto-play a sheet: you start from **input**, watch **progress**, then read **results**.
 
-1. **Pick or paste** (left) — choose an official IKEA product (only **LACK** is unlocked; KALLAX, BILLY, MALM are shown locked) or paste any custom building guide, add optional notes about the tools you have, and hit **Parse into steps**.
-2. **Watch and build** (center) — a large film stage plays one plate per step, black and white first, **Colorize plate** when you want it. The caption tells you exactly what to do. Press **I did this — next** when you're done, **Back** to review, or **Stuck** to expand the step into smaller moves. In official mode the plates unlock strictly in order — no skipping ahead.
-3. **Everything around the build** (right) — **Kit vs extra** splits what ships in the box from what you need to buy, with IKEA and Amazon links (catalog list only, no live scrape). **Reviews & difficulties** shows where other builders struggled. **Broken part** attaches a photo and note to the current step, identifies the part, and files a **free spare-fittings request with IKEA** (screws, cam locks, dowels). **Quick chat** answers questions about the step, a tool, or a part.
+1. **Input** — search an official IKEA product by name (only **LACK** is unlocked; KALLAX, BILLY, MALM are shown locked) or drop a building guide (photo / PDF / text), paste the steps, add optional notes about the tools you have, and hit **Parse into a film**.
+2. **Progress** — parsing (GLiNER 2), generating films (Veed), looking up parts (Tavily).
+3. **Results · Instructions** — a film per step, **See actual guide**, a 3D scheme, extra context (text / image / video) to regenerate the plate, reviews of where other builders struggled, a **broken part** photo that either drafts a **free spare-fittings request** or tells you to go to the store when there is no part number, and **Ask the shop** (GLiNER 2 for small questions, larger OpenAI model when it has to escalate).
+4. **Results · Material** — kit vs extra with **included** / **to purchase** badges, a colour swatch for each part, and several retailer propositions (IKEA, Amazon, local) on anything you have to buy.
+
+The **Bench** tab is still in the same app. Electronics controls (isolate a cluster as a named board, label functions, cables, Arduino flash) appear there when something electronic is on the bench.
 
 Partner hooks (Veed Fabric 1.0 via fal, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and stand in locally — see `docs/IKEAFY.md`.
 

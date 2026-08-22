@@ -77,6 +77,27 @@ test("the css does not hide the custom guide inputs while the studio is open", (
   assert.equal(guideHidden, false, "a blanket display:none on #guide-in kills the custom guide");
 });
 
+test("the studio starts on input, then progress, then instruction/material results", () => {
+  assert.match(html, /data-studio-view="input"/);
+  assert.match(html, /id="studio-input"/);
+  assert.match(html, /id="studio-progress"/);
+  assert.match(html, /id="product-search"/);
+  assert.match(html, /id="guide-drop"/);
+  assert.match(html, /id="tab-instructions"/);
+  assert.match(html, /id="tab-material"/);
+  assert.match(html, /id="step-scheme"/);
+  assert.match(html, /id="see-guide"/);
+});
+
+test("electronics stays a bench feature of the main Ikeafy app", () => {
+  assert.equal(/data-mode="electronics"/.test(html), false);
+  const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
+  assert.match(modes, /data-mode="ikeafy"/);
+  assert.match(modes, /data-mode="bench"/);
+  assert.match(modes, /data-mode="house"/);
+  assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
+});
+
 test("bench chrome is driven by one class the server can switch off", () => {
   assert.match(html, /class="[^"]*electronics-chrome/, "electronics controls need the shared class");
   assert.match(main, /electronics-chrome/, "main.js must toggle the electronics chrome");
