@@ -35,14 +35,14 @@ test("scan video URLs must be http(s)", () => {
   assert.throws(() => parseVideoUrl("not a url"), /not a URL/);
 });
 
-test("localhost, LAN and Tailscale origins may call the API", () => {
+test("localhost and LAN origins may call the API", () => {
   assert.equal(isAllowedOrigin("http://127.0.0.1:5173"), true);
   assert.equal(isAllowedOrigin("http://localhost:5173"), true);
   assert.equal(isAllowedOrigin("http://192.168.1.20:5173"), true);
   assert.equal(isAllowedOrigin("http://10.0.0.4:8787"), true);
   assert.equal(isAllowedOrigin("null"), true);
-  assert.equal(isAllowedOrigin("http://100.64.12.8:5173"), true);
-  assert.equal(isAllowedOrigin("https://machine.ts.net"), true);
+  assert.equal(isAllowedOrigin("http://100.64.12.8:5173"), false);
+  assert.equal(isAllowedOrigin("https://machine.ts.net"), false);
   assert.equal(isAllowedOrigin("https://evil.example"), false);
   assert.equal(isPrivateLanHost("192.168.1.20"), true);
   assert.equal(isPrivateLanHost("100.64.1.2"), false);
@@ -114,10 +114,11 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(house, /room-scale-kind/);
   assert.match(house, /applyRoomFrames/);
   assert.match(house, /scan-phone-url/);
+  assert.match(readme, /Phone upload \(LAN\)/);
   assert.match(readme, /Send from phone/);
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
-  assert.doesNotMatch(readme, /tailscale serve|MagicDNS|ts\.net/i);
+  assert.doesNotMatch(readme, /Tailscale|tailnet|MagicDNS|ts\.net/i);
 
   assert.match(server, /app\.post\("\/api\/scan\/video"/);
   assert.match(main, /pullScanInbox/);

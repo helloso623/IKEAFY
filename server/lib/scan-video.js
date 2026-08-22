@@ -6,8 +6,6 @@
 
 import os from "node:os";
 
-const TAILSCALE_CGNAT = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
-
 export function parseVideoUrl(raw) {
   const text = String(raw || "").trim();
   if (!text) throw new Error("Paste a video URL.");
@@ -32,20 +30,13 @@ export function isPrivateLanHost(host) {
   return false;
 }
 
-export function isTailscaleHost(host) {
-  const name = String(host || "").toLowerCase().replace(/^\[|\]$/g, "");
-  if (name.endsWith(".ts.net") || name.endsWith(".tailscale.net")) return true;
-  if (TAILSCALE_CGNAT.test(name)) return true;
-  return false;
-}
-
-/** Browser origin that may talk to this API (localhost, LAN, Tailscale). */
+/** Browser origin that may talk to this API (localhost and RFC1918 LAN only). */
 export function isAllowedOrigin(origin) {
   if (!origin || origin === "null" || origin === "file://") return true;
   try {
     const parsed = new URL(origin);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    return isPrivateLanHost(parsed.hostname) || isTailscaleHost(parsed.hostname);
+    return isPrivateLanHost(parsed.hostname);
   } catch {
     return false;
   }

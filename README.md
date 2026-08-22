@@ -99,13 +99,13 @@ Lab → **Scan** accepts aligned front, side, and top photos, the live browser/E
 Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
 
 
-### Send from phone
+### Phone upload (LAN)
 
 Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
 
 `http://<lan-ip>:5173/phone-upload`
 
-(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). On the phone, record or upload a ~30s walk around the room. The page POSTs the clip to `/api/scan/video`. The Lab computer pulls stills in the browser and rebuilds the 3D house. Nothing is uploaded to a paid reconstruction model. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
+(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a ~30s walk around the room. The page POSTs the clip to `/api/scan/video`. The Lab computer pulls stills in the browser and rebuilds the 3D house. Nothing is uploaded to a paid reconstruction model. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
 
 
 ## Social preview
