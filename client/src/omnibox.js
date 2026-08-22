@@ -34,29 +34,10 @@ export function parseBudget(raw) {
 }
 
 export function ensureOmnibox() {
-  const header = document.querySelector("header.top");
-  let input = document.getElementById("omnibox");
-  if (!input && header) {
-    input = document.createElement("input");
-    input.id = "omnibox";
-    input.type = "search";
-    input.autocomplete = "off";
-    input.placeholder = "Add a table, generate a lamp, or ask…";
-    input.setAttribute("aria-label", "Search the catalog or ask the shop");
-    header.insertBefore(input, header.querySelector(".top-actions"));
-  }
-  let ask = document.getElementById("omnibox-ask");
-  if (!ask && input) {
-    ask = document.createElement("button");
-    ask.type = "button";
-    ask.id = "omnibox-ask";
-    ask.textContent = "Ask";
-    input.insertAdjacentElement("afterend", ask);
-  }
   return {
     form: document.getElementById("omnibox-form"),
-    input,
-    ask,
+    input: document.getElementById("omnibox"),
+    ask: document.getElementById("omnibox-ask"),
   };
 }
 
