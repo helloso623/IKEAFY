@@ -27,16 +27,22 @@ export function isPrivateLanHost(host) {
   if (name === "localhost" || name === "127.0.0.1" || name === "::1") return true;
   if (/^10\./.test(name) || /^192\.168\./.test(name)) return true;
   if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(name)) return true;
+  const tailnet = name.match(/^100\.(\d{1,3})\./);
+  if (tailnet && Number(tailnet[1]) >= 64 && Number(tailnet[1]) <= 127) return true;
   return false;
 }
 
-/** Browser origin that may talk to this API (localhost and RFC1918 LAN only). */
+export function isTailscaleHost(host) {
+  return /(?:^|\.)ts\.net$/i.test(String(host || "").replace(/\.$/, ""));
+}
+
+/** Browser origin that may talk to this API (localhost, LAN, or HTTPS tailnet). */
 export function isAllowedOrigin(origin) {
   if (!origin || origin === "null" || origin === "file://") return true;
   try {
     const parsed = new URL(origin);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    return isPrivateLanHost(parsed.hostname);
+    return isPrivateLanHost(parsed.hostname) || (parsed.protocol === "https:" && isTailscaleHost(parsed.hostname));
   } catch {
     return false;
   }
@@ -78,10 +84,37 @@ export function phoneUploadUrls({
 
 export function advertisedPhoneLink(req, extra = {}) {
   const pack = phoneUploadUrls(extra);
-  const host = String(req?.headers?.host || "");
-  const hostPort = Number(host.split(":").pop());
-  const url = hostPort === pack.apiPort ? pack.apiUrl : pack.url;
-  return { ok: true, ...pack, url, maxSeconds: ROOM_VIDEO_MAX_SECONDS };
+  const forwardedHost = String(req?.headers?.["x-forwarded-host"] || "").split(",")[0].trim();
+  const host = forwardedHost || String(req?.headers?.host || "").trim();
+  let hostname = "";
+  let advertisedHost = "";
+  try {
+    const parsedHost = new URL(`http://${host}`);
+    hostname = parsedHost.hostname;
+    advertisedHost = parsedHost.host;
+  } catch {
+    hostname = "";
+  }
+  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  const tailscaleUrl = isTailscaleHost(hostname) && advertisedHost
+    ? `https://${advertisedHost}/phone-upload`
+    : null;
+  const requestUrl =
+    isPrivateLanHost(hostname) && advertisedHost
+      ? `${forwardedProto === "https" ? "https" : "http"}://${advertisedHost}/phone-upload`
+      : null;
+  const lanUrl = requestUrl || pack.url;
+  const url = tailscaleUrl || lanUrl;
+  const urls = [...new Set([tailscaleUrl, ...pack.urls, pack.apiUrl].filter(Boolean))];
+  return {
+    ok: true,
+    ...pack,
+    url,
+    urls,
+    tailscaleUrl,
+    lanUrl,
+    maxSeconds: ROOM_VIDEO_MAX_SECONDS,
+  };
 }
 
 export const SCAN_VIDEO_MAX_BYTES = 80 * 1024 * 1024;

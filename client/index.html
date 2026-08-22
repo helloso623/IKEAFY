@@ -425,7 +425,11 @@
                 <div id="scan-phone-card" class="scan-phone-card hidden">
                   <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
                   <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
-                  <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
+                  <div class="scan-phone-copy-row">
+                    <input id="scan-phone-url" class="scan-phone-url" type="url" readonly value="" aria-label="Phone upload URL" placeholder="Waiting for a phone link…" />
+                    <button type="button" id="scan-phone-copy" class="quiet">Copy</button>
+                  </div>
+                  <a id="scan-phone-lan-url" class="scan-phone-lan-url hidden" href="#" target="_blank" rel="noopener"></a>
                   <p class="hint lab-hint" id="scan-phone-status">Waiting for a 30s phone clip…</p>
                 </div>
               </div>

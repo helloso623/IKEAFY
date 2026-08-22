@@ -413,7 +413,7 @@ function selectedPieceFromCtx(ctx = {}) {
 
 function selectedTransformPlan(message, ctx = {}) {
   const lower = String(message || "").toLowerCase();
-  if (!MOVE_HINTS.test(lower) || isCatalogAsk(lower) || /\bcamera\b/.test(lower)) return null;
+  if (!MOVE_HINTS.test(lower) || /\bcamera\b/.test(lower)) return null;
   const piece = selectedPieceFromCtx(ctx);
   if (
     !piece ||
@@ -744,15 +744,6 @@ function localReply(message, ctx) {
       actions: studio.actions,
     };
   }
-  const sceneNote = describeScene(ctx);
-  if (isSceneAsk(message) && sceneNote) {
-    return {
-      agent,
-      backend: "local-steward",
-      text: `I can see the current scene: ${sceneNote}.`,
-      actions: [],
-    };
-  }
   const hardLabTask = CAD_HINTS.test(message) || EDA_HINTS.test(message) || SIM_HINTS.test(message);
   const planned = hardLabTask
     ? { handles: false, text: "", actions: [] }
@@ -764,6 +755,15 @@ function localReply(message, ctx) {
       backend: "local-steward",
       text: withSceneNote(planned.text, ctx, message),
       actions: planned.actions,
+    };
+  }
+  const sceneNote = describeScene(ctx);
+  if (isSceneAsk(message) && sceneNote) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: `I can see the current scene: ${sceneNote}.`,
+      actions: [],
     };
   }
 

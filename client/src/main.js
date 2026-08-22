@@ -26,6 +26,7 @@ let costBarrier = "";
 let studio = null;
 let house = null;
 let aiDock = null;
+let pendingGeometryCheckpoint = Promise.resolve();
 // KiCad bench: half-drawn wire and the net lit up from the netlist panel.
 let pendingPort = null;
 let highlightedNet = null;
@@ -81,6 +82,24 @@ function syncEditButtons() {
   }
   const flag = $("snap-flag");
   if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
+}
+
+function checkpointGeometryEdit(clientEdit) {
+  if (!clientEdit) return pendingGeometryCheckpoint;
+  pendingGeometryCheckpoint = pendingGeometryCheckpoint
+    .catch(() => {})
+    .then(async () => {
+      const result = await api.checkpoint(clientEdit);
+      if (result?.ok === false) throw new Error(result.error || "Could not add this mesh edit to Undo.");
+      project.edit = result.edit || project.edit;
+      syncEditButtons();
+      return result;
+    })
+    .catch((error) => {
+      hud(error?.message || "Could not add this mesh edit to Undo.");
+      throw error;
+    });
+  return pendingGeometryCheckpoint;
 }
 
 function sizePlain(part) {
@@ -314,11 +333,11 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Piece PDF</button>
+              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Ways PDF</button>
             </li>`,
           )
           .join("")
-      : `<li class="hint">No DIY revisions yet.</li>`;
+      : `<li class="hint">No ways-to-make revisions yet.</li>`;
   }
   const current = active || liveDiy || builds.at(-1);
   if (out && current) {
@@ -931,12 +950,14 @@ shop.onPoseCommit((pose) => {
   commitPose(pose);
 });
 
-shop.onSculpt?.(({ mode, name }) => {
+shop.onSculpt?.(({ mode, name, clientEdit }) => {
+  void checkpointGeometryEdit(clientEdit).catch(() => {});
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
-shop.onMeshEdit?.(({ tool, name, label }) => {
+shop.onMeshEdit?.(({ tool, name, label, clientEdit }) => {
+  void checkpointGeometryEdit(clientEdit).catch(() => {});
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
   hud(`${label || tool} on ${name}. Undo takes it back.`);
 });
@@ -1055,21 +1076,25 @@ async function duplicateSelected() {
 }
 
 async function undoLastEdit() {
+  await pendingGeometryCheckpoint.catch(() => {});
   const result = await api.undo();
   if (result?.ok === false) return hud(result.error || "Nothing to undo.");
+  const geometryRestored = !result.clientEdit || shop.applyGeometryEdit?.(result.clientEdit, "undo");
   shop.noteHistory?.("undo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
-  hud("Undid the last edit.");
+  hud(geometryRestored ? "Undid the last edit." : "The project was undone, but that old mesh snapshot expired.");
 }
 
 async function redoLastEdit() {
+  await pendingGeometryCheckpoint.catch(() => {});
   const result = await api.redo();
   if (result?.ok === false) return hud(result.error || "Nothing to redo.");
+  const geometryRestored = !result.clientEdit || shop.applyGeometryEdit?.(result.clientEdit, "redo");
   shop.noteHistory?.("redo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
-  hud("Redid the last edit.");
+  hud(geometryRestored ? "Redid the last edit." : "The project was redone, but that old mesh snapshot expired.");
 }
 
 async function removePiece(id) {

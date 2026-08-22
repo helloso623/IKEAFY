@@ -95,7 +95,7 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} piece plan`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }

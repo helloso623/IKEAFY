@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
+import { analyzeStability, describeStability } from "./stability.js";
 import {
   buildWeldedTopology,
   componentMode as normalizeComponentMode,
@@ -1794,10 +1795,9 @@ export function createWorkshop(canvas) {
     return out.divideScalar(group.length);
   }
 
-  function saveSculpt() {
-    const id = selected?.userData?.piece?.id;
-    if (!id) return;
-    const geometries = sculptTargets(selected).map((child) => child.geometry);
+  function saveSculptFor(id, root) {
+    if (!id || !root) return;
+    const geometries = sculptTargets(root).map((child) => child.geometry);
     sculptStore.set(id, geometries);
     const record = reconstructed.get(id);
     if (record && geometries.length === 1) {
@@ -1807,6 +1807,10 @@ export function createWorkshop(canvas) {
       record.colors = color ? new Float32Array(color) : null;
       record.triangleCount = record.positions.length / 9;
     }
+  }
+
+  function saveSculpt() {
+    saveSculptFor(selected?.userData?.piece?.id, selected);
   }
 
   function applySculptStore() {
@@ -1827,12 +1831,89 @@ export function createWorkshop(canvas) {
     }
   }
 
+  /* Geometry edits reserve an entry in the same server history used by Move.
+     The server returns this token from undo/redo; these snapshots then restore
+     the browser-owned BufferGeometry at the matching point in that stack. */
+  const geometryEdits = new Map();
+  const geometryEditOrder = [];
+  let geometryEditSequence = 0;
+
+  function geometrySnapshot(root) {
+    return sculptTargets(root).map((child) => sculptGeometry(child).clone());
+  }
+
+  function disposeGeometrySnapshot(snapshot) {
+    for (const geometry of snapshot || []) geometry.dispose();
+  }
+
+  function beginGeometryEdit() {
+    const pieceId = selected?.userData?.piece?.id;
+    if (!pieceId) return null;
+    const clientEdit = `mesh-${Date.now().toString(36)}-${(++geometryEditSequence).toString(36)}`;
+    geometryEdits.set(clientEdit, {
+      clientEdit,
+      pieceId,
+      before: geometrySnapshot(selected),
+      after: null,
+    });
+    geometryEditOrder.push(clientEdit);
+    while (geometryEditOrder.length > 40) {
+      const expired = geometryEdits.get(geometryEditOrder.shift());
+      if (!expired) continue;
+      disposeGeometrySnapshot(expired.before);
+      disposeGeometrySnapshot(expired.after);
+      geometryEdits.delete(expired.clientEdit);
+    }
+    return clientEdit;
+  }
+
+  function cancelGeometryEdit(clientEdit) {
+    const edit = geometryEdits.get(clientEdit);
+    if (!edit) return;
+    disposeGeometrySnapshot(edit.before);
+    disposeGeometrySnapshot(edit.after);
+    geometryEdits.delete(clientEdit);
+    const index = geometryEditOrder.indexOf(clientEdit);
+    if (index >= 0) geometryEditOrder.splice(index, 1);
+  }
+
+  function completeGeometryEdit(clientEdit) {
+    const edit = geometryEdits.get(clientEdit);
+    const mesh = edit && meshes.get(edit.pieceId);
+    if (!edit || !mesh) {
+      cancelGeometryEdit(clientEdit);
+      return null;
+    }
+    disposeGeometrySnapshot(edit.after);
+    edit.after = geometrySnapshot(mesh);
+    return clientEdit;
+  }
+
+  function applyGeometryEdit(clientEdit, direction) {
+    const edit = geometryEdits.get(clientEdit);
+    const mesh = edit && meshes.get(edit.pieceId);
+    const snapshot = direction === "redo" ? edit?.after : edit?.before;
+    if (!edit || !mesh || !snapshot) return false;
+    const targets = sculptTargets(mesh);
+    if (targets.length !== snapshot.length) return false;
+    targets.forEach((child, index) => {
+      child.geometry = snapshot[index].clone();
+    });
+    saveSculptFor(edit.pieceId, mesh);
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    markSelected(selected);
+    return true;
+  }
+
   function beginSculptStroke(ev) {
     const hit = sculptHit(ev);
     if (!hit) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map(prepSculptTarget);
     const radius = brushRadius(selected);
-    const stroke = { hit, targets, radius, moved: false };
+    const stroke = { hit, targets, radius, moved: false, clientEdit };
     if (sculptMode === "grab") {
       const planeNormal = camera.getWorldDirection(new THREE.Vector3());
       stroke.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, hit);
@@ -1921,13 +2002,18 @@ export function createWorkshop(canvas) {
   function endSculptStroke() {
     if (!sculptStroke) return;
     const moved = sculptStroke.moved;
+    const clientEdit = sculptStroke.clientEdit;
     sculptStroke = null;
     orbit.enabled = true;
-    if (!moved) return;
+    if (!moved) {
+      cancelGeometryEdit(clientEdit);
+      return;
+    }
     saveSculpt();
+    completeGeometryEdit(clientEdit);
     const name = selected?.userData?.part?.name || "body";
     pushOp("S", `Sculpt ${sculptMode} · ${name}`);
-    onSculpt({ mode: sculptMode, name });
+    onSculpt({ mode: sculptMode, name, clientEdit });
   }
 
   function setSculptMode(next) {
@@ -2209,6 +2295,8 @@ export function createWorkshop(canvas) {
       }
     }
     if (!picked.length) return null;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return null;
     const center = picked.reduce((sum, entry) => sum.add(entry.world), new THREE.Vector3())
       .divideScalar(picked.length);
     const byRow = new Map();
@@ -2233,12 +2321,14 @@ export function createWorkshop(canvas) {
       geometry.computeBoundingSphere();
     }
     saveSculpt();
+    completeGeometryEdit(clientEdit);
     const name = selected.userData.part?.name || "body";
     pushOp("S", `Scale ${componentSelection.size} ${componentMode} components · ${name}`);
     onMeshEdit({
       tool: "component-scale",
       name,
       label: `Scaled ${componentSelection.size} selected ${componentMode} components`,
+      clientEdit,
     });
     refreshComponentOverlay();
     return { scope: "components", count: componentSelection.size, mode: componentMode };
@@ -2298,6 +2388,8 @@ export function createWorkshop(canvas) {
     let total = 0;
     for (const child of targets) total += sculptGeometry(child).getAttribute("position").count;
     if ((!selective && total > 60000) || total > 240000) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const pending = [];
     let beforeFaces = 0;
     let afterFaces = 0;
@@ -2317,6 +2409,7 @@ export function createWorkshop(canvas) {
     }
     if (!pending.length || afterFaces * 3 > 240000) {
       pending.forEach(({ next }) => next.dispose());
+      cancelGeometryEdit(clientEdit);
       return false;
     }
     for (const { child, geometry, next } of pending) {
@@ -2324,13 +2417,14 @@ export function createWorkshop(canvas) {
       geometry.dispose();
     }
     saveSculpt();
+    completeGeometryEdit(clientEdit);
     componentSelection = new Set();
     refreshComponentOverlay();
     emitComponentSelection();
     const name = selected?.userData?.part?.name || "body";
     const scope = selective ? `${componentMode} selection` : "whole mesh";
     pushOp("S", `Subdivide ${scope} · ${name}`);
-    onMeshEdit({ tool: "subdivide", name, label: `Subdivide ${scope}` });
+    onMeshEdit({ tool: "subdivide", name, label: `Subdivide ${scope}`, clientEdit });
     return { scope: selective ? "selection" : "all", beforeFaces, afterFaces };
   }
 
@@ -2465,6 +2559,8 @@ export function createWorkshop(canvas) {
 
   function beginFaceStroke(hit) {
     const normal = worldFaceNormal(hit);
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map(prepSculptTarget);
     const center = new THREE.Vector3();
     const c = new THREE.Vector3();
@@ -2483,7 +2579,10 @@ export function createWorkshop(canvas) {
         picked += 1;
       }
     }
-    if (!picked) return false;
+    if (!picked) {
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
     center.divideScalar(picked);
     for (const target of targets) {
       for (const pick of target.facePicks) {
@@ -2501,6 +2600,7 @@ export function createWorkshop(canvas) {
       dragPlane: cameraPlaneThrough(hit.point),
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2603,6 +2703,8 @@ export function createWorkshop(canvas) {
     if (box.isEmpty()) return false;
     const edge = nearestBoxEdge(box, hit.point);
     if (!edge || !(edge.maxW > 0.001)) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     const targets = sculptTargets(selected).map((child) => {
       const geo = sculptGeometry(child);
       return {
@@ -2620,6 +2722,7 @@ export function createWorkshop(canvas) {
       width: 0,
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2676,6 +2779,8 @@ export function createWorkshop(canvas) {
   }
 
   function beginKnifeStroke(hit) {
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
     meshStroke = {
       kind: "knife",
       hit: hit.point.clone(),
@@ -2683,6 +2788,7 @@ export function createWorkshop(canvas) {
       dragPlane: cameraPlaneThrough(hit.point),
       moved: false,
       label: "",
+      clientEdit,
     };
     orbit.enabled = false;
     return true;
@@ -2732,10 +2838,16 @@ export function createWorkshop(canvas) {
     const at = snapOn ? snap10(hit.point.getComponent(bestAxis)) : hit.point.getComponent(bestAxis);
     const point = hit.point.clone().setComponent(bestAxis, at);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axes[bestAxis], point);
-    if (!cutSelectedWithPlane(plane)) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
+    if (!cutSelectedWithPlane(plane)) {
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
+    completeGeometryEdit(clientEdit);
     const name = selected?.userData?.part?.name || "body";
     pushOp("L", `Loop cut · ${name}`);
-    onMeshEdit({ tool: "loopcut", name });
+    onMeshEdit({ tool: "loopcut", name, clientEdit });
     return true;
   }
 
@@ -2767,12 +2879,16 @@ export function createWorkshop(canvas) {
     meshStroke = null;
     orbit.enabled = true;
     dimsEl?.classList.remove("on");
-    if (!moved) return;
+    if (!moved) {
+      cancelGeometryEdit(stroke.clientEdit);
+      return;
+    }
     saveSculpt();
+    completeGeometryEdit(stroke.clientEdit);
     const name = selected?.userData?.part?.name || "body";
     const chips = { extrude: "E", inset: "I", bevel: "B", knife: "K" };
     pushOp(chips[stroke.kind] || "M", `${stroke.label || stroke.kind} · ${name}`);
-    onMeshEdit({ tool: stroke.kind, name, label: stroke.label });
+    onMeshEdit({ tool: stroke.kind, name, label: stroke.label, clientEdit: stroke.clientEdit });
   }
 
   function setMeshTool(next) {
@@ -3127,6 +3243,141 @@ export function createWorkshop(canvas) {
   function getMeasuredMm() {
     if (!measureA || !measureB) return 0;
     return measureA.distanceTo(measureB) * 1000;
+  }
+
+  /* ---- Physics preview: would it hold or break? ---------------------------
+     Runs the pure stability analyzer over the bench bodies' world boxes and
+     acts the verdict out with ghost clones — green ghosts settle, red ghosts
+     fall or tip over. The editable meshes are never touched: ghosts share
+     geometry read-only and toggling the preview just empties the overlay. */
+  const physicsFx = new THREE.Group();
+  scene.add(physicsFx);
+  let physicsAnim = null;
+  let onPhysicsCleared = () => {};
+
+  function collectPhysicsPieces() {
+    const out = [];
+    for (const [id, mesh] of meshes) {
+      if (!mesh.visible) continue;
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) continue;
+      out.push({
+        id,
+        name: mesh.userData.part?.name || id,
+        mesh,
+        box: {
+          min: { x: box.min.x, y: box.min.y, z: box.min.z },
+          max: { x: box.max.x, y: box.max.y, z: box.max.z },
+        },
+      });
+    }
+    return out;
+  }
+
+  function ghostOf(mesh, color) {
+    const ghost = mesh.clone(true);
+    ghost.traverse((node) => {
+      if (node.isMesh) {
+        node.material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.44, depthWrite: false });
+        node.castShadow = false;
+        node.receiveShadow = false;
+      }
+    });
+    mesh.getWorldPosition(ghost.position);
+    mesh.getWorldQuaternion(ghost.quaternion);
+    mesh.getWorldScale(ghost.scale);
+    return ghost;
+  }
+
+  function runPhysicsPreview() {
+    clearPhysicsPreview(true);
+    const pieces = collectPhysicsPieces();
+    const report = analyzeStability(pieces);
+    report.note = describeStability(report);
+    if (!pieces.length) return report;
+
+    const failing = new Map();
+    for (const issue of report.issues) {
+      if (issue.pieceId) failing.set(issue.pieceId, issue.kind);
+    }
+    const assemblyTips = report.issues.some((issue) => issue.kind === "tip" && !issue.pieceId);
+
+    // A whole-build tip rotates every ghost over the base edge nearest the weight.
+    let pivot = null;
+    let axis = null;
+    if (assemblyTips && report.baseHullMm.length) {
+      const com = new THREE.Vector3(report.comMm.x / 1000, 0, report.comMm.z / 1000);
+      for (const p of report.baseHullMm) {
+        const v = new THREE.Vector3(p.x / 1000, 0, p.z / 1000);
+        if (!pivot || v.distanceTo(com) < pivot.distanceTo(com)) pivot = v;
+      }
+      const lean = com.clone().sub(pivot).setY(0);
+      if (lean.lengthSq() < 1e-10) lean.set(1, 0, 0);
+      axis = new THREE.Vector3(0, 1, 0).cross(lean).normalize();
+    }
+
+    const items = pieces.map((piece) => {
+      const kind = failing.get(piece.id) || (assemblyTips ? "tipAll" : report.holds ? "ok" : "okBut");
+      const color = kind === "ok" ? 0x39d98a : kind === "okBut" ? 0x9aa7b0 : 0xff5340;
+      const ghost = ghostOf(piece.mesh, color);
+      physicsFx.add(ghost);
+      const seed = Math.random() * Math.PI * 2;
+      return {
+        ghost,
+        kind,
+        basePos: ghost.position.clone(),
+        baseQuat: ghost.quaternion.clone(),
+        dropM: Math.max(0, piece.box.min.y),
+        wobbleAxis: new THREE.Vector3(Math.cos(seed), 0, Math.sin(seed)).normalize(),
+        seed,
+      };
+    });
+    physicsAnim = { t0: performance.now(), items, pivot, axis, report };
+    return report;
+  }
+
+  function updatePhysicsPreview() {
+    if (!physicsAnim) return;
+    const t = Math.max(0, (performance.now() - physicsAnim.t0) / 1000 - 0.35);
+    const q = new THREE.Quaternion();
+    for (const it of physicsAnim.items) {
+      if (it.kind === "ok" || it.kind === "okBut") {
+        const pulse = it.kind === "ok" ? 0.44 + Math.sin(performance.now() / 260 + it.seed) * 0.14 : 0.28;
+        it.ghost.traverse((node) => {
+          if (node.isMesh) node.material.opacity = pulse;
+        });
+        continue;
+      }
+      if (it.kind === "tipAll" && physicsAnim.pivot) {
+        const angle = Math.min(Math.PI / 2, 1.8 * t * t);
+        q.setFromAxisAngle(physicsAnim.axis, -angle);
+        it.ghost.quaternion.copy(q).multiply(it.baseQuat);
+        it.ghost.position.copy(it.basePos).sub(physicsAnim.pivot).applyQuaternion(q).add(physicsAnim.pivot);
+        continue;
+      }
+      // floating / tip / joint: the body lets go, tumbles, and falls.
+      const delay = it.kind === "joint" ? 0.5 : it.kind === "tip" ? 0.25 : 0;
+      const tt = Math.max(0, t - delay);
+      const drop = Math.min(it.dropM, 4.9 * tt * tt);
+      it.ghost.position.set(it.basePos.x, it.basePos.y - drop, it.basePos.z);
+      q.setFromAxisAngle(it.wobbleAxis, Math.min(0.5, tt * 1.2));
+      it.ghost.quaternion.copy(q).multiply(it.baseQuat);
+    }
+  }
+
+  function clearPhysicsPreview(silent = false) {
+    const had = Boolean(physicsAnim) || physicsFx.children.length > 0;
+    physicsAnim = null;
+    for (const child of [...physicsFx.children]) {
+      physicsFx.remove(child);
+      // Ghosts borrow the bodies' geometry read-only — only the overlay
+      // materials belong to the preview, so only those are disposed.
+      child.traverse((node) => {
+        if (node.isMesh) node.material?.dispose?.();
+      });
+    }
+    if (had && !silent) onPhysicsCleared();
+    return had;
   }
 
   function clearMeasure() {
@@ -3590,6 +3841,7 @@ export function createWorkshop(canvas) {
     if (ev.key === "Escape" && cadTool) setCadTool(null);
     if (ev.key === "Escape" && meshTool) setMeshTool(null);
     if (ev.key === "Escape" && sculptMode) setSculptMode(null);
+    if (ev.key === "Escape" && physicsAnim) clearPhysicsPreview();
   });
 
   function meshFor(piece, part) {
@@ -3692,6 +3944,8 @@ export function createWorkshop(canvas) {
   function sync(project, partsById) {
     knownParts = partsById;
     trackPieces(project, partsById);
+    clearPhysicsPreview(); // the ghosts describe the old layout — drop them
+
     const keepId = selected?.userData?.piece?.id || project.selection || null;
     transform.detach();
     group.clear();
@@ -4005,6 +4259,7 @@ export function createWorkshop(canvas) {
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
     updateMeasureLabel();
+    updatePhysicsPreview();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -4191,6 +4446,7 @@ export function createWorkshop(canvas) {
       onJointCommit = fn;
     },
     noteHistory,
+    applyGeometryEdit,
     setCadTool,
     getCadTool: () => cadTool,
     setSculptMode,
@@ -4223,6 +4479,12 @@ export function createWorkshop(canvas) {
     isPieceHidden: (id) => hiddenIds.has(id),
     hiddenCount: () => hiddenIds.size,
     getMeasuredMm,
+    runPhysicsPreview,
+    clearPhysicsPreview: () => clearPhysicsPreview(true),
+    physicsActive: () => Boolean(physicsAnim),
+    onPhysicsCleared: (fn) => {
+      onPhysicsCleared = fn;
+    },
     setMode: (mode) => {
       if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
       if (cadTool) setCadTool(null);
