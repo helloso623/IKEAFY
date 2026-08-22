@@ -9,11 +9,10 @@
  * is pure math — no DOM, no three.js — so node can test it directly.
  */
 
+import { GENERIC_SIDE_TABLE_M } from "./generic-table.js";
+
 const EYE_LEVEL_M = 1.5;
 const FALLBACK_HORIZON = 0.55;
-
-/** Generic IKEA-vibe test table, metres. Specs needed for an exact IKEA article. */
-export const TEST_TABLE_M = Object.freeze({ w: 0.55, d: 0.55, h: 0.45 });
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -158,9 +157,9 @@ export function overlayFloorFromHorizon(photoRect, horizon = FALLBACK_HORIZON) {
 export function overlayFootprintPx(foot, floor, room) {
   const roomW = Math.max(0.5, num(room?.widthM) || 3.2);
   const roomD = Math.max(0.5, num(room?.depthM) || 3.8);
-  const w = num(foot?.w) || TEST_TABLE_M.w;
-  const d = num(foot?.d) || TEST_TABLE_M.d;
-  const h = num(foot?.h) || TEST_TABLE_M.h;
+  const w = num(foot?.w) || GENERIC_SIDE_TABLE_M.w;
+  const d = num(foot?.d) || GENERIC_SIDE_TABLE_M.d;
+  const h = num(foot?.h) || GENERIC_SIDE_TABLE_M.h;
   const scaleX = (floor?.w || 1) / roomW;
   const scaleZ = (floor?.h || 1) / roomD;
   return {
@@ -197,9 +196,12 @@ export function placeFurniture({ plan, pieces = [], room } = {}) {
   });
   const placed = [];
   for (const place of plan?.ordered || []) {
-    const w = num(place.widthM) || num(plan?.pick?.footprintM?.w) || TEST_TABLE_M.w;
-    const d = num(place.depthM) || num(plan?.pick?.footprintM?.d) || TEST_TABLE_M.d;
-    const h = num(place.heightM) || num(plan?.pick?.footprintM?.h) || TEST_TABLE_M.h;
+    const w =
+      num(place.widthM) || num(plan?.pick?.footprintM?.w) || GENERIC_SIDE_TABLE_M.w;
+    const d =
+      num(place.depthM) || num(plan?.pick?.footprintM?.d) || GENERIC_SIDE_TABLE_M.d;
+    const h =
+      num(place.heightM) || num(plan?.pick?.footprintM?.h) || GENERIC_SIDE_TABLE_M.h;
     placed.push(
       inRoom({
         id: place.id || place.partId || "plan-piece",

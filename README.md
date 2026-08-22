@@ -1,29 +1,51 @@
-# IKEAlive
+<p align="center">
+  <img src="docs/social-preview.jpg" alt="IKEAlive — the booklet, as a film." width="1280" />
+</p>
 
-A consumer app for assembling IKEA furniture. Upload an instructions PDF, or type a product name so Tavily can fetch the official IKEA PDF (catalog stand-in without `TAVILY_API_KEY`). The studio turns the plates into a Seedance reel you watch one step at a time. Official LACK is a secondary locked sheet. The right rail holds inventory, troubles, identify, and small parts. The yellow circle at the bottom-right opens shop chat, voice, command history, and the scene the shop can see (mode, step, selected piece, room). Watch chat still has a Mic that uses the Web Speech API and `/api/agents/chat` so spoken commands can start the reel, change step, or request a spare.
+<h1 align="center">IKEAlive</h1>
+
+<p align="center"><strong>The booklet, as a film.</strong></p>
+
+<p align="center">Upload an IKEA PDF. Pick a lens. Watch the step.</p>
+
+<p align="center">
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-1c1c1e?style=flat-square" alt="Node.js 20+" /></a>
+</p>
+
+<br />
+
+| Video | Nano Banana stills | Tripo 3D |
+| :---: | :---: | :---: |
+| The step, as a film. | Instruction plates, one at a time. | The pieces, in space. |
+
+`FAL_KEY` unlocks all three. Leave keys empty and nothing leaves the machine.
+
+IKEAlive is the front door for assembling IKEA furniture. Upload an instructions PDF, or type a product name so Tavily can fetch the official IKEA PDF (catalog stand-in without `TAVILY_API_KEY`). The studio turns the plates into a Seedance reel you watch one step at a time. The bottom-right AI orb opens chat, voice, command history, and the scene context.
 
 ## Run
 
 ```bash
-cp .env.example .env   # optional — leave keys empty to stay local
 npm install
 npm run dev
 ```
 
-- App: `http://localhost:5173`
-- API: `http://localhost:8787`
-
-Desktop (full workshop in an Electron window — IKEAlive upload/watch, Lab Bench, House):
+App [localhost:5173](http://localhost:5173) · API [localhost:8787](http://localhost:8787)
 
 ```bash
 npm run electron
 ```
 
-`npm run electron` and `npm run dev:electron` start the same Express + Vite stack as `npm run dev`, then open it in a desktop window. Keep using `npm run dev` if you want the browser instead. After `npm run build`, `electron .` (without `ELECTRON_DEV`) starts Express itself and loads the built client from `http://127.0.0.1:8787`.
+Node 20+. Copy `.env.example` → `.env` if you want keys. Do not commit `.env`.
 
-`.env` stays out of git. Do not commit keys. `FAL_KEY` is optional (Veed step films); without it the studio uses a local storyboard.
+## Keys
 
-## Folders
+Names only.
+
+`FAL_KEY` — video, Nano Banana 2 stills, Tripo H3.1 meshes
+`OPENAI_API_KEY` — hosted Lab bench
+`TAVILY_API_KEY` — official IKEA PDF lookup
+
+## Structure
 
 | Path | What lives here |
 | --- | --- |
@@ -40,3 +62,7 @@ AR requests the browser/Electron camera and captures a six-frame burst locally; 
 ### Object scans
 
 Lab → **Scan** accepts aligned front, side, and top photos plus a circumference or known length. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
+
+---
+
+<p align="center"><sub>IKEAFY is the repo. All rights reserved.</sub></p>

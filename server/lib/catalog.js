@@ -1,14 +1,14 @@
 const PARTS = [
   {
     id: "generic-side-table",
-    sku: "TEST-TABLE-550",
+    sku: "GENERATED-SIDE-TABLE-550",
     ikeaArticle: null,
-    name: "Test table 55×55",
-    brand: "IKEA-vibe",
+    name: "Generic side-table placeholder",
+    brand: "Generic",
     category: "furniture",
     shape: "table",
-    cost: 12,
-    store: "generic",
+    cost: 0,
+    store: "Generated",
     storeUrl: "",
     includedIn: [],
     dimsMm: { x: 550, y: 550, z: 450 },
@@ -21,7 +21,7 @@ const PARTS = [
     thermalAlpha: 0.00003,
     ports: [],
     specs: { loadKg: 25, indoor: true, placeholder: true },
-    note: "Generic 550 × 550 mm top, ~450 mm high. Specs needed for an exact IKEA article.",
+    note: "Neutral editable placeholder using 550 × 550 × 450 mm catalog proportions.",
   },
   {
     id: "lack-table",

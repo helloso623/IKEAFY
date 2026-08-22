@@ -644,6 +644,26 @@ export function storyboardForStep(guide, stepNumber) {
   }));
 }
 
+/** Camera + catalog parts for the Three.js workshop. No Seedance, no fal. */
+export function scenePlanForStep(guide, stepNumber, frameIndex = 0) {
+  const frames = storyboardForStep(guide, stepNumber);
+  const step = guide?.steps?.find((s) => Number(s.number) === Number(stepNumber));
+  const last = Math.max(0, frames.length - 1);
+  const idx = Math.max(0, Math.min(Number(frameIndex) || 0, last));
+  const frame = frames[idx] || {};
+  const camera = frame.camera || { az: 42, el: 28, zoom: 1 };
+  return {
+    number: Number(step?.number || stepNumber) || 0,
+    engine: "workshop",
+    parts: [...new Set((frame.parts || step?.partsUsed || []).filter(Boolean))],
+    camera: { az: camera.az, el: camera.el, zoom: camera.zoom },
+    explode: Number(frame.explode) || 0,
+    caption: frame.caption || step?.body || `Step ${stepNumber}`,
+    frame: idx,
+    frames: frames.length,
+  };
+}
+
 export function plateKind(guide, step = {}) {
   const blob = `${guide?.title || ""} ${step.body || ""} ${(step.partsUsed || []).join(" ")} ${
     guide?.raw || ""

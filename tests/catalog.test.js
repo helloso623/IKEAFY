@@ -66,6 +66,7 @@ test("the Lab shelf keeps furniture, hardware, tape, and hand tools", () => {
   const ids = shelf.map((p) => p.id);
   for (const keep of [
     "lack-table",
+    "generic-side-table",
     "lack-top",
     "lack-leg",
     "linmon-top",
@@ -136,4 +137,13 @@ test("a LACK table fits a 550 mm footprint and not a 400 mm one", () => {
   const table = searchParts({ query: "lack table" }).find((p) => p.id === "lack-table");
   assert.ok(fitsDims(table, { x: 550, y: 550 }));
   assert.equal(fitsDims(table, { x: 400, y: 400 }), false);
+});
+
+test("the generic test table is an IKEA-vibe 550 × 550 × 450 mm stand-in", () => {
+  const table = getPart("generic-side-table");
+  assert.equal(table.shape, "table");
+  assert.deepEqual(table.dimsMm, { x: 550, y: 550, z: 450 });
+  assert.match(table.note, /specs needed for an exact IKEA article/i);
+  assert.equal(table.ikeaArticle, null);
+  assert.notEqual(String(table.color).toLowerCase(), "#808080");
 });

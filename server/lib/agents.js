@@ -467,7 +467,7 @@ export function planCreativeActions(message, ctx = {}) {
         actions.push(table.action);
         return {
           handles: true,
-          text: `Using ${table.specs} IKEA-vibe proportions — specs needed for an exact IKEA article. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and a generic test table.`,
+          text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
           actions,
         };
       }
@@ -487,7 +487,7 @@ export function planCreativeActions(message, ctx = {}) {
     if (table) {
       return {
         handles: true,
-        text: `Using ${table.specs} IKEA-vibe proportions — specs needed for an exact IKEA article. Placing the generic test table now.`,
+        text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Placing it now.`,
         actions: [table.action],
       };
     }

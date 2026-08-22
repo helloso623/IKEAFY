@@ -40,6 +40,15 @@ function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+/** Canonical instruction render mode stored on the run. `3d` aliases to `scene`. */
+export function normalizeRenderMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "video") return "video";
+  if (raw === "images" || raw === "image") return "images";
+  if (raw === "scene" || raw === "3d") return "scene";
+  return null;
+}
+
 /**
  * @param {object} options
  * @param {"official"|"custom"} options.mode
@@ -51,6 +60,7 @@ export function startAssembly({
   instructions = "",
   availableTools = [],
   pdfBase64 = "",
+  renderMode = null,
 } = {}) {
   let guide;
   if (mode === "official") {
@@ -67,7 +77,7 @@ export function startAssembly({
     }
     guide = parseGuide(text, { instructions, availableTools });
   }
-  return beginRun(mode, guide);
+  return beginRun(mode, guide, renderMode);
 }
 
 async function withShopping(result, deps = {}) {
@@ -90,9 +100,10 @@ export async function startAssemblyAsync({
   availableTools = [],
   images = [],
   pdfBase64 = "",
+  renderMode = null,
 } = {}, deps = {}) {
   if (mode === "official") {
-    return withShopping(startAssembly({ mode, article, instructions, availableTools }), deps);
+    return withShopping(startAssembly({ mode, article, instructions, availableTools, renderMode }), deps);
   }
   const plates = (images || []).filter((image) =>
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
@@ -111,16 +122,17 @@ export async function startAssemblyAsync({
         : "That guide has no steps. Drop a PDF or paste a numbered guide.",
     };
   }
-  return withShopping(beginRun("custom", guide), deps);
+  return withShopping(beginRun("custom", guide, renderMode), deps);
 }
 
-function beginRun(mode, guide) {
+function beginRun(mode, guide, renderMode = null) {
   if (guide?.ok === false) return guide;
   if (!guide?.steps?.length) return { ok: false, reason: "That guide has no steps." };
 
   const run = {
     id: `run-${++seq}`,
     mode: mode === "official" ? "official" : "custom",
+    renderMode: normalizeRenderMode(renderMode),
     locked: Boolean(guide.locked),
     guide,
     total: guide.steps.length,
@@ -139,6 +151,15 @@ export function getAssembly(id) {
   return runs.get(id) || null;
 }
 
+export function setAssemblyRenderMode(id, renderMode) {
+  const run = runs.get(id);
+  if (!run) return { ok: false, reason: "Unknown assembly run." };
+  const mode = normalizeRenderMode(renderMode);
+  if (!mode) return { ok: false, reason: "Pick video, images, or 3D instructions." };
+  run.renderMode = mode;
+  return { ok: true, ...view(run) };
+}
+
 function stepOf(run, number) {
   return run.guide.steps.find((s) => Number(s.number) === Number(number)) || null;
 }
@@ -147,6 +168,7 @@ function publicRun(run) {
   return {
     id: run.id,
     mode: run.mode,
+    renderMode: run.renderMode || null,
     locked: run.locked,
     official: run.mode === "official",
     title: run.guide.title,
@@ -186,6 +208,7 @@ function outlineFor(run) {
       body: readable ? step.body : null,
       preview: readable ? null : `Step ${step.number} opens when you confirm step ${run.cursor}.`,
       toolRequired: step.toolRequired || null,
+      partsUsed: readable ? [...(step.partsUsed || [])] : [],
       confirmed: run.confirmed.includes(step.number),
     };
   });

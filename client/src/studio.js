@@ -11,6 +11,12 @@ import { ikealiveLog, ikealiveWarn } from "./log.js";
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
   "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
+const FAL_IMAGE_REQUIRED =
+  "Set FAL_KEY for Nano Banana 2 instruction stills. Image mode is a live plate, not a canvas table drawing.";
+const FAL_SCENE_REQUIRED =
+  "Set FAL_KEY for Tripo H3.1 instruction meshes. 3D mode loads a live GLB in the workshop, not a catalog LACK table.";
+const STILL_MS = 4000;
+const SCENE_FRAME_MS = 1100;
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -18,7 +24,7 @@ function text(value) {
   return value == null ? "" : String(value);
 }
 
-export function initStudio({ api, hud = () => {} } = {}) {
+export function initStudio({ api, hud = () => {}, shop = null, getParts = () => ({}), restoreShop = null } = {}) {
   if (!api) throw new Error("initStudio requires an api client");
 
   const el = {
@@ -37,6 +43,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     film: first("#film"),
     frame: first("#film-frame"),
     video: first("#film-video"),
+    still: first("#film-still"),
     caption: first("#film-caption"),
     play: first("#film-play"),
     next: first("#film-wait"),
@@ -57,6 +64,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     productName: first("#product-name"),
     productLookup: first("#product-lookup"),
     uploadForm: first("#upload-form"),
+    renderModes: first("#render-modes"),
+    renderModeVideo: first("#render-mode-video"),
+    renderModeImages: first("#render-mode-images"),
+    renderModeScene: first("#render-mode-scene"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
     brokenNote: first("#broken-note"),
@@ -94,6 +105,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     broken: null,
     submitting: false,
     destroyed: false,
+    renderMode: null,
   };
 
   function listen(node, event, handler) {
@@ -141,6 +153,106 @@ export function initStudio({ api, hud = () => {} } = {}) {
       return;
     }
     document.getElementById("app")?.setAttribute("data-interface", next);
+  }
+
+  function normalizeRenderMode(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (raw === "video") return "video";
+    if (raw === "images" || raw === "image") return "images";
+    if (raw === "scene" || raw === "3d") return "scene";
+    return null;
+  }
+
+  function syncRenderModeUi() {
+    const mode = normalizeRenderMode(state.renderMode);
+    const app = document.getElementById("app");
+    if (mode) app?.setAttribute("data-render-mode", mode);
+    else app?.removeAttribute("data-render-mode");
+    for (const btn of document.querySelectorAll("button[data-render-mode]")) {
+      const on = btn.getAttribute("data-render-mode") === mode;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  function hasGuideSource() {
+    return Boolean(el.pdf?.files?.[0] || String(el.productName?.value || "").trim());
+  }
+
+  async function chooseRenderMode(value) {
+    const mode = normalizeRenderMode(value);
+    if (!mode) return null;
+    state.renderMode = mode;
+    syncRenderModeUi();
+    ikealiveLog("render", "mode chosen", { mode });
+    try {
+      if (state.submitting) return mode;
+      if (state.run) return startChosenRender();
+      if (hasGuideSource()) return parseCustom();
+      announce("Drop a PDF or type a product name, then get the reel.");
+      return mode;
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
+  async function afterGuideReady() {
+    const mode = normalizeRenderMode(state.renderMode || state.run?.renderMode);
+    if (!mode) {
+      announce("Choose video, image, or 3D instructions.");
+      return null;
+    }
+    state.renderMode = mode;
+    syncRenderModeUi();
+    return startChosenRender();
+  }
+
+  async function startChosenRender() {
+    const mode = normalizeRenderMode(state.renderMode || state.run?.renderMode);
+    if (!mode || !state.run) return null;
+    state.renderMode = mode;
+    syncRenderModeUi();
+    setInterface("watch");
+    el.film?.classList.remove("hidden");
+    let posted = null;
+    if (api.render) {
+      posted = await api.render({
+        mode,
+        renderMode: mode,
+        runId: state.run.id,
+      });
+      if (posted?.ok === false) return fail(new Error(posted.reason));
+    }
+    if (mode !== "video") {
+      if (mode === "images") {
+        announce("Rendering Nano Banana 2 stills…");
+        await bootImageReel();
+        if (state.reel.some((clip) => clip.imageUrl)) {
+          announce("Stills ready. Watch the first step.");
+        }
+        return state.run;
+      }
+      if (mode === "scene") {
+        announce("Generating Tripo H3.1 meshes…");
+        await bootScene();
+        if (state.reel.some((clip) => clip.meshUrl)) {
+          announce("Meshes ready. Watch the first step.");
+        }
+        return state.run;
+      }
+      const reason = posted?.reason || "Unknown instruction render mode.";
+      hideVideo();
+      showFilmStatus(reason);
+      announce(reason);
+      ikealiveLog("render", "unimplemented", { mode, reason });
+      return posted;
+    }
+    announce("Rendering Seedance 2.5…");
+    await bootReel();
+    if (state.reel.some((clip) => clip.videoUrl)) {
+      announce("Reel ready. Watch the first step.");
+    }
+    return state.run;
   }
 
   function setMode(mode) {
@@ -464,14 +576,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
       setMode("official");
       announce("Opening the official sheet…");
       ikealiveLog("assembly", "official start", { article: el.product?.value || "304.499.08" });
-      const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
+      const view = await api.runStart({
+        mode: "official",
+        article: el.product?.value || undefined,
+        renderMode: state.renderMode || undefined,
+      });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      setInterface("watch");
-      announce("Rendering Seedance 2.5…");
       ikealiveLog("assembly", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
-      await bootReel();
+      await afterGuideReady();
       return view;
     } catch (error) {
       return fail(error);
@@ -523,18 +637,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
         mode: "custom",
         instructions: el.notes?.value || "",
         images,
+        renderMode: state.renderMode || undefined,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       saveCustom();
       await renderReviews();
-      setInterface("watch");
-      announce("Rendering Seedance 2.5…");
       ikealiveLog("assembly", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
-      await bootReel();
-      if (state.reel.some((clip) => clip.videoUrl)) {
-        announce("Reel ready. Watch the first step.");
-      }
+      await afterGuideReady();
       return view;
     } catch (error) {
       return fail(error);
@@ -576,12 +686,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.reel = [];
     state.clipIndex = 0;
     state.frameIndex = 0;
+    state.renderMode = null;
+    syncRenderModeUi();
     if (el.notes) el.notes.value = "";
     for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
     }
     hideVideo();
     el.film?.classList.add("hidden");
+    shop?.clearInstructionMesh?.();
+    restoreShop?.();
     renderTransport();
     try {
       localStorage.removeItem(CUSTOM_SESSION_KEY);
@@ -594,6 +708,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ------------------------------------------------------------------- playback
 
+  function hideStill() {
+    if (el.still) {
+      el.still.removeAttribute("src");
+      el.still.alt = "";
+      el.still.classList.add("hidden");
+    }
+  }
+
   function hideVideo() {
     if (el.video) {
       el.video.pause();
@@ -601,6 +723,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       el.video.load();
       el.video.classList.add("hidden");
     }
+    hideStill();
     el.frame?.classList.add("hidden");
   }
 
@@ -902,19 +1025,163 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   function clipsFromOutline() {
+    const mode = normalizeRenderMode(state.renderMode);
+    const provider =
+      mode === "images" ? "nano-banana-2" : mode === "scene" ? "tripo-h3.1" : "seedance-2.5";
     return (state.outline || []).map((item) => ({
       number: item.number,
       frames: [],
       videoUrl: null,
-      provider: "seedance-2.5",
+      imageUrl: null,
+      meshUrl: null,
+      parts: item.partsUsed || [],
+      provider,
     }));
+  }
+
+  function isSceneMode() {
+    return normalizeRenderMode(state.renderMode || state.run?.renderMode) === "scene";
+  }
+
+  function sceneCamera(frameIndex) {
+    const i = Math.max(0, Number(frameIndex) || 0);
+    return { az: 35 + i * 12, el: 28 - i * 2, zoom: 1.1 - i * 0.05 };
+  }
+
+  function showScene(clip, { play = false } = {}) {
+    const camera = sceneCamera(state.frameIndex);
+    const explode = state.frameIndex * 0.08;
+    if (!clip?.meshUrl) {
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(
+        play
+          ? `Generating Tripo H3.1 · step ${clip?.number || ""}…`
+          : `No Tripo mesh for step ${clip?.number || ""} yet.`,
+      );
+      return;
+    }
+    showFilmStatus("");
+    ikealiveLog("3d", "step", { step: clip.number, meshUrl: clip.meshUrl, camera });
+    const loaded = shop?.loadInstructionMesh?.(clip.meshUrl, { camera });
+    if (loaded?.then) {
+      loaded
+        .then(() => {
+          if (explode) shop?.explode?.(explode);
+          shop?.resize?.();
+        })
+        .catch((error) => {
+          showFilmStatus(error?.message || "Could not load the Tripo GLB.");
+        });
+    } else {
+      if (explode) shop?.explode?.(explode);
+      shop?.resize?.();
+    }
+    if (!play) return;
+    state.timer = setTimeout(() => {
+      if (!state.playingOn) return;
+      if (state.frameIndex < 3) {
+        state.frameIndex += 1;
+        showScene(clip, { play: true });
+      } else {
+        finishClip();
+      }
+    }, SCENE_FRAME_MS);
+  }
+
+  async function renderClipScene(clip) {
+    if (!clip || !api.renderScene || !state.run) {
+      ikealiveWarn("3d", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
+      throw new Error(FAL_SCENE_REQUIRED);
+    }
+    ikealiveLog("3d", "render step", { runId: state.run.id, step: clip.number, renderMode: "scene" });
+    const result = await api.renderScene({
+      runId: state.run.id,
+      stepNumber: clip.number,
+      renderMode: "scene",
+    });
+    clip.meshUrl = result.meshUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.meshUrl) {
+      ikealiveWarn("3d", "no mesh url", { step: clip.number, error: result.error || result.reason || FAL_SCENE_REQUIRED });
+      throw new Error(result.error || result.reason || FAL_SCENE_REQUIRED);
+    }
+    ikealiveLog("3d", "mesh", { step: clip.number, meshUrl: clip.meshUrl, provider: clip.provider });
+    return clip;
+  }
+
+  async function upgradeSceneReel(clips) {
+    if (!api.renderScene || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      if (clip.meshUrl) {
+        live += 1;
+        continue;
+      }
+      try {
+        const status = `Generating Tripo H3.1 · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.meshUrl) showFilmStatus(status);
+        await renderClipScene(clip);
+        live += 1;
+        setOut(el.renderOut, `Tripo H3.1 · ${live}/${clips.length} meshes`);
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_SCENE_REQUIRED);
+        return;
+      }
+    }
+  }
+
+  async function bootScene() {
+    if (!state.run) return;
+    stopPlayback();
+    hideVideo();
+    el.film?.classList.remove("hidden");
+    state.reel = clipsFromOutline();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
+    state.frameIndex = 0;
+    renderSteps();
+    renderTransport();
+    showFilmStatus("Generating Tripo H3.1 mesh…");
+    shop?.resize?.();
+
+    if (!(await falIsLive())) {
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(FAL_SCENE_REQUIRED);
+      announce(FAL_SCENE_REQUIRED);
+      ikealiveWarn("3d", "fal not live — no catalog LACK stand-in");
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Generating Tripo H3.1 · step ${first.number}…`);
+        showFilmStatus(`Generating Tripo H3.1 · step ${first.number}…`);
+        await renderClipScene(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_SCENE_REQUIRED);
+      return;
+    }
+
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.meshUrl)) upgradeSceneReel(state.reel);
   }
 
   async function falIsLive() {
     if (!api.health) return false;
     try {
       const health = await api.health();
-      return Boolean(health?.video?.live);
+      return Boolean(health?.video?.live || health?.image?.live || health?.scene?.live);
     } catch {
       return false;
     }
@@ -925,10 +1192,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
       ikealiveWarn("video", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
       throw new Error(FAL_REQUIRED);
     }
-    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number });
+    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number, renderMode: "video" });
     const result = await api.renderVideo({
       runId: state.run.id,
       stepNumber: clip.number,
+      renderMode: "video",
     });
     clip.videoUrl = result.videoUrl || null;
     clip.provider = result.provider || clip.provider;
@@ -937,6 +1205,27 @@ export function initStudio({ api, hud = () => {} } = {}) {
       throw new Error(result.error || result.reason || FAL_REQUIRED);
     }
     ikealiveLog("video", "step ready", { step: clip.number, videoUrl: clip.videoUrl, provider: clip.provider });
+    return clip;
+  }
+
+  async function renderClipImage(clip) {
+    if (!clip || !api.renderImage || !state.run) {
+      ikealiveWarn("image", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
+      throw new Error(FAL_IMAGE_REQUIRED);
+    }
+    ikealiveLog("image", "render step", { runId: state.run.id, step: clip.number, renderMode: "images" });
+    const result = await api.renderImage({
+      runId: state.run.id,
+      stepNumber: clip.number,
+      renderMode: "images",
+    });
+    clip.imageUrl = result.imageUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.imageUrl) {
+      ikealiveWarn("image", "no image url", { step: clip.number, error: result.error || result.reason || FAL_IMAGE_REQUIRED });
+      throw new Error(result.error || result.reason || FAL_IMAGE_REQUIRED);
+    }
+    ikealiveLog("image", "url", { step: clip.number, imageUrl: clip.imageUrl, provider: clip.provider });
     return clip;
   }
 
@@ -1006,9 +1295,76 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
 
+  async function upgradeImageReel(clips) {
+    if (!api.renderImage || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      if (clip.imageUrl) {
+        live += 1;
+        continue;
+      }
+      try {
+        const status = `Rendering Nano Banana 2 · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.imageUrl) showFilmStatus(status);
+        await renderClipImage(clip);
+        live += 1;
+        setOut(el.renderOut, `Nano Banana 2 · ${live}/${clips.length} stills`);
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_IMAGE_REQUIRED);
+        return;
+      }
+    }
+  }
+
+  async function bootImageReel() {
+    if (!state.run) return;
+    stopPlayback();
+    el.film?.classList.remove("hidden");
+    hideVideo();
+    state.reel = clipsFromOutline();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
+    state.frameIndex = 0;
+    renderSteps();
+    renderTransport();
+    showFilmStatus("Rendering Nano Banana 2 stills…");
+
+    if (!(await falIsLive())) {
+      showFilmStatus(FAL_IMAGE_REQUIRED);
+      announce(FAL_IMAGE_REQUIRED);
+      ikealiveWarn("image", "fal not live — stills are not a canvas table");
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Rendering Nano Banana 2 · step ${first.number}…`);
+        showFilmStatus(`Rendering Nano Banana 2 · step ${first.number}…`);
+        await renderClipImage(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_IMAGE_REQUIRED);
+      return;
+    }
+
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.imageUrl)) upgradeImageReel(state.reel);
+  }
+
   function showVideo(url, { play = false } = {}) {
     if (!el.video || !url) return false;
     el.frame?.classList.add("hidden");
+    hideStill();
     showFilmStatus("");
     el.video.classList.remove("hidden");
     if (el.video.src !== url) {
@@ -1021,6 +1377,20 @@ export function initStudio({ api, hud = () => {} } = {}) {
     } else {
       el.video.pause();
     }
+    return true;
+  }
+
+  function showStill(url, { number } = {}) {
+    if (!el.still || !url) return false;
+    el.frame?.classList.add("hidden");
+    if (el.video) {
+      el.video.pause();
+      el.video.classList.add("hidden");
+    }
+    showFilmStatus("");
+    el.still.classList.remove("hidden");
+    el.still.alt = number ? `Step ${number} assembly still` : "Assembly still";
+    if (el.still.getAttribute("src") !== url) el.still.src = url;
     return true;
   }
 
@@ -1040,11 +1410,43 @@ export function initStudio({ api, hud = () => {} } = {}) {
         action: outline.action,
         body: outline.body || clipCaption(clip),
         toolRequired: outline.toolRequired,
+        partsUsed: outline.partsUsed || [],
       };
     }
     setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
     renderSteps();
     renderTransport();
+
+    const images = normalizeRenderMode(state.renderMode) === "images";
+    if (isSceneMode()) {
+      hideVideo();
+      if (clip.meshUrl) {
+        showScene(clip, { play });
+        return;
+      }
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(
+        play
+          ? `Generating Tripo H3.1 · step ${clip.number}…`
+          : `No Tripo mesh for step ${clip.number} yet.`,
+      );
+      return;
+    }
+    if (images) {
+      if (clip.imageUrl && showStill(clip.imageUrl, { number: clip.number })) {
+        if (play) {
+          state.timer = setTimeout(() => finishClip(), STILL_MS);
+        }
+        return;
+      }
+      hideVideo();
+      showFilmStatus(
+        play
+          ? `Rendering Nano Banana 2 · step ${clip.number}…`
+          : `No Nano Banana still for step ${clip.number} yet.`,
+      );
+      return;
+    }
 
     if (clip.videoUrl && showVideo(clip.videoUrl, { play })) {
       if (state.timer) clearTimeout(state.timer);
@@ -1349,6 +1751,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
+  listen(el.renderModes, "click", (event) => {
+    const btn = event.target.closest("button[data-render-mode]");
+    if (btn) chooseRenderMode(btn.getAttribute("data-render-mode"));
+  });
   listen(el.productLookup, "click", lookupProductManual);
   listen(el.pdf, "change", () => {
     const file = el.pdf?.files?.[0] || null;
@@ -1418,6 +1824,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     startOfficial,
     startFromGuide,
     parseCustom,
+    chooseRenderMode,
     lookupProductManual,
     applyActions: applyStudioActions,
     nextStep,
@@ -1430,7 +1837,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
     attachBroken,
     requestFittings,
     clearCustomSession,
-    replay: bootReel,
+    replay() {
+      const mode = normalizeRenderMode(state.renderMode);
+      if (mode === "images") return bootImageReel();
+      if (mode === "scene") return bootScene();
+      return bootReel();
+    },
     destroy() {
       state.destroyed = true;
       stopPlayback();

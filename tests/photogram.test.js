@@ -14,11 +14,18 @@ import {
   assignSurfaces,
   cropRegion,
   estimateHorizon,
+  frameRoomCamera,
   lumaRows,
+  overlayFloorFromHorizon,
+  overlayFootprintPx,
   placeFurniture,
   roomFromPhotos,
   wallBoxes,
 } from "../client/src/photogram.js";
+import {
+  GENERIC_SIDE_TABLE,
+  GENERIC_SIDE_TABLE_M,
+} from "../client/src/generic-table.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(path.join(root, file), "utf8");
@@ -105,6 +112,44 @@ test("crop regions cover the photo exactly, floor below and walls above", () => 
   assert.deepEqual(cropRegion("full"), { x: 0, y: 0, w: 1, h: 1 });
 });
 
+test("scanned meshes land in the open floor for positioning tests", () => {
+  const room = { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
+  const placed = placeFurniture({
+    pieces: [{ id: "s1", name: "Scanned object 1", dimsMm: { x: 400, y: 300, z: 420 }, positions: new Float32Array(9) }],
+    room,
+  });
+  assert.equal(placed[0].source, "scan");
+  assert.ok(placed[0].z > 1, "the scan sits in the room, not against the back wall");
+  assert.ok(placed[0].x > 0.5 && placed[0].x < room.widthM - 0.5);
+});
+
+test("the default table footprint is the neutral 550 × 550 × 450 mm placeholder", () => {
+  assert.equal(GENERIC_SIDE_TABLE.widthMm, 550);
+  assert.equal(GENERIC_SIDE_TABLE.depthMm, 550);
+  assert.equal(GENERIC_SIDE_TABLE.heightMm, 450);
+  assert.equal(GENERIC_SIDE_TABLE_M.w, 0.55);
+  assert.equal(GENERIC_SIDE_TABLE.id, "generic-side-table");
+});
+
+test("the camera frames the interior so orbit and walk can see the room", () => {
+  const room = { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
+  const pose = frameRoomCamera(room);
+  assert.ok(pose.position.x > 0 && pose.position.x < room.widthM);
+  assert.ok(pose.position.z > 0 && pose.position.z < room.depthM);
+  assert.ok(pose.position.y > 0.8 && pose.position.y < room.heightM);
+  assert.equal(pose.target.x, room.widthM / 2);
+  assert.ok(pose.maxDistance > pose.minDistance);
+});
+
+test("the AR overlay scales the table to room metres on the photo floor", () => {
+  const floor = overlayFloorFromHorizon({ x: 0, y: 0, w: 800, h: 600 }, 0.5);
+  assert.equal(floor.y, 300);
+  assert.equal(floor.h, 300);
+  const px = overlayFootprintPx(GENERIC_SIDE_TABLE_M, floor, { widthM: 3.2, depthM: 3.8 });
+  assert.ok(px.topW < 800 * 0.3, "a 0.55 m table does not fill a 3.2 m room");
+  assert.ok(px.topW > 20);
+});
+
 test("the popped table keeps its planned spot, in metres, inside the room", () => {
   const room = { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
   const plan = {
@@ -170,6 +215,10 @@ test("house.js regenerates the house as a textured 3D scene", () => {
   assert.match(house, /api\.adapt/, "adapt still works");
   assert.match(house, /api\.scan/, "the catalog scan still works");
   assert.match(house, /scanFits\(\)/, "the room scan keeps its trigger");
+  assert.match(house, /makeGenericSideTable/, "the 3D table is a neutral editable placeholder, not a gray box");
+  assert.match(house, /frameRoomCamera/, "the camera frames the room");
+  assert.match(house, /KeyW/, "WASD walks around the room");
+  assert.match(house, /overlayFootprintPx/, "the AR overlay scales the table to room metres");
 });
 
 test("the bench hands its pieces — including scanned meshes — to the house", () => {

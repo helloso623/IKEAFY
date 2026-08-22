@@ -22,10 +22,9 @@ import {
   overlayFootprintPx,
   placeFurniture,
   roomFromPhotos,
-  TEST_TABLE_M,
   wallBoxes,
 } from "./photogram.js";
-import { makeIkeaTestTable } from "./ikea-table.js";
+import { GENERIC_SIDE_TABLE_M, makeGenericSideTable } from "./generic-table.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -46,9 +45,9 @@ function footprintOf(plan) {
   const overlay = plan?.overlay || {};
   const dims = pick.dimsMm || {};
   return {
-    w: overlay.widthM || place.widthM || pick.footprintM?.w || TEST_TABLE_M.w,
-    d: overlay.depthM || place.depthM || pick.footprintM?.d || TEST_TABLE_M.d,
-    h: overlay.heightM || place.heightM || pick.footprintM?.h || TEST_TABLE_M.h,
+    w: overlay.widthM || place.widthM || pick.footprintM?.w || GENERIC_SIDE_TABLE_M.w,
+    d: overlay.depthM || place.depthM || pick.footprintM?.d || GENERIC_SIDE_TABLE_M.d,
+    h: overlay.heightM || place.heightM || pick.footprintM?.h || GENERIC_SIDE_TABLE_M.h,
   };
 }
 
@@ -658,10 +657,10 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       g.add(slab);
     } else {
       g.add(
-        makeIkeaTestTable(THREE, {
-          w: item.w || TEST_TABLE_M.w,
-          d: item.d || TEST_TABLE_M.d,
-          h: item.h || TEST_TABLE_M.h,
+        makeGenericSideTable(THREE, {
+          w: item.w || GENERIC_SIDE_TABLE_M.w,
+          d: item.d || GENERIC_SIDE_TABLE_M.d,
+          h: item.h || GENERIC_SIDE_TABLE_M.h,
           color: item.color || "#ecdfc6",
         }),
       );
