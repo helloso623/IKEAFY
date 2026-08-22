@@ -56,8 +56,8 @@
         <div class="landing">
           <p class="kicker">IKEAlive</p>
           <h1>Your manual has a next move.</h1>
-          <p class="lede">
-            Upload the IKEA instructions PDF. We read the plates, Seedance 2.5 builds a reel, and you watch one step at a time.
+            <p class="lede">
+            Upload the IKEA instructions PDF. We read the plates, you choose video, image, or 3D instructions, and you watch one step at a time.
           </p>
 
           <form id="upload-form" class="card upload-card">
@@ -81,6 +81,21 @@
             <div id="custom-source" class="custom-parse">
               <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
               <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
+            </div>
+
+            <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
+              <p class="render-modes-label">How should we show the steps?</p>
+              <div class="row render-mode-picks">
+                <button type="button" id="render-mode-video" class="render-mode" data-render-mode="video" aria-pressed="false">
+                  Video instructions
+                </button>
+                <button type="button" id="render-mode-images" class="render-mode" data-render-mode="images" aria-pressed="false">
+                  Image instructions
+                </button>
+                <button type="button" id="render-mode-scene" class="render-mode" data-render-mode="scene" aria-pressed="false">
+                  3D instructions
+                </button>
+              </div>
             </div>
 
             <div class="row upload-actions">
@@ -108,7 +123,7 @@
                   <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
                 </svg>
               </span>
-              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
+              <span><strong>Choose</strong> video, image, or 3D instructions — Seedance 2.5 films the video path</span>
             </li>
             <li>
               <span class="process-icon" aria-hidden="true">

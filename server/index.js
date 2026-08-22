@@ -35,7 +35,9 @@ import {
   editStep,
   getAssembly,
   goBack,
+  normalizeRenderMode,
   peekStep,
+  setAssemblyRenderMode,
   skipStep,
   startAssemblyAsync,
   stuckOn,
@@ -139,6 +141,10 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
+    },
+    render: {
+      route: "/api/ikeafy/render",
+      modes: ["video", "images", "scene"],
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -321,16 +327,68 @@ function guideForVideo(body = {}) {
   return state.guide;
 }
 
+function rememberRenderMode(body = {}) {
+  const stored = body.runId ? getAssembly(body.runId) : null;
+  const mode = normalizeRenderMode(body.renderMode || body.mode) || stored?.renderMode || null;
+  if (stored && mode) stored.renderMode = mode;
+  return { stored, mode };
+}
+
+app.post("/api/ikeafy/render", (req, res) => {
+  const body = req.body || {};
+  const mode = normalizeRenderMode(body.mode || body.renderMode);
+  const runId = body.runId || null;
+  if (!mode) {
+    return res.status(400).json({ ok: false, reason: "Pick video, images, or 3D instructions." });
+  }
+  ikealiveLog("render", "mode chosen", { mode, runId });
+  if (runId) {
+    const updated = setAssemblyRenderMode(runId, mode);
+    if (!updated.ok) ikealiveWarn("render", "run missing", { runId, mode });
+  }
+  if (mode === "video") {
+    return res.json({ ok: true, mode, renderMode: mode, implemented: true, reason: null });
+  }
+  const reason =
+    mode === "images"
+      ? "Image instructions are not implemented yet."
+      : "3D engine instructions are not implemented yet.";
+  ikealiveLog("render", "unimplemented", { mode, reason });
+  res.json({ ok: true, mode, renderMode: mode, implemented: false, reason });
+});
+
 app.post("/api/ikeafy/video", (req, res) => {
   res.json(makeVideoPlan(guideForVideo(req.body || {})));
 });
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
-  const stored = body.runId ? getAssembly(body.runId) : null;
+  const { stored, mode } = rememberRenderMode(body);
   const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
-  ikealiveLog("video", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
+  const renderMode = mode || "video";
+  ikealiveLog("video", "POST /api/ikeafy/video/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "video") {
+    const reason =
+      renderMode === "images"
+        ? "Image instructions are not implemented yet."
+        : "3D engine instructions are not implemented yet.";
+    ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      videoUrl: null,
+      reason,
+    });
+  }
   try {
     const result = await renderStepVideo({
       guide,
@@ -365,8 +423,31 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
+  const { mode } = rememberRenderMode(body);
   const guide = guideForVideo(body);
-  ikealiveLog("video", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
+  const renderMode = mode || "video";
+  ikealiveLog("video", "POST /api/ikeafy/video/reel", {
+    steps: guide?.steps?.length || 0,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "video") {
+    const reason =
+      renderMode === "images"
+        ? "Image instructions are not implemented yet."
+        : "3D engine instructions are not implemented yet.";
+    ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      reel: true,
+      videoUrl: null,
+      steps: [],
+      reason,
+    });
+  }
   if (!hasFal()) {
     ikealiveWarn("video", "missing FAL_KEY — reel skipped");
     return res.status(503).json({
@@ -488,6 +569,7 @@ app.post("/api/assembly/start", async (req, res) => {
     article: body.article || null,
     plates: Array.isArray(body.images) ? body.images.length : 0,
     hasGuideText: Boolean(body.guide),
+    renderMode: normalizeRenderMode(body.renderMode) || null,
   });
   const result = await startAssemblyAsync(req.body || {});
   if (result.ok && getAssembly(result.run?.id)?.guide) {
