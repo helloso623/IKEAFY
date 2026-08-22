@@ -366,9 +366,8 @@
               </div>
             </div>
           </details>
-          <!-- Wiring hooks stay hidden. Lab adds via scan, AI, sketch, or an explicit electronics search. -->
+          <!-- Wiring hooks stay hidden. Catalog cards, shop labels, and electronics dumps stay off the Lab. -->
           <div class="hidden" aria-hidden="true">
-            <span>Catalog</span>
             <form id="omnibox-form" class="omnibox-form" role="search" hidden>
               <input
                 id="omnibox"
@@ -384,6 +383,18 @@
             <p id="catalog-hint"><span id="catalog-count">0</span></p>
             <div id="catalog-well">
               <div id="catalog"></div>
+            </div>
+            <div id="edit-bar" class="edit-bar" hidden></div>
+            <p id="edit-pose" hidden></p>
+            <div id="lab-strip" class="lab-strip">
+              <p class="hint lab-hint" id="fn-hint"></p>
+              <div class="row wrap" id="fn-btns">
+                <button type="button" data-fn="support">Support</button>
+                <button type="button" data-fn="light">Light</button>
+                <button type="button" data-fn="sense">Sense</button>
+                <button type="button" data-fn="control">Control</button>
+                <button type="button" data-fn="decorate">Decorate</button>
+              </div>
             </div>
           </div>
           <details class="lab-folder" id="lab-room" open>
@@ -472,14 +483,15 @@
             <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
             <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool on" data-edit="translate">Move</button>
-            <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
-            <button type="button" class="lab-tool" data-edit="scale">Scale</button>
+            <button type="button" class="lab-tool on" id="edit-move" data-edit="translate">Move</button>
+            <button type="button" class="lab-tool" id="edit-rotate" data-edit="rotate">Rotate</button>
+            <button type="button" class="lab-tool" id="edit-scale" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool on" data-snap aria-pressed="true">Snap</button>
-            <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
-            <button type="button" class="lab-tool" data-undo disabled>Undo</button>
-            <button type="button" class="lab-tool" data-redo disabled>Redo</button>
+            <button type="button" class="lab-tool on" id="edit-snap" data-snap aria-pressed="true">Snap</button>
+            <button type="button" class="lab-tool" id="duplicate-piece" data-duplicate>Duplicate</button>
+            <button type="button" class="lab-tool" id="delete-piece" data-delete disabled>Delete</button>
+            <button type="button" class="lab-tool" id="undo-edit" data-undo disabled>Undo</button>
+            <button type="button" class="lab-tool" id="redo-edit" data-redo disabled>Redo</button>
             <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
             <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
@@ -515,42 +527,20 @@
         </div>
       </div>
 
-      <!-- ============ LAB — right inspector (parameters / functions) ============ -->
+      <!-- ============ LAB — right inspector (materials) ============ -->
       <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Parameters · Functions</strong>
+          <strong class="lab-pane-title">Materials</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Parameters</summary>
+            <summary class="lab-sheet-sum">Selection</summary>
             <div class="lab-sheet-body">
               <div class="lab-param-grid">
                 <span class="lab-param-key">Selection</span>
                 <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
-              </div>
-              <div id="edit-bar" class="edit-bar">
-                <div class="row wrap">
-                  <button type="button" id="edit-move" data-edit="translate" class="on">Move</button>
-                  <button type="button" id="edit-rotate" data-edit="rotate">Rotate</button>
-                  <button type="button" id="edit-scale" data-edit="scale">Scale</button>
-                  <button type="button" id="edit-snap" aria-pressed="true">Snap</button>
-                </div>
-                <div class="row wrap lab-actions">
-                  <button type="button" id="duplicate-piece" disabled>Duplicate</button>
-                  <button type="button" id="delete-piece" disabled>Delete piece</button>
-                </div>
-                <div class="row wrap">
-                  <button type="button" id="undo-edit" disabled>Undo</button>
-                  <button type="button" id="redo-edit" disabled>Redo</button>
-                </div>
-                <div class="row wrap" aria-label="Lab CAD tools">
-                  <button type="button" data-cad-tool="sketch-rect">Sketch rect</button>
-                  <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
-                  <button type="button" data-cad-tool="joint">Joint</button>
-                </div>
-                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale. L Look, M Measure, F Look at.</p>
               </div>
             </div>
           </details>
@@ -561,9 +551,12 @@
                 <label class="mat-key" for="mat-color">Color</label>
                 <input id="mat-color" type="color" value="#ecdfc6" disabled />
                 <div id="mat-swatches" class="mat-swatches" aria-label="Material colors">
-                  <button type="button" data-mat-color="#ecdfc6" style="--sw:#ecdfc6" aria-label="Birch"></button>
-                  <button type="button" data-mat-color="#f2f2f2" style="--sw:#f2f2f2" aria-label="White"></button>
-                  <button type="button" data-mat-color="#30343a" style="--sw:#30343a" aria-label="Charcoal"></button>
+                  <button type="button" data-mat-color="#ecdfc6" style="--sw: #ecdfc6" title="Birch" aria-label="Birch" disabled></button>
+                  <button type="button" data-mat-color="#f2f2f2" style="--sw: #f2f2f2" title="White" aria-label="White" disabled></button>
+                  <button type="button" data-mat-color="#8a5a2b" style="--sw: #8a5a2b" title="Oak" aria-label="Oak" disabled></button>
+                  <button type="button" data-mat-color="#30343a" style="--sw: #30343a" title="Charcoal" aria-label="Charcoal" disabled></button>
+                  <button type="button" data-mat-color="#b8bcc0" style="--sw: #b8bcc0" title="Steel" aria-label="Steel" disabled></button>
+                  <button type="button" data-mat-color="#c0392b" style="--sw: #c0392b" title="Red" aria-label="Red" disabled></button>
                 </div>
               </div>
               <div class="mat-row">
@@ -572,26 +565,11 @@
                 <output id="mat-rough-out" for="mat-rough">0.60</output>
               </div>
               <div id="mat-finish" class="row mat-finish" aria-label="Material finish">
-                <button type="button" data-mat-finish="foil">Foil</button>
-                <button type="button" data-mat-finish="wood">Wood</button>
-                <button type="button" data-mat-finish="metal">Metal</button>
+                <button type="button" data-mat-finish="foil" title="Printed foil on particleboard" disabled>Foil</button>
+                <button type="button" data-mat-finish="wood" title="Open-grain wood" disabled>Wood</button>
+                <button type="button" data-mat-finish="metal" title="Brushed metal" disabled>Metal</button>
               </div>
               <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
-            </div>
-          </details>
-          <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Functions</summary>
-            <div class="lab-sheet-body">
-              <div id="lab-strip" class="lab-strip">
-                <p class="hint lab-hint" id="fn-hint">Assign a job on the selected piece.</p>
-                <div class="row wrap" id="fn-btns">
-                  <button type="button" data-fn="support">Support</button>
-                  <button type="button" data-fn="light">Light</button>
-                  <button type="button" data-fn="sense">Sense</button>
-                  <button type="button" data-fn="control">Control</button>
-                  <button type="button" data-fn="decorate">Decorate</button>
-                </div>
-              </div>
             </div>
           </details>
         </div>
