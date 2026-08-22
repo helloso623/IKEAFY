@@ -292,6 +292,13 @@ function resolveAddList(message, ctx = {}) {
   const costMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)\s*(usd|dollar|budget|max)?/);
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
 
+  // An explicit product name still resolves to that catalog kit. "LACK-like"
+  // is intercepted earlier and intentionally becomes the neutral placeholder.
+  if (/\black(?:\s+table)?\b/.test(lower) && !/\black[\s-]*like\b/.test(lower)) {
+    const lack = getPart("lack-table");
+    return lack ? expandPart(lack) : [];
+  }
+
   if (isLampAsk(lower)) {
     const table = getPart("lack-table");
     return table ? expandPart(table) : [];
