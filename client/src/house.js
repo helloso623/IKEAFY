@@ -273,6 +273,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
   let photo = null;
   let extraPhotos = [];
   let lastPlan = null;
+  let currentSpace = "desk";
   let active = false;
   let view3d = false;
   let three = null;
@@ -658,12 +659,22 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     }
   }
 
-  function setActive(on) {
-    active = Boolean(on);
+  function setSpace(space) {
+    currentSpace = space;
+    active = space === "ar" || space === "house";
     markPhoto();
+    if (space === "house") {
+      stopCamera({ quiet: true });
+      if (!three?.built && allPhotos().length) rebuildHouse3d();
+      view3d = Boolean(three?.built);
+    }
     syncViews();
-    if (active) void startCamera();
-    else stopCamera({ quiet: true });
+    if (space === "ar") void startCamera();
+    else if (space !== "house") stopCamera({ quiet: true });
+  }
+
+  function setActive(on) {
+    setSpace(on ? "ar" : "desk");
   }
 
   async function adaptRoom() {
@@ -798,7 +809,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
   });
 
   cameraBtn?.addEventListener("click", () => {
-    if (!active) {
+    if (currentSpace !== "ar") {
       document.querySelector('#lab-spaces [data-lab="ar"]')?.click();
       return;
     }
@@ -830,6 +841,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     if (!photo) photo = imgs[0];
     markPhoto();
     if (three?.built || lastPlan) rebuildHouse3d();
+    onPhoto?.(imgs);
     syncViews();
     hud(`${allPhotos().length} room photo${allPhotos().length === 1 ? "" : "s"} ready for the 3D rebuild.`);
   });
@@ -845,6 +857,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     applyPlan,
     draw,
     setActive,
+    setSpace,
     hasPhoto: () => allPhotos().length > 0,
     hasScene: () => Boolean(three?.built),
     cameraFrameCount: () => capturedFrames.length,

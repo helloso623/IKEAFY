@@ -149,7 +149,8 @@ test("the room panel takes many photos and the stage has a 3D scene canvas", () 
   assert.match(html, /id="house-view-btn"/);
   assert.match(html, /id="room-photo"/, "the single room photo input stays");
   const css = read("client/src/styles.css");
-  assert.match(css, /#app\.mode-lab:not\(\[data-lab="ar"\]\) #room-scene/, "the 3D house only shows in AR");
+  assert.match(css, /#app\.mode-lab\[data-lab="ar"\] #room-scene/, "the 3D house shows in AR");
+  assert.match(css, /#app\.mode-lab\[data-lab="house"\] #room-scene/, "the same scene shows in House");
 });
 
 test("house.js regenerates the house as a textured 3D scene", () => {
