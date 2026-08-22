@@ -1,6 +1,25 @@
-const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt)\b/i;
-const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|room|interior)\b/i;
+const GENERATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate)\b/i;
+const PLACE_VERB = /\b(add|place|put|drop|insert)\b/i;
+const CREATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate|add|place|put|drop|insert)\b/i;
+const REQUEST_OBJECT = /\b(?:want|need|would\s+like)\b[\s\S]*\b(?:a|an|the|some)\b/i;
+const NON_MODEL_ASK =
+  /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|photo)\b|(?:\b(?:watch|play|upload|record)\b[\s\S]*\bvideo\b)/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
+const BRANDED_STYLE_ASK = /\b(?:ikea|lack|linnmon|linmon|kallax|billy|malm)[\s-]+(?:like|style|inspired)\b/i;
+const CATALOG_DROP_NOUN =
+  /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
+const EDIT_EXISTING =
+  /\b(?:make|scale|resize)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b|\b(?:make|scale|resize)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b/i;
+const MODEL_NOUN =
+  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner)\b/i;
+const NON_GENERATION_COMMAND =
+  /^(?:what|why|how|where|when|which|who|can|could|should|would|do|does|did|is|are|show|tell|explain|help|run|test|simulate|analy[sz]e|calculate|move|rotate|scale|label|isolate|select|delete|remove|undo|redo|next|back|play|scan|reconstruct)\b/i;
+const CONVERSATION_ONLY = /^(?:hi|hello|hey|thanks|thank you|cheers|good (?:morning|afternoon|evening))\b/i;
+const GUIDE_CONTEXT = /\b(?:step\s+\d+|stuck|manual|guide|assembly|assemble|tool required)\b/i;
+const SPAWN_FOLLOW_UP =
+  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one)\s*[.!]?$/i;
 
 export const AI_MESH_SHAPES = Object.freeze([
   "box",
@@ -114,6 +133,7 @@ export function sanitizeMeshSpec(raw = {}) {
   return {
     id: text(source.id, "", 64) || undefined,
     name: text(source.name, "AI mesh", 80),
+    kind: text(source.kind, "object", 32).toLowerCase(),
     prompt: text(source.prompt, "", 500),
     components,
     position: {
@@ -130,10 +150,48 @@ export function sanitizeMeshAction(raw = {}) {
 }
 
 export function isMeshBuildAsk(message) {
-  const source = String(message || "");
-  if (!CREATE_VERB.test(source)) return false;
-  if (NON_MODEL_ASK.test(source) || BRANDED_CATALOG_ASK.test(source)) return false;
-  return true;
+  const source = String(message || "").trim();
+  if (!source || CONVERSATION_ONLY.test(source) || NON_GENERATION_COMMAND.test(source)) return false;
+  if (EDIT_EXISTING.test(source)) return false;
+  if (GUIDE_CONTEXT.test(source) || NON_MODEL_ASK.test(source)) return false;
+  if (BRANDED_CATALOG_ASK.test(source) && !BRANDED_STYLE_ASK.test(source)) return false;
+  if (PLACE_VERB.test(source) && CATALOG_DROP_NOUN.test(source)) return false;
+  const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
+  const createsMesh = GENERATE_VERB.test(source) || REQUEST_OBJECT.test(source) || PLACE_VERB.test(source);
+  const directPrompt = !/[?]$/.test(source) && source.split(/\s+/).length <= 8;
+  return createsMesh || directNoun || directPrompt;
+}
+
+/** Resolve a short “generate it” follow-up against recent user prose. */
+export function meshPromptFromContext(message, ctx = {}) {
+  const source = String(message || "").trim();
+  if (!SPAWN_FOLLOW_UP.test(source)) return source;
+  const history = Array.isArray(ctx.history) ? ctx.history : [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (entry?.role !== "user") continue;
+    const content = String(entry.content || "").trim();
+    if (!content || SPAWN_FOLLOW_UP.test(content)) continue;
+    if (MODEL_NOUN.test(content) || isMeshBuildAsk(content)) return content;
+  }
+  return source;
+}
+
+/**
+ * Pull independently generated objects out of a room prompt so the scene mesh
+ * includes each phrase after “with”, “containing”, or “featuring”.
+ */
+export function meshPromptsFromRoom(message) {
+  const source = String(message || "").trim();
+  const tail = source.match(/\b(?:with|containing|featuring|plus)\s+(.+)$/i)?.[1];
+  if (!tail) return [];
+  return tail
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((item) => item.replace(/^(?:a|an|the|some)\s+/i, "").replace(/[.!?]+$/g, "").trim())
+    .filter(Boolean)
+    .filter((item) => !/^(?:walls?|floors?|ceilings?|paint|lighting|windows?)(?:\s|$)/i.test(item))
+    .slice(0, 8)
+    .map((item) => (CREATE_VERB.test(item) ? item : `make ${item}`));
 }
 
 function unitMm(number, unit = "mm") {
@@ -185,8 +243,9 @@ function tablePlan(message) {
     const legDiameter = Math.max(80, Math.min(220, topDiameter * 0.15));
     return {
       name: central || /\bpedestal\b/i.test(message) ? "Round pedestal table" : "Round table",
+      kind: "table",
       components: [
-        component("cylinder", "Circular tabletop", [topDiameter, thickness, topDiameter], [0, legHeight, 0], {
+        component("cylinder", "Circular tabletop", [topDiameter, thickness, topDiameter], [0, legHeight + thickness / 2, 0], {
           color: wood,
           segments: 48,
         }),
@@ -203,8 +262,9 @@ function tablePlan(message) {
   const insetZ = depth / 2 - leg;
   return {
     name: "Custom table",
+    kind: "table",
     components: [
-      component("box", "Tabletop", [width, thickness, depth], [0, legHeight, 0], { color: wood }),
+      component("box", "Tabletop", [width, thickness, depth], [0, legHeight + thickness / 2, 0], { color: wood }),
       ...[
         [-insetX, -insetZ],
         [insetX, -insetZ],
@@ -222,13 +282,15 @@ function chairPlan(message) {
   const depth = measurement(message, "(?:depth|deep)", 500);
   const height = measurement(message, "(?:height|high|tall)", 900);
   const seatY = Math.min(height * 0.58, measurement(message, "(?:seat\\s+height)", 460));
+  const seatThickness = 45;
   const colorValue = /\b(red)\b/i.test(message) ? "#a9463d" : "#b8824f";
-  const legH = Math.max(200, seatY - 35);
+  const legH = Math.max(200, seatY - seatThickness / 2);
   const legW = Math.max(28, width * 0.07);
   return {
     name: "Custom chair",
+    kind: "chair",
     components: [
-      component("box", "Seat", [width, 45, depth], [0, seatY, 0], { color: colorValue }),
+      component("box", "Seat", [width, seatThickness, depth], [0, seatY, 0], { color: colorValue }),
       component("box", "Back", [width, Math.max(180, height - seatY), 45], [0, (height + seatY) / 2, depth / 2 - 22], {
         color: colorValue,
       }),
@@ -250,6 +312,7 @@ function lampPlan(message) {
   const shadeD = Math.max(220, height * 0.48);
   return {
     name: "Custom lamp",
+    kind: "lamp",
     components: [
       component("cylinder", "Base", [baseD, 35, baseD], [0, 17.5, 0], { color: "#32363a", metalness: 0.65 }),
       component("cylinder", "Stem", [32, height * 0.68, 32], [0, 35 + height * 0.34, 0], {
@@ -270,10 +333,169 @@ function shelfPlan(message) {
   const thickness = measurement(message, "(?:thickness|thick)", 28);
   return {
     name: "Custom wall shelf",
+    kind: "shelf",
     components: [
       component("box", "Shelf", [width, thickness, depth], [0, 420, 0], { color: "#bd8956" }),
       component("box", "Left bracket", [35, 210, depth * 0.8], [-width * 0.34, 315, 0], { color: "#3e4246", metalness: 0.7 }),
       component("box", "Right bracket", [35, 210, depth * 0.8], [width * 0.34, 315, 0], { color: "#3e4246", metalness: 0.7 }),
+    ],
+  };
+}
+
+function stoolPlan(message) {
+  const width = measurement(message, "(?:width|wide)", /\bbench\b/i.test(message) ? 1100 : 420);
+  const depth = measurement(message, "(?:depth|deep)", 380);
+  const height = measurement(message, "(?:height|high|tall)", /\bbench\b/i.test(message) ? 460 : 450);
+  const top = 42;
+  const legH = height - top;
+  const legW = Math.max(35, Math.min(65, depth * 0.12));
+  const insetX = width / 2 - legW;
+  const insetZ = depth / 2 - legW;
+  return {
+    name: /\bbench\b/i.test(message) ? "Custom bench" : "Custom stool",
+    kind: /\bbench\b/i.test(message) ? "bench" : "stool",
+    components: [
+      component("box", "Seat", [width, top, depth], [0, legH + top / 2, 0], { color: "#b8824f" }),
+      ...[
+        [-insetX, -insetZ],
+        [insetX, -insetZ],
+        [-insetX, insetZ],
+        [insetX, insetZ],
+      ].map(([x, z], index) =>
+        component("box", `Leg ${index + 1}`, [legW, legH, legW], [x, legH / 2, z], { color: "#9b6a3e" }),
+      ),
+    ],
+  };
+}
+
+function sofaPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 1900);
+  const depth = measurement(message, "(?:depth|deep)", 850);
+  const height = measurement(message, "(?:height|high|tall)", 820);
+  const seatY = 430;
+  const upholstery = /\b(green)\b/i.test(message) ? "#657d68" : /\b(blue)\b/i.test(message) ? "#61758e" : "#9a8170";
+  return {
+    name: "Custom sofa",
+    kind: "sofa",
+    components: [
+      component("box", "Seat cushion", [width - 160, 170, depth - 210], [0, seatY, -35], { color: upholstery, roughness: 0.86 }),
+      component("box", "Back", [width - 100, height - seatY, 150], [0, (height + seatY) / 2, depth / 2 - 75], {
+        color: upholstery,
+        roughness: 0.9,
+      }),
+      component("box", "Left arm", [130, 410, depth], [-width / 2 + 65, 465, 0], { color: upholstery, roughness: 0.88 }),
+      component("box", "Right arm", [130, 410, depth], [width / 2 - 65, 465, 0], { color: upholstery, roughness: 0.88 }),
+      component("box", "Base", [width - 120, 180, depth - 100], [0, 210, 0], { color: "#5a4336" }),
+    ],
+  };
+}
+
+function bedPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 1500);
+  const depth = measurement(message, "(?:depth|deep|length|long)", 2000);
+  const height = measurement(message, "(?:height|high|tall)", 950);
+  return {
+    name: "Custom bed",
+    kind: "bed",
+    components: [
+      component("box", "Frame", [width + 80, 220, depth + 80], [0, 280, 0], { color: "#8b633f" }),
+      component("box", "Mattress", [width, 240, depth], [0, 500, 0], { color: "#ded8cb", roughness: 0.94 }),
+      component("box", "Headboard", [width + 80, height, 90], [0, height / 2, depth / 2], { color: "#805b3c" }),
+      ...[
+        [-width / 2, -depth / 2],
+        [width / 2, -depth / 2],
+        [-width / 2, depth / 2],
+        [width / 2, depth / 2],
+      ].map(([x, z], index) => component("box", `Leg ${index + 1}`, [70, 220, 70], [x, 110, z], { color: "#5b4030" })),
+    ],
+  };
+}
+
+function cabinetPlan(message) {
+  const width = measurement(message, "(?:width|wide)", 900);
+  const depth = measurement(message, "(?:depth|deep)", 380);
+  const height = measurement(message, "(?:height|high|tall)", 1800);
+  const side = 28;
+  const shelves = /\b(bookcase|bookshelf)\b/i.test(message) ? 5 : 3;
+  const wood = "#b88958";
+  return {
+    name: /\b(bookcase|bookshelf)\b/i.test(message) ? "Custom bookcase" : "Custom cabinet",
+    kind: /\b(bookcase|bookshelf)\b/i.test(message) ? "bookcase" : "cabinet",
+    components: [
+      component("box", "Left side", [side, height, depth], [-width / 2 + side / 2, height / 2, 0], { color: wood }),
+      component("box", "Right side", [side, height, depth], [width / 2 - side / 2, height / 2, 0], { color: wood }),
+      component("box", "Back", [width, height, 18], [0, height / 2, depth / 2 - 9], { color: "#8f6846" }),
+      ...Array.from({ length: shelves + 2 }, (_, index) =>
+        component("box", index === 0 ? "Base" : index === shelves + 1 ? "Top" : `Shelf ${index}`, [
+          width - side * 2,
+          side,
+          depth - 24,
+        ], [0, (index / (shelves + 1)) * (height - side) + side / 2, -12], { color: wood }),
+      ),
+    ],
+  };
+}
+
+function legsPlan(message) {
+  const countWord = String(message || "").match(/\b(\d+|one|two|three|four|five|six|eight)\s+legs?\b/i)?.[1]?.toLowerCase();
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, eight: 8 };
+  const count = Math.max(1, Math.min(12, words[countWord] || Number(countWord) || 4));
+  const height = measurement(message, "(?:height|high|tall)", 700);
+  const width = measurement(message, "(?:width|wide|diameter)", 55);
+  const columns = Math.ceil(Math.sqrt(count));
+  return {
+    name: `${count} generated legs`,
+    kind: "object",
+    components: Array.from({ length: count }, (_, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      return component("box", `Leg ${index + 1}`, [width, height, width], [
+        (column - (columns - 1) / 2) * width * 2.2,
+        height / 2,
+        (row - (Math.ceil(count / columns) - 1) / 2) * width * 2.2,
+      ], { color: "#9b6a3e" });
+    }),
+  };
+}
+
+function creaturePlan(message) {
+  const skin = /\b(green)\b/i.test(message) ? "#66865f" : /\b(red)\b/i.test(message) ? "#9f5149" : "#6f739d";
+  return {
+    name: /\balien\b/i.test(message) ? "Generated alien" : "Generated monster",
+    kind: "creature",
+    components: [
+      component("capsule", "Body", [420, 720, 320], [0, 430, 0], {
+        color: skin,
+        radiusMm: 160,
+        lengthMm: 400,
+      }),
+      component("sphere", "Head", [360, 320, 340], [0, 850, 0], { color: skin }),
+      component("sphere", "Left eye", [70, 70, 45], [-75, 900, -165], { color: "#f4d45e" }),
+      component("sphere", "Right eye", [70, 70, 45], [75, 900, -165], { color: "#f4d45e" }),
+      component("capsule", "Left arm", [110, 520, 110], [-275, 500, 0], {
+        color: skin,
+        radiusMm: 55,
+        lengthMm: 410,
+        rotationDeg: [0, 0, -18],
+      }),
+      component("capsule", "Right arm", [110, 520, 110], [275, 500, 0], {
+        color: skin,
+        radiusMm: 55,
+        lengthMm: 410,
+        rotationDeg: [0, 0, 18],
+      }),
+      component("capsule", "Left leg", [140, 430, 140], [-115, 215, 0], {
+        color: skin,
+        radiusMm: 70,
+        lengthMm: 290,
+      }),
+      component("capsule", "Right leg", [140, 430, 140], [115, 215, 0], {
+        color: skin,
+        radiusMm: 70,
+        lengthMm: 290,
+      }),
+      component("cone", "Left horn", [90, 190, 90], [-90, 1090, 0], { color: "#d9c8a3" }),
+      component("cone", "Right horn", [90, 190, 90], [90, 1090, 0], { color: "#d9c8a3" }),
     ],
   };
 }
@@ -289,6 +511,7 @@ function sculptedFallback(message) {
   if (/\b(vase|bottle|urn)\b/i.test(message)) {
     return {
       name,
+      kind: "vase",
       components: [
         component("lathe", "Turned body", [320, 520, 320], [0, 260, 0], {
           color: "#6b8f88",
@@ -307,6 +530,7 @@ function sculptedFallback(message) {
   }
   return {
     name,
+    kind: "object",
     components: [
       component(round ? "sphere" : tall ? "capsule" : "box", "Main body", tall ? [260, 700, 260] : [500, 400, 420], [0, tall ? 350 : 200, 0], {
         color: "#7293a8",
@@ -318,18 +542,79 @@ function sculptedFallback(message) {
   };
 }
 
+function objectPlanFromDescription(source) {
+  if (
+    /\b(?:round|circular|disc|disk)[\s-]*(?:table[\s-]*)?top\b/i.test(source) &&
+    /\b(?:central|center|centre|single|one)\b[\s-]*(?:leg|support|pedestal)/i.test(source)
+  ) {
+    return tablePlan(`round table ${source}`);
+  }
+  if (/\b(tables?|desks?)\b/i.test(source)) return tablePlan(source);
+  if (/\b(chair|seat)\b/i.test(source)) return chairPlan(source);
+  if (/\b(stool|bench)\b/i.test(source)) return stoolPlan(source);
+  if (/\b(sofa|couch)\b/i.test(source)) return sofaPlan(source);
+  if (/\bbed\b/i.test(source)) return bedPlan(source);
+  if (/\b(cabinet|bookcase|bookshelf|dresser|wardrobe)\b/i.test(source)) return cabinetPlan(source);
+  if (/\b(lamp|light)\b/i.test(source)) return lampPlan(source);
+  if (/\b(shelf|shelves)\b/i.test(source)) return shelfPlan(source);
+  if (/\blegs?\b/i.test(source)) return legsPlan(source);
+  if (/\b(monster|creature|alien)\b/i.test(source)) return creaturePlan(source);
+  return sculptedFallback(source);
+}
+
+function roomScenePlan(message) {
+  const source = String(message || "");
+  const pair = source.match(
+    /\b(\d+(?:\.\d+)?)\s*(mm|cm|m|metres?|meters?)?\s*(?:×|x|by)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|metres?|meters?)?\b/i,
+  );
+  const unit = pair?.[4] || pair?.[2] || "m";
+  const width = pair ? unitMm(pair[1], pair[2] || unit) : 4200;
+  const depth = pair ? unitMm(pair[3], pair[4] || unit) : 3600;
+  const height = measurement(source, "(?:height|high|tall)", 2700);
+  const wall = Math.max(40, Math.min(120, Math.round(Math.min(width, depth) * 0.02)));
+  const warm = /\b(warm|cosy|cozy)\b/i.test(source);
+  const shell = [
+    component("box", "Floor", [width, 35, depth], [0, 17.5, 0], { color: warm ? "#a9825d" : "#b89c78" }),
+    component("box", "Back wall", [width, height, wall], [0, height / 2, depth / 2], {
+      color: warm ? "#d8c6ae" : "#d6d2c8",
+      roughness: 0.9,
+    }),
+    component("box", "Side wall", [wall, height, depth], [-width / 2, height / 2, 0], {
+      color: warm ? "#d8c6ae" : "#d6d2c8",
+      roughness: 0.9,
+    }),
+  ];
+  const prompts = meshPromptsFromRoom(source);
+  const generated = prompts.flatMap((prompt, index) => {
+    const plan = objectPlanFromDescription(prompt);
+    const xOffset = (index - (prompts.length - 1) / 2) * Math.min(1200, width / Math.max(2, prompts.length));
+    return plan.components.map((body, bodyIndex) => ({
+      ...body,
+      id: `scene-${index + 1}-${bodyIndex + 1}-${body.id}`,
+      name: `${plan.name} · ${body.name}`,
+      positionMm: [
+        Number(body.positionMm?.[0] || 0) + xOffset,
+        Number(body.positionMm?.[1] || 0) + 35,
+        Number(body.positionMm?.[2] || 0),
+      ],
+    }));
+  });
+  return {
+    name: "Generated room corner",
+    kind: "scene",
+    components: [...shell, ...generated],
+  };
+}
+
 export function meshPlanFromDescription(message) {
   const source = String(message || "");
-  let plan;
-  if (/\btables?\b/i.test(source)) plan = tablePlan(source);
-  else if (/\b(chair|seat)\b/i.test(source)) plan = chairPlan(source);
-  else if (/\b(lamp|light)\b/i.test(source)) plan = lampPlan(source);
-  else if (/\b(shelf|shelves)\b/i.test(source)) plan = shelfPlan(source);
-  else plan = sculptedFallback(source);
+  const plan = /\b(room|interior|room[\s-]*corner)\b/i.test(source)
+    ? roomScenePlan(source)
+    : objectPlanFromDescription(source);
   return sanitizeMeshSpec({ ...plan, prompt: source });
 }
 
-export function localMeshAction(message) {
-  const mesh = meshPlanFromDescription(message);
+export function localMeshAction(message, ctx = {}) {
+  const mesh = meshPlanFromDescription(meshPromptFromContext(message, ctx));
   return mesh ? { type: "mesh", mesh } : null;
 }

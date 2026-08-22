@@ -26,6 +26,7 @@ import {
 } from "./photogram.js";
 import { knownObject, resolveRoomScale } from "./frame-scale.js";
 import { GENERIC_SIDE_TABLE_M, makeGenericSideTable } from "./generic-table.js";
+import { copyPhoneUrl, lanFallbackUrl, preferredPhoneUrl } from "./phone-link.js";
 import { grabVideoFrames } from "./video-frames.js";
 import { qrSvg } from "./qr.js";
 import {
@@ -989,23 +990,29 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
 
   function paintPhoneLink(lan) {
     const link = $("scan-phone-url");
+    const fallback = $("scan-phone-lan-url");
     const note = $("scan-phone-status");
     const qr = $("scan-phone-qr");
-    const url = lan?.url || lan?.urls?.[0] || "";
+    const url = preferredPhoneUrl(lan);
+    const lanUrl = lanFallbackUrl(lan, url);
+    const usingTailscale = Boolean(lan?.tailscaleUrl && url === lan.tailscaleUrl);
     if (link) {
-      if (url) {
-        link.textContent = url;
-        link.href = url;
-      } else {
-        link.textContent = "Connect this computer to Wi-Fi, then tap Send from phone.";
-        link.removeAttribute("href");
-      }
+      link.value = url;
+      link.placeholder = url
+        ? ""
+        : "Connect this computer to Wi-Fi, then tap Send from phone.";
+    }
+    if (fallback) {
+      fallback.classList.toggle("hidden", !lanUrl);
+      fallback.textContent = lanUrl ? `LAN fallback: ${lanUrl}` : "";
+      if (lanUrl) fallback.href = lanUrl;
+      else fallback.removeAttribute("href");
     }
     if (qr) qr.innerHTML = url ? qrSvg(url) : "";
     if (note && !lastRoomVideoId) {
       note.textContent = url
-        ? "Same Wi‑Fi. Scan the QR or open the link, record ~30s of the room, then send."
-        : "No LAN address yet — join the same Wi-Fi as this computer.";
+        ? `${usingTailscale ? "Tailscale HTTPS" : "LAN"} link ready. Scan the QR or copy the URL, record ~30s, then send.`
+        : "No phone address yet — join the same Wi-Fi as this computer.";
     }
   }
 
@@ -1082,6 +1089,22 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
     $("scan-phone-card")?.classList.remove("hidden");
     startPhoneWatch();
     hud("Send from phone — same Wi‑Fi, record ~30s walking the room.");
+  });
+
+  $("scan-phone-copy")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      await copyPhoneUrl($("scan-phone-url"));
+      button.textContent = "Copied";
+      hud("Phone upload URL copied.");
+    } catch (error) {
+      $("scan-phone-url")?.select?.();
+      hud(error?.message || "Select the phone URL and copy it.");
+    } finally {
+      setTimeout(() => {
+        button.textContent = "Copy";
+      }, 1400);
+    }
   });
 
   function setSpace(space) {
@@ -1304,7 +1327,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, onRef
   window.addEventListener("resize", () => {
     const app = $("app");
     if (app?.dataset.mode !== "lab") return;
-    if (app.dataset.lab !== "ar" && app.dataset.lab !== "house") return;
+    if (app.dataset.lab !== "house") return;
     if (view3d && three?.built) sizeScene();
     else draw(lastPlan);
   });

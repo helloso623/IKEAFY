@@ -31,10 +31,10 @@ test("moving a table cuts its old binary scan mask before auto-fitting", () => {
   assert.equal(isPlacementFree(result.remaining, oldTable, oldTable), true);
 });
 
-test("design checks cover occupancy, traffic, chair height, overhang, supports, and door swing", () => {
+test("design checks cover occupancy, traffic, chair height, room height, overhang, supports, and door swing", () => {
   const room = { widthM: 3, depthM: 3, heightM: 2.6 };
   const grid = createOccupancyGrid(room, { cellSize: 0.1 });
-  const target = { x: 2.35, z: 2.35, w: 0.9, d: 0.9, h: 0.58 };
+  const target = { x: 2.35, z: 2.35, w: 0.9, d: 0.9, h: 2.7 };
   stampFootprint(grid, { w: 0.3, d: 0.3 }, { x: 2.35, z: 2.35 }, 1);
   const issues = detectDesignIssues({
     room,
@@ -49,7 +49,7 @@ test("design checks cover occupancy, traffic, chair height, overhang, supports, 
     door: { x: 2.55, z: 3, radiusM: 0.9 },
   });
   const ids = new Set(issues.map((issue) => issue.id));
-  for (const id of ["collision", "foot-traffic", "chair-height", "overhang", "supports", "door-swing"]) {
+  for (const id of ["collision", "foot-traffic", "chair-height", "room-height", "overhang", "supports", "door-swing"]) {
     assert.equal(ids.has(id), true, `${id} should be regenerated`);
   }
 });

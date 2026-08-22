@@ -1486,7 +1486,27 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .design-issue.warning { border-left-color: #c68a2d; }
 .design-issue.error { border-left-color: #c2544c; }
 .design-issue span { color: var(--muted, #6f6a61); line-height: 1.35; }
-.scene-bake-plan { width: 100%; }
+.scene-bake-dock {
+  position: absolute;
+  z-index: 18;
+  left: 50%;
+  bottom: 1rem;
+  display: none;
+  width: min(42rem, calc(100% - 2rem));
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.8rem;
+  background: rgba(20, 24, 30, 0.9);
+  color: #dce2e8;
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+#app.mode-lab[data-lab="house"] .scene-bake-dock { display: flex; }
+.scene-bake-dock .scene-bake-plan { width: auto; flex: 0 0 auto; }
+.scene-bake-dock span { font-size: 0.74rem; line-height: 1.3; }
 .build-result {
   display: grid;
   gap: 0.4rem;
@@ -1508,7 +1528,9 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 
 #app.mode-lab .lab-browser,
-#app.mode-lab .rail.left {
+#app.mode-lab .lab-inspector,
+#app.mode-lab .rail.left,
+#app.mode-lab .rail.right {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1519,7 +1541,10 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 #app.mode-lab .catalog-panel {
   flex: 1 1 auto;
@@ -1997,6 +2022,15 @@ body.lab-resizing * {
   flex: 1 1 auto;
 }
 
+#app.mode-lab .lab-browser > .pane,
+#app.mode-lab .lab-inspector > .pane {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .lab-browser .panel,
 .lab-browser .card,
 .lab-inspector .panel,
@@ -2140,6 +2174,29 @@ body.lab-resizing * {
 .scale-row { display: flex; gap: 0.45rem; align-items: flex-end; }
 .scale-row .field { flex: 1 1 auto; min-width: 0; }
 .scale-row .quiet { flex: 0 0 auto; }
+.live-dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+.live-dimensions label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--lab-soft);
+  font: 500 9px/1 var(--lab-mono);
+  text-transform: uppercase;
+}
+.live-dimensions input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--lab-line);
+  border-radius: 2px;
+  background: var(--lab-bg);
+  color: var(--lab-ink);
+  padding: 0.34rem 0.3rem;
+  font: 500 10px/1 var(--lab-mono);
+}
+.live-dimensions input:focus { border-color: #ffda1a; outline: 0; }
 
 .lab-body-list .item.is-hidden > span { opacity: 0.45; }
 
@@ -2208,12 +2265,27 @@ body.lab-resizing * {
   border-radius: 8px;
 }
 .scan-phone-qr svg { display: block; width: 100%; height: 100%; }
+.scan-phone-copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+}
 .scan-phone-url {
   display: block;
+  width: 100%;
+  min-width: 0;
   overflow-wrap: anywhere;
   font-family: var(--lab-mono);
   font-size: 11px;
   color: var(--lab-ink, var(--ink));
+  user-select: text;
+}
+.scan-phone-lan-url {
+  overflow-wrap: anywhere;
+  color: var(--lab-soft);
+  font-family: var(--lab-mono);
+  font-size: 10px;
+  user-select: text;
 }
 .phone-upload {
   display: grid;
@@ -2580,6 +2652,9 @@ body.lab-resizing * {
 
 .lab-view-tools {
   pointer-events: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .lab-tool {
@@ -2603,6 +2678,11 @@ body.lab-resizing * {
   color: var(--lab-ink);
 }
 
+.lab-view-tools .component-mode.on {
+  border-color: #ffda1a;
+  color: #ffda1a;
+}
+
 .lab-tool.lab-finish {
   margin-right: 0.45rem;
   border-color: #b89e00;
@@ -2613,6 +2693,60 @@ body.lab-resizing * {
 
 .lab-tool.lab-finish.busy {
   opacity: 0.65;
+}
+
+/* Physics preview: ghosts answer "will it hold?" without touching the bodies. */
+.lab-tool.lab-physics {
+  margin-right: 0.45rem;
+  border-color: var(--lab-line);
+}
+.lab-tool.lab-physics.on {
+  border-color: #39d98a;
+  background: var(--lab-raised);
+  color: var(--lab-ink);
+}
+.lab-tool.lab-physics.on.breaks {
+  border-color: #ff5340;
+}
+.physics-verdict {
+  font-weight: 700;
+}
+.physics-verdict.holds {
+  color: #39d98a;
+}
+.physics-verdict.breaks {
+  color: #ff5340;
+}
+
+.finish-progress {
+  position: absolute;
+  z-index: 8;
+  top: 2.9rem;
+  right: 0.75rem;
+  width: min(25rem, calc(100% - 1.5rem));
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lab-panel) 94%, transparent);
+  box-shadow: 0 8px 24px #0003;
+  font-family: var(--lab-mono);
+  font-size: 11px;
+}
+
+.finish-progress[hidden] { display: none; }
+
+.finish-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+}
+
+.finish-progress progress {
+  display: block;
+  width: 100%;
+  height: 0.55rem;
+  accent-color: #ffda1a;
 }
 
 .lab-tool-rule {
@@ -2992,6 +3126,8 @@ body.lab-resizing * {
 #view.sculpting { cursor: grab; }
 #view.sculpting:active { cursor: grabbing; }
 #view.modeling { cursor: crosshair; }
+#view.component-editing { cursor: pointer; }
+#view.component-drawing { cursor: crosshair; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;
@@ -3078,10 +3214,6 @@ body.lab-resizing * {
 #ai-dock .agent-bar span.on {
   border-color: #c7a45a;
   color: #f2e6c9;
-}
-#ai-dock #many-agents-note {
-  margin: 0.35rem 0 0.55rem;
-  font-size: 0.72rem;
 }
 #ai-dock .chat-log {
   height: 11rem;

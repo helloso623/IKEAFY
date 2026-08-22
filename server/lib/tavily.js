@@ -115,22 +115,7 @@ export async function searchToolOffers(name, { fetchFn = fetch } = {}) {
   return offersFromResults(json.results || json.data || []);
 }
 
-/**
- * One legal search for construction methods around the current model. Results
- * may be plans, cut stock, tops, or legs; loose fasteners are excluded.
- */
-export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {}) {
-  const key = usableTavilyKey();
-  const methodCuts = (build.ways || []).flatMap((way) => way.additionalCuts || []);
-  const items = [...(build.lines || []), ...methodCuts]
-    .slice(0, 10)
-    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
-    .filter(Boolean);
-  if (!key || !items.length) return [];
-  const dims = build.modelDimensionsMm || {};
-  const query =
-    `ways to build custom table ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `cut list woodworking plan cut-to-size tabletop table legs ${items.join(" OR ")} -screws -bolts -fasteners`;
+async function searchOfferQuery(query, key, fetchFn) {
   const res = await fetchFn(SEARCH_URL, {
     method: "POST",
     headers: {
@@ -147,6 +132,49 @@ export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {})
   if (!res.ok) return [];
   const json = await res.json();
   return offersFromResults(json.results || json.data || []);
+}
+
+/** One dimensions-bearing search for pieces that can make the current table. */
+export async function searchFurniturePieceOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const routePieces = (build.ways || []).flatMap((way) => way.additionalPieces || []);
+  const items = [...(build.cutList || []), ...routePieces]
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const profile = build.profile || {};
+  const query =
+    `ways to physically build ${build.name || "custom object"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${profile.topShape || ""} ${profile.supportStyle || ""} ${profile.materialFamily || ""} silhouette ` +
+    `construction method cut list shaped stock ${items.join(" OR ")} -screws -bolts -fasteners -McMaster`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+export async function searchHardwareOffers(build = {}, { fetchFn = fetch } = {}) {
+  const key = usableTavilyKey();
+  const items = (build.hardwareLines || [])
+    .slice(0, 10)
+    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
+    .filter(Boolean);
+  if (!key || !items.length) return [];
+  const dims = build.modelDimensionsMm || {};
+  const query =
+    `buy connection hardware for ${build.name || "custom furniture"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
+    `${items.join(" OR ")} furniture mounting plates brackets bolts screws`;
+  return searchOfferQuery(query, key, fetchFn);
+}
+
+export async function searchDiyOffers(build = {}, options = {}) {
+  const [pieces, hardware] = await Promise.all([
+    searchFurniturePieceOffers(build, options),
+    searchHardwareOffers(build, options),
+  ]);
+  return [
+    ...pieces.map((offer) => ({ ...offer, group: "boards-and-stock" })),
+    ...hardware.map((offer) => ({ ...offer, group: "hardware" })),
+  ];
 }
 
 function extraLineFromId(id) {

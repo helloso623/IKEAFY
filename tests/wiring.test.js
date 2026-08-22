@@ -349,7 +349,7 @@ test("dead simulation controls stay out of the Lab", () => {
 });
 
 test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
+  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scene-bake-plan", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
@@ -368,6 +368,11 @@ test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
   assert.match(apiSource, /^\s{2}scanPlan:/m);
   assert.match(html, /id="scan-place-room"/);
   assert.match(html, /id="scan-bake-plan"/);
+  assert.ok(
+    html.indexOf('id="room-scene"') < html.indexOf('id="scene-bake-plan"'),
+    "the model + scene scan control sits under the room view",
+  );
+  assert.match(read("client/src/styles.css"), /mode-lab\[data-lab="house"\] \.scene-bake-dock/);
   assert.match(html, /id="room-orbit-hint"/);
   assert.match(main, /scan-place-room/);
   assert.match(main, /scan-bake-plan/);
@@ -413,6 +418,56 @@ test("Lab spaces are Bench and House; camera/video live under Scan", () => {
   assert.match(css, /#app\.mode-lab \.modes \[data-mode="ikeafy"\]/);
   assert.match(css.replace(/\s+/g, " "), /\.upload-actions button[^}]*flex: 1 1 0/);
   assert.doesNotMatch(css, /\.house-drawer/);
+});
+
+test("the Desk left bar is a modeling sidebar; House keeps the room panel", () => {
+  const left = html.slice(html.indexOf("lab-browser"), html.indexOf("lab-viewport"));
+
+  // Model section: create, faces, cuts, sculpt and show tools live on the left bar.
+  assert.match(left, /id="model-tools"/);
+  for (const tool of ["extrude", "inset", "bevel", "knife", "loopcut"]) {
+    assert.match(left, new RegExp(`data-mesh-tool="${tool}"`), `${tool} button lives in the sidebar`);
+  }
+  for (const brush of ["grab", "smooth", "inflate"]) {
+    assert.match(left, new RegExp(`data-sculpt="${brush}"`), `${brush} brush lives in the sidebar`);
+  }
+  assert.match(left, /data-cad-tool="sketch-rect"/);
+  assert.match(left, /data-subdivide/);
+  assert.match(left, /data-hide-selected/);
+  assert.match(left, /data-unhide-all/);
+
+  // The top strip keeps only transform/snap/history; the moved tools left it.
+  const strip = html.slice(html.indexOf('id="edit-tools"'), html.indexOf('id="edit-pose"'));
+  assert.doesNotMatch(strip, /data-sculpt=|data-mesh-tool=|data-cad-tool=|data-subdivide/);
+
+  // Fusion-like measure + scale: two-point mm readout and numeric scaling.
+  assert.match(left, /id="side-measure"/);
+  assert.match(left, /id="measure-readout"/);
+  assert.match(left, /id="scale-factor"/);
+  assert.match(left, /id="scale-apply"/);
+  assert.match(left, /id="scale-target-mm"/);
+  assert.match(left, /id="scale-to-measure"/);
+  assert.match(lab, /side-measure/);
+
+  // Desk sections hide in House and vice versa; House keeps its room panel.
+  const css = read("client/src/styles.css");
+  assert.match(css, /data-lab="house"\] \.lab-browser \.desk-space \{ display: none/);
+  assert.match(css, /data-lab="desk"\] \.lab-browser \.house-space \{ display: none/);
+  assert.match(left, /id="lab-room"[^>]*house-space|house-space[^>]*id="lab-room"/);
+  assert.match(left, /id="room-photo"/);
+  assert.match(left, /id="adapt-btn"/);
+
+  // main.js wires the sidebar to the workshop.
+  assert.match(main, /model-tools/);
+  assert.match(main, /scaleSelectedToMeasured/);
+  assert.match(main, /hideSelectedBody/);
+  assert.match(main, /unhideAllBodies/);
+
+  // The workshop exposes the modeling API the sidebar reaches for.
+  const shopSource = read("client/src/workshop.js");
+  for (const method of ["setMeshTool", "onMeshEdit", "hideSelected", "unhideAll", "setPieceHidden", "isPieceHidden", "getMeasuredMm"]) {
+    assert.match(shopSource, new RegExp(method), `workshop exposes ${method}`);
+  }
 });
 
 test("the removed function and simulation strips stay out of the Lab", () => {
@@ -516,16 +571,30 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
+test("finish shows progress, scores a physical way, prints it, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Hunt table pieces/);
-  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
-  assert.match(html, /Piece-plan history/);
-  assert.match(apiSource, /^\s{2}finishProject:/m);
-  assert.match(main, /api\.finishProject\(\)/);
+  assert.match(html, /Finish \/ Find a way/);
+  assert.match(html, /id="finish-progress-bar"/);
+  assert.match(html, /id="finish-progress-text"/);
+  assert.match(html, /visual and dimensional similarity/);
+  assert.match(html, /Ways-to-make history/);
+  assert.match(apiSource, /^\s{2}startFinishProject:/m);
+  assert.match(apiSource, /^\s{2}finishJob:/m);
+  assert.match(apiSource, /^\s{2}diyCurrent:/m);
+  assert.match(apiSource, /diyCurrent:\s*\(model = \[\]\).*\/api\/project\/diy/);
+  assert.match(main, /api\.startFinishProject\(model\)/);
+  assert.match(main, /api\.diyCurrent\(meshModel\)/);
+  assert.match(main, /api\.finishJob\(id\)/);
+  assert.match(main, /finishModelSnapshot/);
+  assert.match(main, /Reading the model/);
+  assert.match(main, /closest physical result/);
+  assert.match(main, /refreshCurrentDiy/);
+  assert.match(main, /Ways PDF/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan/);
+  assert.match(main, /shop\.onSculpt[\s\S]*refreshCurrentDiy/);
+  assert.match(main, /shop\.onMeshEdit[\s\S]*refreshCurrentDiy/);
+  assert.match(main, /connection-hardware lines/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
@@ -580,15 +649,52 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /--lab-left/);
 });
 
-test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {
+test("materials read real: env specular, wood grain, brushed metal, metalness meter", () => {
+  const workshop = read("client/src/workshop.js");
+
+  // Image-based specular so metalness/roughness visibly travel.
+  assert.match(workshop, /RoomEnvironment/, "procedural room env — no texture downloads");
+  assert.match(workshop, /scene\.environment = pmrem/, "prefiltered env feeds physical materials");
+  assert.match(workshop, /environmentIntensity/);
+
+  // Wood is grain, tone drift, and relief — not a brown fill.
+  assert.match(workshop, /function grainCanvas/);
+  assert.match(workshop, /blotches/, "solid wood gets low-frequency tone variation");
+  assert.match(workshop, /openWoodMaterial/);
+  const wood = workshop.slice(workshop.indexOf("function openWoodMaterial"), workshop.indexOf("function materialFor"));
+  assert.match(wood, /bumpMap/, "grain doubles as height so pores catch raking light");
+  assert.match(wood, /roughnessMap/, "latewood reads duller than the sanded face");
+
+  // Foil laminate: shader-jittered sheen plus real anisotropy along the grain.
+  assert.match(workshop, /roughnessFactor = clamp/, "foil shader hook still jitters roughness");
+  assert.match(workshop, /ikeaStreak/, "sheen streaks run with the printed grain");
+  assert.match(workshop, /anisotropyRotation/);
+
+  // Metal is brushed against the environment, not grey plastic.
+  assert.match(workshop, /function brushedCanvas/);
+  assert.match(workshop, /brushedMetalMaterial/);
+  assert.match(workshop, /anisotropy: 0\.\d+/);
+
+  // The metalness meter exists and reaches the per-piece materials.
+  assert.match(html, /id="mat-metal"/);
+  assert.match(html, /id="mat-metal-out"/);
+  assert.match(main, /mat-metal/);
+  assert.match(main, /applyMaterial\(\{ metalness \}\)/);
+  assert.match(workshop, /metalness: metalness \?\? 0\.05|metalness \?\? 0\.05/, "getPieceMaterial reports metalness");
+  const setter = workshop.slice(workshop.indexOf("function setPieceMaterial"), workshop.indexOf("function getPieceMaterial"));
+  assert.match(setter, /metalness/, "setPieceMaterial applies the meter");
+});
+
+test("the shop is a bottom-right editable 3D generator with chat context", () => {
   assert.match(html, /id="ai-orb"/);
   assert.match(html, /id="ai-dock"/);
   assert.match(html, /id="ai-scene"/);
   assert.match(html, /id="ai-history"/);
   assert.match(html, /id="chat-form"/);
   assert.match(html, /id="lab-voice"/);
-  assert.match(html, /id="many-agents-note"/);
-  assert.match(html, /build this furniture/);
+  assert.match(html, /Describe a chair, monster, room corner, or anything else/);
+  assert.match(html, /Prompt the editable 3D generator/);
+  assert.doesNotMatch(html, /id="many-agents-note"|build this furniture/);
   const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
   assert.doesNotMatch(inspector, /id="chat-form"/);
   const css = read("client/src/styles.css");
@@ -598,4 +704,36 @@ test("the shop is a bottom-right AI circle with chat, voice, history, and scene"
   assert.match(main, /bindAiDock/);
   assert.match(main, /sceneContext/);
   assert.match(main, /scene,/);
+});
+
+test("physics preview is an overlay by Finish that never edits the bodies", () => {
+  // The control sits in the viewport meta bar next to Finish / Find a way.
+  const meta = html.slice(html.indexOf('class="lab-view-meta"'), html.indexOf('class="lab-proj"'));
+  assert.match(meta, /id="physics-btn"/, "the Will it hold? button lives by Finish");
+  assert.match(meta, /id="finish-model"/);
+  assert.match(html, /id="physics-verdict"/, "the status bar carries the verdict");
+
+  // main.js toggles the preview and repaints when the workshop clears it.
+  assert.match(main, /runPhysicsPreview/);
+  assert.match(main, /clearPhysicsPreview/);
+  assert.match(main, /onPhysicsCleared/);
+
+  // The workshop runs the pure analyzer and animates ghost clones only.
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /from "\.\/stability\.js"/);
+  assert.match(workshop, /physicsFx/);
+  assert.match(workshop, /clone\(true\)/, "ghosts are clones, not the editable meshes");
+  assert.doesNotMatch(
+    workshop.slice(workshop.indexOf("Physics preview"), workshop.indexOf("function clearPhysicsPreview")),
+    /geometry\.attributes|setAttribute|needsUpdate/,
+    "the preview never writes into body geometry",
+  );
+
+  // The analyzer stays pure so node:test can drive stable vs unstable builds.
+  const stability = read("client/src/stability.js");
+  assert.doesNotMatch(stability, /["']three["']|from "three/, "stability.js must not need three.js");
+  assert.match(stability, /analyzeStability/);
+  assert.match(stability, /floating/);
+  assert.match(stability, /tip/);
+  assert.match(stability, /joint/);
 });

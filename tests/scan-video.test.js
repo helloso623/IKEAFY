@@ -7,11 +7,13 @@ import path from "node:path";
 import {
   ROOM_VIDEO_MAX_SECONDS,
   SCAN_VIDEO_MAX_BYTES,
+  advertisedPhoneLink,
   classifyScanParts,
   decodeBase64Payload,
   inboxGetPayload,
   isAllowedOrigin,
   isPrivateLanHost,
+  isTailscaleHost,
   parseMultipartParts,
   parseVideoUrl,
   phoneUploadUrls,
@@ -22,6 +24,11 @@ import {
   storeScanFrames,
   storeScanVideo,
 } from "../server/lib/scan-video.js";
+import {
+  copyPhoneUrl,
+  lanFallbackUrl,
+  preferredPhoneUrl,
+} from "../client/src/phone-link.js";
 import { scanVideoInboxUrl, scanVideoProxyUrl } from "../client/src/video-frames.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,7 +42,7 @@ test("scan video URLs must be http(s)", () => {
   assert.throws(() => parseVideoUrl("not a url"), /not a URL/);
 });
 
-test("localhost and LAN origins may call the API", () => {
+test("localhost, LAN, and Tailscale origins may call the API", () => {
   assert.equal(isAllowedOrigin("http://127.0.0.1:5173"), true);
   assert.equal(isAllowedOrigin("http://localhost:5173"), true);
   assert.equal(isAllowedOrigin("http://192.168.1.20:5173"), true);
@@ -43,7 +50,14 @@ test("localhost and LAN origins may call the API", () => {
   assert.equal(isAllowedOrigin("null"), true);
   assert.equal(isAllowedOrigin("https://203.0.113.8:5173"), false);
   assert.equal(isAllowedOrigin("https://evil.example"), false);
+  assert.equal(isAllowedOrigin("https://ikealive.demo-tail.ts.net"), true);
+  assert.equal(isAllowedOrigin("http://ikealive.demo-tail.ts.net"), true);
+  assert.equal(isAllowedOrigin("https://ikealive.demo-tail.ts.net.evil.example"), false);
+  assert.equal(isTailscaleHost("ikealive.demo-tail.ts.net"), true);
+  assert.equal(isTailscaleHost("ikealive.demo-tail.ts.net."), true);
+  assert.equal(isTailscaleHost("demo-tail.ts.net.evil.example"), false);
   assert.equal(isPrivateLanHost("192.168.1.20"), true);
+  assert.equal(isPrivateLanHost("100.64.12.8"), false);
   assert.equal(isPrivateLanHost("203.0.113.8"), false);
 });
 
@@ -72,6 +86,63 @@ test("phone room video is a 30s LAN inbox", () => {
     assert.match(url, /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+\/phone-upload$/);
     assert.equal(isPrivateLanHost(new URL(url).hostname), true);
   }
+});
+
+test("LAN phone link is selectable, copyable, and QR-ready", async () => {
+  const advertised = advertisedPhoneLink(
+    {
+      headers: {
+        host: "192.168.1.20:5173",
+      },
+    },
+    { addresses: ["192.168.1.20"], clientPort: 5173, apiPort: 8787 },
+  );
+  assert.equal(advertised.url, "http://192.168.1.20:5173/phone-upload");
+  assert.equal(advertised.lanUrl, advertised.url);
+  assert.equal(preferredPhoneUrl(advertised), advertised.url);
+  assert.equal(lanFallbackUrl(advertised), "http://192.168.1.20:8787/phone-upload");
+
+  let copied = "";
+  const input = { value: advertised.url };
+  assert.equal(
+    await copyPhoneUrl(input, {
+      clipboard: { writeText: async (value) => { copied = value; } },
+      documentRef: null,
+    }),
+    advertised.url,
+  );
+  assert.equal(copied, advertised.url);
+
+  const html = read("client/index.html");
+  const phone = read("server/phone-upload.html");
+  const vite = read("client/vite.config.js");
+  assert.match(html, /id="scan-phone-url"[^>]*readonly/);
+  assert.match(html, /id="scan-phone-copy"[^>]*>Copy</);
+  assert.match(html, /id="scan-phone-qr"/);
+  assert.match(html, /id="scan-phone-lan-url"/);
+  assert.equal((phone.match(/<button\b/g) || []).length, 1);
+  assert.match(phone, />Record \/ Send ~30s video</);
+  assert.doesNotMatch(vite, /ts\.net|Tailscale/i);
+});
+
+test("Tailscale request advertises a secure primary link with LAN fallback", () => {
+  const advertised = advertisedPhoneLink(
+    {
+      headers: {
+        host: "127.0.0.1:8787",
+        "x-forwarded-host": "ikealive.demo-tail.ts.net",
+        "x-forwarded-proto": "https",
+      },
+    },
+    { addresses: ["192.168.1.20"], clientPort: 5173, apiPort: 8787 },
+  );
+  assert.equal(advertised.url, "https://ikealive.demo-tail.ts.net/phone-upload");
+  assert.equal(advertised.tailscaleUrl, advertised.url);
+  assert.equal(advertised.lanUrl, "http://192.168.1.20:5173/phone-upload");
+  assert.equal(preferredPhoneUrl(advertised), advertised.tailscaleUrl);
+  assert.equal(lanFallbackUrl(advertised), advertised.lanUrl);
+  assert.ok(advertised.urls.includes(advertised.tailscaleUrl));
+  assert.ok(advertised.urls.includes(advertised.lanUrl));
 });
 
 test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", () => {
@@ -114,12 +185,12 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(house, /room-scale-kind/);
   assert.match(house, /applyRoomFrames/);
   assert.match(house, /scan-phone-url/);
-  assert.match(readme, /Phone upload \(LAN\)/);
+  assert.match(readme, /Phone upload \(Tailscale or LAN\)/);
   assert.match(readme, /Send from phone/);
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
   assert.match(readme, /occupancy.*auto-fit/i);
-  assert.match(readme, /ways to make (?:that|the) final table/i);
+  assert.match(readme, /Finish \/ Find a way.*final table/i);
   assert.match(html, /occupancy cut and auto-fit into an IKEAlive plan/i);
 
   assert.match(server, /app\.post\("\/api\/scan\/video"/);

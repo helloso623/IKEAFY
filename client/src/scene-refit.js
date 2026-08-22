@@ -22,13 +22,37 @@ function scaledDimensions(piece = {}) {
   };
 }
 
+function orientedDimensions(piece = {}) {
+  const local = scaledDimensions(piece);
+  const x = number(piece.rx);
+  const y = number(piece.ry);
+  const z = number(piece.rz);
+  const a = Math.cos(x);
+  const b = Math.sin(x);
+  const c = Math.cos(y);
+  const d = Math.sin(y);
+  const e = Math.cos(z);
+  const f = Math.sin(z);
+  return {
+    w: Math.abs(c * e) * local.w + Math.abs(-c * f) * local.h + Math.abs(d) * local.d,
+    h:
+      Math.abs(a * f + b * e * d) * local.w +
+      Math.abs(a * e - b * f * d) * local.h +
+      Math.abs(-b * c) * local.d,
+    d:
+      Math.abs(b * f - a * e * d) * local.w +
+      Math.abs(b * e + a * f * d) * local.h +
+      Math.abs(a * c) * local.d,
+  };
+}
+
 /** Collapse the editable bench pieces into one table/model envelope. */
 export function modelEnvelope(pieces = []) {
   const usable = pieces.filter((piece) => piece?.dimsMm && piece.shape !== "scan" && !piece.positions);
   if (!usable.length) return null;
   const bounds = usable.reduce(
     (box, piece) => {
-      const dims = scaledDimensions(piece);
+      const dims = orientedDimensions(piece);
       const x = number(piece.x);
       const y = number(piece.y);
       const z = number(piece.z);
@@ -69,7 +93,7 @@ export function modelEnvelope(pieces = []) {
       modelX: number(piece.x) - center.x,
       modelY: number(piece.y) - bounds.minY,
       modelZ: number(piece.z) - center.z,
-      scaled: scaledDimensions(piece),
+      scaled: orientedDimensions(piece),
     })),
   };
 }

@@ -71,7 +71,7 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 
 **Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
 
-When a table model is ready, **Finish & find ways** researches construction methods for that final shape, derives its dimensioned tops, legs, rails, boards, and cut list, prepares a printable PDF, and creates an IKEAlive watch / plan / todo.
+When a furniture model is ready, **Finish / Find a way** analyzes its geometry and finish, ranks construction methods, derives dimensioned tops, legs, aprons, stretchers, boards, and shaped cuts, prepares a printable ways-to-make PDF, and creates an IKEAlive watch / plan / todo.
 
 ## Structure
 
@@ -84,6 +84,8 @@ Copy `.env.example` to `.env`, add only the services you need, and keep the popu
 - `OPENAI_API_KEY` enables plate vision for drawing-only PDFs and hosted assistant requests.
 - `OPENAI_MODEL_HARD` and `OPENAI_MODEL_EASY` select the hosted request models.
 - `PORT` sets the API port. `CLIENT_PORT` sets the client port used by Electron.
+
+After modeling or remodeling an object, click **Finish / Find a way**. IKEAlive scores practical construction routes against the current dimensions, rotation, silhouette, support layout, material family, and piece breakdown. It derives a cut list of primary bodies such as tops, legs, boards, aprons, and shaped pedestal parts, then produces a printable PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily can optionally research current-model boards, stock, and close piece matches; without it, shape and dimension matches plus ordinary public sourcing links remain available. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
 
 The app and locked LACK flow run without hosted keys. Features that require a missing key report that requirement instead of presenting a generated fallback as a completed render or search.
 
@@ -99,11 +101,15 @@ The app and locked LACK flow run without hosted keys. Features that require a mi
 
 These spaces customise how existing evidence is inspected and carried into the next useful assembly workflow. The guide, model, and room stay visible as the source.
 
-## Phone upload (LAN)
+## Phone upload (Tailscale or LAN)
 
-In Lab → Scan, **Send from phone** shows a QR code and a local `http://<lan-ip>:5173/phone-upload` link. A phone on the same Wi-Fi can record or choose a room walk of up to 30 seconds and post it to `/api/scan/video`.
+Lab → **Scan** → **Send from phone** shows a selectable URL, **Copy** button, and QR. When the app is opened through Tailscale HTTPS, that secure phone-ready address is primary:
 
-Lab extracts frames, rebuilds room occupancy, and auto-fits the current table. From there, **Finish & find ways** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
+`https://<machine>.<tailnet>.ts.net/phone-upload`
+
+The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as a same-Wi-Fi fallback.
+
+Open either link in the phone browser, then use its single **Record / Send ~30s video** button. The page posts the clip to `/api/scan/video`; `.ts.net`, localhost, and private-LAN browser origins are accepted by the API. Lab extracts frames, rebuilds room occupancy, cuts the old table footprint, and auto-fits the current table. From there, **Finish / Find a way** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
 
 See [Furniture-piece sourcing policy](docs/BUILD-WAYS.md) for the build-route and cut-list boundary.
 

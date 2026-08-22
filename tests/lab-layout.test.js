@@ -182,6 +182,18 @@ test("Lab markup keeps Bodies and adds Blender-style splitters", () => {
   assert.match(layout, /LAB_LAYOUT_KEY/);
 });
 
+test("left and right Lab panes have independent vertical scroll rails", () => {
+  const css = read("client/src/styles.css");
+  assert.match(
+    css,
+    /#app\.mode-lab \.lab-browser > \.pane,\s*#app\.mode-lab \.lab-inspector > \.pane\s*\{[^}]*min-height:\s*0;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;/s,
+  );
+  assert.match(
+    css,
+    /#app\.mode-lab \.lab-browser,\s*#app\.mode-lab \.lab-inspector,\s*#app\.mode-lab \.rail\.left,\s*#app\.mode-lab \.rail\.right\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+});
+
 test("IKEAlive watch rail stays a fixed two-column page", () => {
   const html = read("client/index.html");
   const css = read("client/src/styles.css");

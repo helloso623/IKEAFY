@@ -13,6 +13,7 @@ import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
 import { openBuildPacketPrint } from "./build-packet.js";
+import { finishModelSnapshot } from "./model-finish.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
@@ -43,6 +44,7 @@ let costBarrier = "";
 let studio = null;
 let house = null;
 let aiDock = null;
+let pendingGeometryCheckpoint = Promise.resolve();
 // KiCad bench: half-drawn wire and the net lit up from the netlist panel.
 let pendingPort = null;
 let highlightedNet = null;
@@ -100,6 +102,24 @@ function syncEditButtons() {
   if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
 }
 
+function checkpointGeometryEdit(clientEdit) {
+  if (!clientEdit) return pendingGeometryCheckpoint;
+  pendingGeometryCheckpoint = pendingGeometryCheckpoint
+    .catch(() => {})
+    .then(async () => {
+      const result = await api.checkpoint(clientEdit);
+      if (result?.ok === false) throw new Error(result.error || "Could not add this mesh edit to Undo.");
+      project.edit = result.edit || project.edit;
+      syncEditButtons();
+      return result;
+    })
+    .catch((error) => {
+      hud(error?.message || "Could not add this mesh edit to Undo.");
+      throw error;
+    });
+  return pendingGeometryCheckpoint;
+}
+
 function sizePlain(part) {
   const d = part?.dimsMm;
   if (!d) return "";
@@ -114,7 +134,7 @@ function sizePlain(part) {
 
 /**
 
- * Lab is furniture/hardware by default. Electronics chrome (Arduino, nets,
+ * Lab is furniture-first by default. Electronics chrome (Arduino, nets,
  * isolate) stays off the panel. Boards only land on the shelf when #search /
  * shop chat asks for them, or the Show electronics toggle is on.
 
@@ -232,7 +252,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask AI.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Describe anything to generate as editable 3D.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -269,21 +289,32 @@ let liveDiy = null;
 let currentDiyKey = "";
 let diyRefreshVersion = 0;
 
+function currentFinishModel() {
+  return finishModelSnapshot(
+    shop.getReconstructed?.() || [],
+    (id) => shop.getPieceMaterial?.(id),
+  );
+}
+
 function modelDiyKey() {
-  return JSON.stringify(
-    (project.pieces || [])
+  return JSON.stringify({
+    pieces: (project.pieces || [])
       .map((piece) => ({
         id: piece.id,
         partId: piece.partId,
         x: piece.x,
         y: piece.y,
         z: piece.z,
+        rx: piece.rx,
+        ry: piece.ry,
+        rz: piece.rz,
         sx: piece.sx,
         sy: piece.sy,
         sz: piece.sz,
       }))
       .sort((a, b) => String(a.id).localeCompare(String(b.id))),
-  );
+    mesh: currentFinishModel(),
+  });
 }
 
 async function refreshCurrentDiy() {
@@ -291,15 +322,16 @@ async function refreshCurrentDiy() {
   if (key === currentDiyKey) return liveDiy;
   currentDiyKey = key;
   const version = ++diyRefreshVersion;
-  if (!(project.pieces || []).length) {
+  const meshModel = currentFinishModel();
+  if (!(project.pieces || []).length && !meshModel.length) {
     liveDiy = null;
     renderDiyHistory();
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Refreshing construction ways and shaped pieces for the current model…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Reading geometry and refreshing boards, connection hardware, and construction routes…</span>`;
   try {
-    const packet = await api.diyCurrent();
+    const packet = await api.diyCurrent(meshModel);
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
     liveDiy = {
       name: packet.bom?.name || "Current model",
@@ -327,30 +359,32 @@ function renderDiyHistory(active = null) {
           .reverse()
           .map(
             (entry) => `<li>
-              <strong>${escapeHtml(entry.name || "Custom table")}</strong><br />
+              <strong>${escapeHtml(entry.name || "Custom object")}</strong><br />
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Ways PDF</button>
+              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Ways PDF</button>
             </li>`,
           )
           .join("")
-      : `<li class="hint">No DIY revisions yet.</li>`;
+      : `<li class="hint">No ways-to-make revisions yet.</li>`;
   }
   const current = active || liveDiy || builds.at(-1);
   if (out && current) {
     const bom = current.bom || {};
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${bom.ways?.length || 0} construction ways · ${bom.cutList?.length || 0} shaped-piece / cut-list lines · estimated $${Number(
+      <span>${escapeHtml(bom.similarityScore ?? 0)}% closest result · ${bom.ways?.length || 0} construction ways · ${
+        bom.cutList?.length || 0
+      } geometry-derived pieces · ${bom.hardwareLines?.length || 0} hardware lines · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
-        bom.live ? " · live research" : " · catalog stand-in"
+        bom.live ? " · live piece matches" : " · catalog and cut links"
       }</span>
       <div class="row wrap">
         ${
           current.id
-            ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
-            : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
+            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print way + cut list</button>`
+            : `<span class="hint">Live current design · Finish / Find a way to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
           current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
@@ -359,13 +393,13 @@ function renderDiyHistory(active = null) {
   }
 }
 
-function openWaysPrint(build) {
+function openPiecePlanPrint(build) {
   const bom = build?.bom;
-  if (!bom?.lines?.length) return hud("That saved revision has no ways or cut list.");
+  if (!bom?.lines?.length) return hud("That saved revision has no table-piece list.");
   try {
     openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
   } catch (error) {
-    hud(error?.message || "Could not open that saved ways-to-make PDF.");
+    hud(error?.message || "Could not open that saved table-piece PDF.");
   }
 }
 
@@ -535,6 +569,16 @@ function labScenePayload() {
         partId: piece.partId,
         dimsMm: part?.dimsMm || null,
         reconstructed: Boolean(piece.reconstructed),
+        generated: Boolean(piece.generated),
+        x: Number(piece.x) || 0,
+        y: Number(piece.y) || 0,
+        z: Number(piece.z) || 0,
+        rx: Number(piece.rx) || 0,
+        ry: Number(piece.ry) || 0,
+        rz: Number(piece.rz) || 0,
+        sx: Number(piece.sx) || 1,
+        sy: Number(piece.sy) || 1,
+        sz: Number(piece.sz) || 1,
       }
     : null;
   return {
@@ -595,6 +639,11 @@ async function applyShopActions(actions) {
       }
       const id = action.id || selectedPieceId();
       if (!id) continue;
+      if (shop.updateReconstructedPose?.({ id, ...action })) {
+        const record = shop.getReconstructed?.().find((entry) => entry.piece.id === id);
+        if (record?.piece) added.push(record.piece);
+        continue;
+      }
       const result = await api.move({
         id,
         x: action.x,
@@ -823,6 +872,13 @@ function syncMaterialPanel() {
   }
   const roughOut = $("mat-rough-out");
   if (roughOut) roughOut.textContent = ((Number(rough?.value) || 0) / 100).toFixed(2);
+  const metal = $("mat-metal");
+  if (metal) {
+    metal.disabled = disabled;
+    if (current) metal.value = String(Math.round((current.metalness ?? 0.05) * 100));
+  }
+  const metalOut = $("mat-metal-out");
+  if (metalOut) metalOut.textContent = ((Number(metal?.value) || 0) / 100).toFixed(2);
   for (const btn of document.querySelectorAll("[data-mat-color]")) btn.disabled = disabled;
   for (const btn of document.querySelectorAll("[data-mat-finish]")) {
     btn.disabled = disabled || Boolean(picked?.piece.reconstructed);
@@ -835,7 +891,7 @@ function syncMaterialPanel() {
   if (hint) {
     hint.textContent = picked
       ? picked.piece.reconstructed
-        ? `Scanned mesh — color and roughness apply, finishes need a flat surface.`
+        ? `${picked.piece.generated ? "AI mesh" : "Scanned mesh"} — color and roughness apply, finishes need a flat surface.`
         : `Material on ${picked.part?.name || "this piece"}.`
       : "Pick a piece, then set its material.";
   }
@@ -845,8 +901,8 @@ async function applyMaterial(patch) {
   const picked = selectedPiece();
   if (!picked?.piece) return hud("Pick a piece, then set its material.");
   const id = picked.piece.id;
-  if (patch.roughness != null || patch.color) {
-    shop.setPieceMaterial?.(id, { roughness: patch.roughness, color: patch.color });
+  if (patch.roughness != null || patch.metalness != null || patch.color) {
+    shop.setPieceMaterial?.(id, { roughness: patch.roughness, metalness: patch.metalness, color: patch.color });
   }
   if (!picked.piece.reconstructed && (patch.color || patch.texture) && patch.persist !== false) {
     const result = await api.move({ id, color: patch.color, texture: patch.texture, snap: false });
@@ -873,6 +929,12 @@ $("mat-rough")?.addEventListener("input", (ev) => {
   const out = $("mat-rough-out");
   if (out) out.textContent = roughness.toFixed(2);
   applyMaterial({ roughness });
+});
+$("mat-metal")?.addEventListener("input", (ev) => {
+  const metalness = Math.min(1, Math.max(0, Number(ev.target.value) / 100));
+  const out = $("mat-metal-out");
+  if (out) out.textContent = metalness.toFixed(2);
+  applyMaterial({ metalness });
 });
 $("mat-swatches")?.addEventListener("click", (ev) => {
   const hex = ev.target.closest("[data-mat-color]")?.dataset.matColor;
@@ -918,9 +980,54 @@ shop.onPoseCommit((pose) => {
   commitPose(pose);
 });
 
-shop.onSculpt?.(({ mode, name }) => {
+shop.onSculpt?.(({ mode, name, clientEdit }) => {
+  void checkpointGeometryEdit(clientEdit).catch(() => {});
   if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  void refreshCurrentDiy();
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
+});
+
+shop.onMeshEdit?.(({ tool, name, label, clientEdit }) => {
+  void checkpointGeometryEdit(clientEdit).catch(() => {});
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
+  void refreshCurrentDiy();
+  hud(`${label || tool} on ${name}. Undo takes it back.`);
+});
+
+shop.onComponentSelect?.(({ mode, count, name }) => {
+  const label = COMPONENT_LABELS[mode] || "Component";
+  const picked = selectedPiece();
+  if (picked?.part) {
+    const lines = [picked.part.name];
+    const size = sizePlain(picked.part);
+    if (size) lines.push(size);
+    lines.push(
+      count
+        ? `${count} ${label.toLowerCase()} component${count === 1 ? "" : "s"} selected.`
+        : `${label} view · click to select, Shift-click to toggle.`,
+    );
+    inspect(lines.join("\n"));
+  }
+  hud(
+    count
+      ? `${count} ${label.toLowerCase()} component${count === 1 ? "" : "s"} targeted on ${name}.`
+      : `${label} view — click a component; Shift-click toggles; empty click clears.`,
+  );
+});
+
+shop.onDimensions?.((dimensions) => {
+  for (const axis of ["x", "y", "z"]) {
+    const input = $(`dimension-${axis}-mm`);
+    if (!input) continue;
+    input.disabled = !dimensions;
+    if (document.activeElement === input) continue;
+    const value = dimensions?.[axis];
+    input.value = Number.isFinite(value)
+      ? Number.isInteger(value)
+        ? String(value)
+        : value.toFixed(1)
+      : "";
+  }
 });
 
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
@@ -956,10 +1063,11 @@ async function commitPose(pose) {
   if (!pose?.id) return;
 
   if (shop.updateReconstructedPose?.(pose)) {
+    const record = shop.getReconstructed?.().find((entry) => entry.piece.id === pose.id);
     renderBenchPieces();
     if (house?.hasScene?.()) house.rebuildHouse3d?.();
     void refreshCurrentDiy();
-    hud(pose.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
+    hud(record?.piece.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
     return;
   }
 
@@ -1015,21 +1123,25 @@ async function duplicateSelected() {
 }
 
 async function undoLastEdit() {
+  await pendingGeometryCheckpoint.catch(() => {});
   const result = await api.undo();
   if (result?.ok === false) return hud(result.error || "Nothing to undo.");
+  const geometryRestored = !result.clientEdit || shop.applyGeometryEdit?.(result.clientEdit, "undo");
   shop.noteHistory?.("undo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
-  hud("Undid the last edit.");
+  hud(geometryRestored ? "Undid the last edit." : "The project was undone, but that old mesh snapshot expired.");
 }
 
 async function redoLastEdit() {
+  await pendingGeometryCheckpoint.catch(() => {});
   const result = await api.redo();
   if (result?.ok === false) return hud(result.error || "Nothing to redo.");
+  const geometryRestored = !result.clientEdit || shop.applyGeometryEdit?.(result.clientEdit, "redo");
   shop.noteHistory?.("redo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
-  hud("Redid the last edit.");
+  hud(geometryRestored ? "Redid the last edit." : "The project was redone, but that old mesh snapshot expired.");
 }
 
 async function removePiece(id) {
@@ -1065,6 +1177,9 @@ const SCULPT_HINTS = {
   grab: "Grab — drag on the piece to pull vertices with it.",
   smooth: "Smooth — drag on the piece to relax the surface.",
   inflate: "Inflate — drag on the piece to puff the surface out.",
+  draw: "Draw — drag to build up the surface with a soft brush.",
+  pinch: "Pinch — drag to pull nearby surface points toward the brush.",
+  flatten: "Flatten — drag to settle the surface onto the first-hit plane.",
 };
 
 const MESH_HINTS = {
@@ -1074,6 +1189,23 @@ const MESH_HINTS = {
   knife: "Knife — drag a line across the body to cut a real edge into it.",
   loopcut: "Loop cut — click the body to add an edge loop across it.",
 };
+
+const COMPONENT_LABELS = { vertex: "Vertex", edge: "Edge", face: "Face" };
+
+function setComponentModeUi(mode) {
+  if (!shop.getSelected()) return hud(`Pick a mesh, then open ${COMPONENT_LABELS[mode] || "component"} view.`);
+  shop.setComponentMode?.(mode);
+}
+
+function setComponentDrawUi() {
+  if (!shop.getSelected()) return hud("Pick a mesh, then draw points on it.");
+  const next = shop.setComponentDraw?.(!shop.getComponentDraw?.());
+  hud(
+    next
+      ? "Draw points — click vertices in order; each click chains an edge. Click the first point to close real faces."
+      : "Point drawing off.",
+  );
+}
 
 function setSculptTool(mode) {
   if (!shop.getSelected() && shop.getSculptMode() !== mode) {
@@ -1093,8 +1225,13 @@ function setMeshToolUi(mode) {
 
 function subdivideSelectedBody() {
   if (!shop.getSelected()) return hud("Pick a piece, then Subdiv.");
-  if (shop.subdivideSelected()) hud("Subdivided — every face split in four. Now sculpt it.");
-  else hud("That body is already dense enough.");
+  const result = shop.subdivideSelected();
+  if (!result) return hud("That body is already dense enough.");
+  if (result.scope === "selection") {
+    hud(`Subdivided the selected components without tearing their welded neighbors.`);
+  } else {
+    hud("Subdivided the whole mesh — every face split in four.");
+  }
 }
 
 function hideSelectedBody() {
@@ -1111,12 +1248,61 @@ function unhideAllBodies() {
   hud(count ? `Unhid ${count} ${count === 1 ? "body" : "bodies"}.` : "Nothing is hidden.");
 }
 
+/* Physics preview: overlay ghosts act out whether the build holds or breaks.
+   The editable bodies never move — toggling off just clears the overlay. */
+let physicsOn = false;
+
+function paintPhysics(report) {
+  const btn = $("physics-btn");
+  const verdict = $("physics-verdict");
+  btn?.classList.toggle("on", physicsOn);
+  btn?.classList.toggle("breaks", physicsOn && report?.verdict === "breaks");
+  if (verdict) {
+    verdict.hidden = !physicsOn || !report;
+    verdict.textContent = report ? (report.holds ? "Holds" : "Breaks") : "";
+    verdict.classList.toggle("holds", Boolean(physicsOn && report?.holds));
+    verdict.classList.toggle("breaks", Boolean(physicsOn && report && !report.holds));
+  }
+}
+
+function togglePhysicsPreview() {
+  if (physicsOn) {
+    shop.clearPhysicsPreview?.();
+    physicsOn = false;
+    paintPhysics(null);
+    hud("Physics preview off.");
+    return;
+  }
+  const report = shop.runPhysicsPreview?.();
+  if (!report || !report.pieceCount) {
+    hud("Nothing on the bench to test.");
+    return;
+  }
+  physicsOn = true;
+  paintPhysics(report);
+  hud(report.note);
+}
+
+$("physics-btn")?.addEventListener("click", togglePhysicsPreview);
+
+// Esc inside the workshop and any project sync also clear the ghosts.
+shop.onPhysicsCleared?.(() => {
+  physicsOn = false;
+  paintPhysics(null);
+});
+
 /* Fusion-style numeric scale: a factor, or scale so a measured span becomes
    the typed millimetres. Bottom stays on the bench (y scales with the body). */
 async function scaleSelectedBy(factor) {
   const f = Number(factor);
   if (!Number.isFinite(f) || f <= 0) return hud("Type a scale factor above 0.");
   if (Math.abs(f - 1) < 1e-6) return hud("A factor of 1 changes nothing.");
+  if (shop.hasComponentSelection?.()) {
+    const result = shop.scaleComponentSelection?.(f);
+    if (!result) return hud("Those components could not be scaled.");
+    hud(`Scaled ${result.count} selected ${result.mode} component${result.count === 1 ? "" : "s"} ×${Math.round(f * 1000) / 1000}.`);
+    return;
+  }
   const pose = shop.getSelectedPose?.();
   if (!pose) return hud("Pick a body, then scale it.");
   await commitPose({
@@ -1137,9 +1323,37 @@ async function scaleSelectedToMeasured() {
   await scaleSelectedBy(target / measured);
 }
 
+async function setSelectedDimension(axis, rawValue) {
+  const target = Number(rawValue);
+  const dimensions = shop.getSelectedDimensionsMm?.();
+  const current = dimensions?.[axis];
+  if (!["x", "y", "z"].includes(axis) || !Number.isFinite(target) || target <= 0) {
+    return hud("Type a dimension above 0 mm.");
+  }
+  if (!Number.isFinite(current) || current <= 0) return hud("Pick a body, then set its dimensions.");
+  const factor = target / current;
+  if (Math.abs(factor - 1) < 1e-4) return;
+  if (shop.hasComponentSelection?.()) {
+    const result = shop.scaleComponentSelection?.(factor);
+    if (!result) return hud("Those components could not be resized.");
+    hud(`Resized the selected ${result.mode} components toward ${target} mm on ${axis.toUpperCase()}.`);
+    return;
+  }
+  const pose = shop.getSelectedPose?.();
+  if (!pose) return hud("Pick a body, then set its dimensions.");
+  const scaleKey = `s${axis}`;
+  const next = { id: pose.id, [scaleKey]: pose[scaleKey] * factor };
+  if (axis === "y") next.y = pose.y * factor;
+  await commitPose(next);
+  hud(`Set ${axis.toUpperCase()} to ${target} mm.`);
+}
+
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
+  const component = ev.target.closest("[data-component-mode]")?.dataset.componentMode;
+  if (component) setComponentModeUi(component);
+  if (ev.target.closest("[data-component-draw]")) setComponentDrawUi();
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-delete]")) deleteSelected();
@@ -1166,13 +1380,47 @@ $("scale-apply")?.addEventListener("click", () => {
 $("scale-to-measure")?.addEventListener("click", () => {
   scaleSelectedToMeasured();
 });
+for (const input of document.querySelectorAll("[data-dimension-axis]")) {
+  input.addEventListener("change", () => {
+    setSelectedDimension(input.dataset.dimensionAxis, input.value);
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") input.blur();
+  });
+}
 
 document.addEventListener("click", (event) => {
-  const id = event.target.closest("[data-ways-build]")?.dataset.waysBuild;
+  const id = event.target.closest("[data-piece-plan]")?.dataset.piecePlan;
   if (!id) return;
   const build = diyBuilds().find((entry) => entry.id === id);
-  openWaysPrint(build);
+  openPiecePlanPrint(build);
 });
+
+function paintFinishProgress(job = {}) {
+  const panel = $("finish-progress");
+  const bar = $("finish-progress-bar");
+  const text = $("finish-progress-text");
+  const percent = Math.max(0, Math.min(100, Math.round(Number(job.percent) || 0)));
+  if (panel) panel.hidden = false;
+  if (bar) {
+    bar.value = percent;
+    bar.textContent = `${percent}%`;
+  }
+  if (text) text.textContent = job.text || "Reading the model…";
+  const percentOut = $("finish-progress-percent");
+  if (percentOut) percentOut.textContent = `${percent}%`;
+}
+
+async function waitForFinishJob(id) {
+  for (let poll = 0; poll < 480; poll += 1) {
+    const update = await api.finishJob(id);
+    paintFinishProgress(update.job);
+    if (update.job?.status === "complete" && update.result) return update.result;
+    if (update.job?.status === "failed") throw new Error(update.reason || update.job.text || "Could not find a way.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Finding a way took too long. Please try again.");
+}
 
 let finishingModel = false;
 $("finish-model")?.addEventListener("click", async () => {
@@ -1181,37 +1429,45 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Finding build ways…";
+  button.textContent = "Finding a way…";
+  paintFinishProgress({ percent: 3, text: "Reading the model…" });
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Finding build ways…</title><p>Researching construction routes and shaped pieces for this model…</p>");
+    printWindow.document.write(
+      "<!doctype html><title>Finding a way…</title><p>Reading the current geometry, matching construction routes, and scoring look-alikes…</p>",
+    );
   }
-  hud("Finding ways to make this exact final table…");
+  hud("Reading this exact model and finding the closest physical way to make it…");
   try {
-    const packet = await api.finishProject();
+    const model = currentFinishModel();
+    const started = await api.startFinishProject(model);
+    if (!started?.job?.id) throw new Error(started?.reason || "Could not start the similarity search.");
+    paintFinishProgress(started.job);
+    const packet = await waitForFinishJob(started.job.id);
     openBuildPacketPrint(packet, printWindow);
     await refreshProject();
     const saved = diyBuilds().find((entry) => entry.id === packet.build?.id) || packet.build;
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "ways-to-make plan" });
-    const match = packet.bom?.ikeaMatch;
+    await studio?.openAssemblyView?.(packet.assembly, { label: "closest ways-to-make plan" });
     hud(
-      match
-        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
-        : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
-            packet.bom?.lines?.length || 0
-          } cut-list lines · IKEAlive todo created.`,
+      `${packet.bom?.similarityScore || 0}% closest physical result · ${packet.bom?.ways?.length || 0} scored ways · ` +
+        `${packet.bom?.cutList?.length || 0} geometry-derived pieces · ${packet.bom?.hardwareLines?.length || 0} connection-hardware lines · PDF and IKEAlive todo ready.`,
     );
   } catch (error) {
     printWindow?.close();
-    hud(error?.message || "Could not finish this furniture model.");
+    paintFinishProgress({ percent: 100, text: error?.message || "Could not find a way for this model." });
+    hud(error?.message || "Could not find a way for this model.");
   } finally {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Finish & find ways";
+    button.textContent = "Finish / Find a way";
+    setTimeout(() => {
+      const panel = $("finish-progress");
+      if (panel && Number($("finish-progress-bar")?.value) === 100) panel.hidden = true;
+    }, 1600);
   }
 });
 
@@ -1222,10 +1478,8 @@ function isLab() {
 function labHud(space) {
   if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
   return project.pieces.length
-
-    ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask AI, or measure the room below.";
-
+    ? "Bench — pick a body, then model it with the left-bar tools."
+    : "Bench — sketch or scan a body, then model it with the left-bar tools.";
 }
 
 function setLabSpace(space) {
@@ -1812,11 +2066,21 @@ window.addEventListener("keydown", (ev) => {
     duplicateSelected();
     return;
   }
+  if (key === "1") setComponentModeUi("vertex");
+  if (key === "2") setComponentModeUi("edge");
+  if (key === "3") setComponentModeUi("face");
   if (key === "g") setEditMode("translate");
   if (key === "r") setEditMode("rotate");
   if (key === "s") setEditMode("scale");
   if (key === "n") setSnap(!shop.getSnap());
   if (key === "f") shop.frameSelected?.();
+  if (key === "h" && ev.altKey) {
+    ev.preventDefault();
+    unhideAllBodies();
+    return;
+  }
+  if (key === "h") hideSelectedBody();
+  if (key === "m") document.getElementById("side-measure")?.click();
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     const id = selectedPieceId();

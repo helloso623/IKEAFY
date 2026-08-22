@@ -63,7 +63,7 @@ export function initLabStrip({ api, shop, hud, refreshProject }) {
 
   function paintMeasure() {
     const on = shop.getMeasure?.() || false;
-    for (const id of ["vs-measure", "lab-measure"]) {
+    for (const id of ["vs-measure", "lab-measure", "side-measure"]) {
       document.getElementById(id)?.classList.toggle("on", on);
     }
   }
@@ -91,6 +91,7 @@ export function initLabStrip({ api, shop, hud, refreshProject }) {
   document.getElementById("lab-look")?.addEventListener("click", toggleLook);
   document.getElementById("lab-look-at")?.addEventListener("click", lookAt);
   document.getElementById("lab-measure")?.addEventListener("click", toggleMeasure);
+  document.getElementById("side-measure")?.addEventListener("click", toggleMeasure);
 
   document.getElementById("view")?.addEventListener("ikealive-viewport", () => {
     paintLook();
