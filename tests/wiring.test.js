@@ -211,7 +211,7 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
   assert.match(main, /setLabSpace/);
   assert.match(main, /data-lab/);
   assert.match(main, /dataset\.mode === "lab" && isLab\(\)/);
-  assert.match(main, /\[ikealive:lab\]/);
+  assert.match(main, /ikealiveLog\("lab"/);
   const css = read("client/src/styles.css");
   assert.match(css, /data-lab="ar"/);
   assert.match(css, /#app\.mode-lab \.modes \[data-mode="ikeafy"\]/);
