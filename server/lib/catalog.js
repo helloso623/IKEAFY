@@ -375,7 +375,7 @@ const PARTS = [
     texture: "gloss",
     printable: false,
     ports: [],
-    specs: { shearKpa: 90, peelN: 3, ipBoost: 0, weatherSeal: 0.1 },
+    specs: { shearKpa: 35, peelN: 1.2, ipBoost: 0, weatherSeal: 0.1 },
   },
   {
     id: "zip-tie",
