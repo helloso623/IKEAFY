@@ -107,6 +107,8 @@ test("electronics stays a Lab feature of the main IKEAlive app", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
+  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.match(html, /id="house-drawer"/);
   assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
 });
