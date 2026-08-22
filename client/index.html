@@ -113,6 +113,25 @@
           </div>
 
           <div class="landing-panel">
+            <div class="landing-animation" aria-hidden="true">
+              <svg viewBox="0 0 400 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="18" y="20" width="140" height="180" rx="10" fill="#fff" stroke="#111" stroke-width="1.6" />
+                <g class="anim-page-lines">
+                  <rect x="34" y="42" width="108" height="8" rx="4" fill="#111" opacity="0.85" />
+                  <rect x="34" y="64" width="90" height="8" rx="4" fill="#111" opacity="0.55" />
+                  <rect x="34" y="86" width="100" height="8" rx="4" fill="#111" opacity="0.35" />
+                  <rect x="34" y="108" width="70" height="8" rx="4" fill="#111" opacity="0.2" />
+                </g>
+                <g class="anim-arrow">
+                  <path d="M172 110h56m0 0-16-16m16 16-16 16" stroke="#111" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                </g>
+                <rect x="248" y="20" width="140" height="180" rx="10" fill="#ffda1a" stroke="#111" stroke-width="1.6" />
+                <circle class="anim-play-ring" cx="318" cy="110" r="34" fill="none" stroke="#111" stroke-width="1.4" opacity="0.5" />
+                <circle cx="318" cy="110" r="24" fill="#111" />
+                <path class="anim-play-icon" d="M312 98v24l20-12-20-12z" fill="#ffda1a" />
+              </svg>
+            </div>
+
             <form id="upload-form" class="card upload-card">
               <label class="upload-drop" id="pdf-drop" for="pdf-upload">
                 <input id="pdf-upload" type="file" accept="application/pdf,.pdf" />
@@ -128,7 +147,7 @@
                   <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
                   <button type="button" id="product-lookup">Find the PDF</button>
                 </div>
-                <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
+                <p class="hint">Tavily finds the official instructions PDF, then we read the plates.</p>
               </div>
 
               <div id="custom-source" class="custom-parse">
@@ -142,20 +161,6 @@
               </div>
               <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
             </form>
-
-            <details id="official-source" class="official-picker upload-official">
-              <summary>Use the official sheet</summary>
-              <label class="picker-label" for="official-product">Official IKEA product</label>
-              <select id="official-product" aria-label="IKEA product"></select>
-              <p class="hint lock-note" id="official-lock-note">
-                LACK is unlocked. Steps come one at a time, in order — just like the paper manual.
-              </p>
-              <button type="button" id="official-mode" class="quiet start-official" aria-pressed="false">
-                <span class="when-official">Start the official LACK sheet</span>
-                <span class="when-custom">Use the official LACK sheet</span>
-              </button>
-            </details>
-            <button type="button" id="custom-mode" class="hidden" aria-pressed="true">I have my own instructions</button>
           </div>
         </div>
       </section>

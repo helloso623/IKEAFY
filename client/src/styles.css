@@ -824,10 +824,10 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   padding: 4.5rem 1.5rem 5rem;
 }
 .landing.landing-split {
-  max-width: 68rem;
+  max-width: 82rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 4rem;
+  gap: 5rem;
   align-items: start;
 }
 .landing-copy { padding-top: 0.25rem; }
@@ -838,6 +838,57 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   border-radius: 22px;
 }
 .landing-panel .upload-card { padding: 0; border: 0; background: transparent; }
+
+.landing-animation {
+  max-width: 220px;
+  margin: 0 auto 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.landing-animation svg { display: block; width: 100%; height: auto; }
+.landing-animation .anim-arrow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: landing-arrow-nudge 1.6s ease-in-out infinite;
+}
+.landing-animation .anim-page-lines rect {
+  animation: landing-lines-fade 2.4s ease-in-out infinite;
+}
+.landing-animation .anim-page-lines rect:nth-child(2) { animation-delay: 0.15s; }
+.landing-animation .anim-page-lines rect:nth-child(3) { animation-delay: 0.3s; }
+.landing-animation .anim-page-lines rect:nth-child(4) { animation-delay: 0.45s; }
+.landing-animation .anim-play-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: landing-ring-pulse 1.8s ease-out infinite;
+}
+.landing-animation .anim-play-icon {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: landing-play-pulse 1.8s ease-in-out infinite;
+}
+@keyframes landing-arrow-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(6px); }
+}
+@keyframes landing-lines-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes landing-ring-pulse {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@keyframes landing-play-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-animation .anim-arrow,
+  .landing-animation .anim-page-lines rect,
+  .landing-animation .anim-play-ring,
+  .landing-animation .anim-play-icon { animation: none; }
+}
 @media (max-width: 900px) {
   .landing-split { grid-template-columns: 1fr; gap: 2.5rem; }
 }
@@ -927,23 +978,23 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .upload-feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2rem 2.4rem;
-  margin: 0 0 2.5rem;
+  gap: 1.5rem 2rem;
+  margin: 0 0 2rem;
   padding: 0;
   list-style: none;
 }
 .feature-item {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 .feature-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.3rem;
-  height: 2.3rem;
-  margin-bottom: 0.1rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-bottom: 0.05rem;
 }
 .feature-icon svg { display: block; width: 100%; height: 100%; }
 .feature-item strong {

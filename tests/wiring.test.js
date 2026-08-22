@@ -93,7 +93,7 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="upload-form"/);
   assert.match(html, /Get the Reel/);
   assert.match(html, /New manual/);
-  assert.match(html, /process-icon/);
+  assert.match(html, /feature-icon/);
   assert.doesNotMatch(html, /Build the reel/);
   assert.doesNotMatch(html, /New build/);
   assert.doesNotMatch(html, /Or paste the guide/);
