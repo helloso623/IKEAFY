@@ -79,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("piece hunt asks for tops, legs, boards, and lumber instead of fasteners", async () => {
+test("construction search asks for dimensioned ways and excludes fastener catalogs", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -104,9 +104,9 @@ test("piece hunt asks for tops, legs, boards, and lumber instead of fasteners", 
       },
       { fetchFn },
     );
-    assert.match(query, /furniture pieces for table 900 x 500 x 740 mm/i);
-    assert.match(query, /tabletop legs apron stretcher board lumber/i);
-    assert.match(query, /-screw -bolt -fastener/);
+    assert.match(query, /ways to physically build custom object 900 x 500 x 740 mm/i);
+    assert.match(query, /construction method cut list shaped stock/i);
+    assert.match(query, /-screws -bolts -fasteners -McMaster/);
     assert.equal(offers.length, 1);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
@@ -119,7 +119,7 @@ test("construction research includes the analyzed silhouette, support, material,
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
   try {
-    await searchBuildWayOffers(
+    await searchFurniturePieceOffers(
       {
         name: "Round dining object",
         modelDimensionsMm: { x: 900, y: 900, z: 740 },

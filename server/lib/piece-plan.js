@@ -531,14 +531,14 @@ function materialFamily(components) {
   const text = components.map((item) => `${item.material || ""} ${item.finish?.texture || ""}`).join(" ");
   if (/metal|steel|aluminium|aluminum/i.test(text)) return "metal";
   if (/plastic|acrylic|poly/i.test(text)) return "plastic";
-  if (/wood|ply|timber|oak|birch|beech|mdf|fibre|fiber|foil/i.test(text)) return "wood";
+  if (/wood|ply|timber|oak|birch|beech|mdf|fibre|fiber|particleboard|laminat|foil/i.test(text)) return "wood";
   return "mixed";
 }
 
 function targetTraits(profile, components, cutList) {
   return {
     topShape: profile.roundPedestal ? "round" : "rectangular",
-    supportStyle: profile.roundPedestal ? "central" : profile.posts.length >= 3 ? "four-leg" : "piece-for-piece",
+    supportStyle: profile.roundPedestal ? "central" : profile.tableLike ? "four-leg" : "piece-for-piece",
     material: materialFamily(components),
     roles: [...new Set(cutList.map((line) => line.role))],
   };
@@ -602,7 +602,7 @@ function scoreConstructionWays(ways, profile, components, cutList, ikeaMatch, di
       },
     };
   });
-  scored.sort((a, b) => b.similarity.score - a.similarity.score || a.title.localeCompare(b.title));
+  scored.sort((a, b) => b.similarity.score - a.similarity.score);
   if (scored[0]) scored[0].recommended = true;
   return scored;
 }
@@ -634,7 +634,7 @@ export function pieceBomForProject(project = {}, options = {}) {
       tableLike: profile.tableLike,
       shelfLike: profile.shelfLike,
       topShape: profile.roundPedestal ? "round" : "rectangular",
-      supportStyle: profile.roundPedestal ? "central" : profile.posts.length >= 3 ? "four-leg" : "piece-for-piece",
+      supportStyle: profile.roundPedestal ? "central" : profile.tableLike ? "four-leg" : "piece-for-piece",
       materialFamily: materialFamily(components),
       supportCount: profile.posts.length || (profile.tableLike ? 4 : 0),
       topDimsMm: profile.topDims,
