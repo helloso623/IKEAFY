@@ -8,6 +8,31 @@ const LACK_GUIDE = `LACK side table
 5. Flip the table upright with a friend. Check it does not wobble.
 6. Optional: tape cable runs under the top and add the lamp board.`;
 
+const OFFICIAL_LACK_GUIDE = `LACK side table 55×55
+1. Unpack the flat pack: one 55×55 cm table top, four legs, and the fittings bag with the Allen key. Count them against the parts list before you start.
+2. Put the flattened carton or a blanket on the floor. You need about 1.2 m of clear space so the foil finish and your floor both survive.
+3. Place the table top face down in the middle of the pad, underside up, with a corner insert visible at each corner.
+4. Screw each leg into its corner insert by hand until the shoulder meets the top, then snug it with the Allen key. Do not overtighten — the insert strips out of the particleboard.
+5. Flip the table upright with a second person, one of you at each side. Set it down and check that all four legs sit flat and the top does not rock.`;
+
+const OFFICIAL_PRODUCTS = [
+  {
+    article: "304.499.08",
+    name: "LACK side table",
+    size: "55×55 cm, 45 cm high",
+    partId: "lack-table",
+    kit: "lack-kit",
+    store: "IKEA",
+    storeUrl: "https://www.ikea.com/search?q=LACK+side+table",
+    guide: OFFICIAL_LACK_GUIDE,
+    stepCount: 5,
+    toolsIncluded: ["allen-key"],
+    people: 2,
+  },
+];
+
+const DEFAULT_OFFICIAL_ARTICLE = OFFICIAL_PRODUCTS[0].article;
+
 const SAMPLE_REVIEWS = [
   {
     id: "r1",
@@ -100,7 +125,37 @@ function inferTool(text, availableTools = []) {
   return null;
 }
 
-export function parseGuide(raw, { instructions = "", availableTools = [] } = {}) {
+function cloneStep(step) {
+  return { ...step, partsUsed: [...step.partsUsed], warnings: [...step.warnings], image: { ...step.image } };
+}
+
+function editStepsFromInstructions(steps, { instructions = "", availableTools = [] } = {}) {
+  const edits = [];
+  const extra = String(instructions).toLowerCase();
+  if (extra.includes("no overtighten") || extra.includes("do not overtighten")) {
+    const fasten = steps.find((s) => s.action === "fasten");
+    if (fasten) {
+      fasten.body += " Stop when the shoulder meets the insert — no extra crank.";
+      edits.push({ kind: "torque-note", step: fasten.number });
+    }
+  }
+  if (availableTools.length) {
+    for (const step of steps) {
+      if (step.toolRequired && !availableTools.includes(step.toolRequired)) {
+        step.toolRequired = availableTools[0];
+        step.body += ` Use the ${availableTools[0]} you said you have.`;
+        edits.push({ kind: "tool-swap", step: step.number, tool: availableTools[0] });
+      }
+    }
+  }
+  return edits;
+}
+
+export function parseGuide(
+  raw,
+  { instructions = "", availableTools = [], official = false, productArticle = null } = {},
+) {
+  const locked = Boolean(official);
   const text = String(raw || "").trim() || LACK_GUIDE;
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const title = lines[0].replace(/^\d+[\.)]\s*/, "");
@@ -120,6 +175,8 @@ export function parseGuide(raw, { instructions = "", availableTools = [] } = {})
       toolRequired: tool,
       warnings: reviews.map((r) => r.difficulty),
       waitForUser: true,
+      locked,
+      editable: !locked,
       image: {
         bw: `plate-${i + 1}-bw`,
         color: `plate-${i + 1}-color`,
@@ -128,19 +185,15 @@ export function parseGuide(raw, { instructions = "", availableTools = [] } = {})
     };
   });
 
-  if (instructions) {
-    const extra = String(instructions).toLowerCase();
-    if (extra.includes("no overtighten") || extra.includes("do not overtighten")) {
-      const fasten = steps.find((s) => s.action === "fasten");
-      if (fasten) fasten.body += " Stop when the shoulder meets the insert — no extra crank.";
-    }
-    if (availableTools.length) {
-      for (const step of steps) {
-        if (step.toolRequired && !availableTools.includes(step.toolRequired)) {
-          step.toolRequired = availableTools[0];
-          step.body += ` Use the ${availableTools[0]} you said you have.`;
-        }
-      }
+  let appliedEdits = [];
+  let ignoredEdits = [];
+  if (instructions || availableTools.length) {
+    if (locked) {
+      // Run the edit pass on throwaway clones so we can report what an
+      // instruction wanted without ever rewriting an official body.
+      ignoredEdits = editStepsFromInstructions(steps.map(cloneStep), { instructions, availableTools });
+    } else if (instructions) {
+      appliedEdits = editStepsFromInstructions(steps, { instructions, availableTools });
     }
   }
 
@@ -149,6 +202,11 @@ export function parseGuide(raw, { instructions = "", availableTools = [] } = {})
   const bom = bomFromIds(partIds);
   return {
     title: /lack|table|linmon|eket/i.test(title) ? title : `${title} (IKEAFY)`,
+    official: locked,
+    locked,
+    editable: !locked,
+    skipAhead: !locked,
+    productArticle: locked ? productArticle || DEFAULT_OFFICIAL_ARTICLE : null,
     theme: {
       setting: "birch workshop",
       light: "north window",
@@ -164,7 +222,94 @@ export function parseGuide(raw, { instructions = "", availableTools = [] } = {})
     },
     raw: text,
     instructions,
+    appliedEdits,
+    ignoredEdits,
   };
+}
+
+export function officialProducts() {
+  return OFFICIAL_PRODUCTS.map((p) => ({ ...p, toolsIncluded: [...p.toolsIncluded] }));
+}
+
+function findOfficialProduct(article) {
+  if (!article) return OFFICIAL_PRODUCTS[0];
+  const wanted = String(article).trim();
+  return (
+    OFFICIAL_PRODUCTS.find((p) => p.article === wanted) ||
+    OFFICIAL_PRODUCTS.find((p) => p.name.toLowerCase() === wanted.toLowerCase()) ||
+    null
+  );
+}
+
+export function officialGuide(options = {}) {
+  const opts = typeof options === "string" ? { article: options } : options || {};
+  const product = findOfficialProduct(opts.article);
+  if (!product) {
+    return { ok: false, reason: `No official guide for article ${opts.article}.`, products: officialProducts() };
+  }
+  const guide = parseGuide(product.guide, {
+    instructions: opts.instructions || "",
+    availableTools: opts.availableTools || [],
+    official: true,
+    productArticle: product.article,
+  });
+  return {
+    ...guide,
+    product: {
+      article: product.article,
+      name: product.name,
+      size: product.size,
+      partId: product.partId,
+      store: product.store,
+      storeUrl: product.storeUrl,
+      people: product.people,
+      toolsIncluded: [...product.toolsIncluded],
+    },
+    lockNote:
+      "Official IKEA-style instructions. Steps are read-only and run in order — expand a step instead of rewriting it.",
+  };
+}
+
+export function applyInstructions(guide, { instructions = "", availableTools = [] } = {}) {
+  if (!guide || !Array.isArray(guide.steps)) return { ok: false, reason: "No guide." };
+  if (guide.locked) {
+    const ignoredEdits = editStepsFromInstructions(guide.steps.map(cloneStep), { instructions, availableTools });
+    return {
+      ok: false,
+      locked: true,
+      reason: "Official guide is locked. Instructions cannot rewrite official steps.",
+      guide,
+      appliedEdits: [],
+      ignoredEdits,
+    };
+  }
+  const steps = guide.steps.map(cloneStep);
+  const appliedEdits = editStepsFromInstructions(steps, { instructions, availableTools });
+  return {
+    ok: true,
+    locked: false,
+    guide: {
+      ...guide,
+      steps,
+      instructions: [guide.instructions, instructions].filter(Boolean).join(" ").trim(),
+      appliedEdits: [...(guide.appliedEdits || []), ...appliedEdits],
+    },
+    appliedEdits,
+    ignoredEdits: [],
+  };
+}
+
+export function verifyOfficialGuide(guide) {
+  if (!guide || !Array.isArray(guide.steps)) return { ok: false, reason: "No guide." };
+  if (!guide.locked) return { ok: true, locked: false, official: false, drift: [] };
+  const product = findOfficialProduct(guide.productArticle);
+  if (!product) return { ok: false, locked: true, reason: "Unknown official article.", drift: [] };
+  const canonical = parseGuide(product.guide, { official: true, productArticle: product.article });
+  const drift = canonical.steps
+    .filter((s, i) => guide.steps[i]?.body !== s.body)
+    .map((s) => s.number)
+    .concat(guide.steps.length === canonical.steps.length ? [] : ["step-count"]);
+  return { ok: drift.length === 0, locked: true, official: true, article: product.article, drift };
 }
 
 export function expandStep(guide, stepNumber, { stuckNote = "" } = {}) {
@@ -216,6 +361,8 @@ export function makeVideoPlan(guide) {
     theme: guide.theme,
     partner: { name: "Veed", status: "proposed", fallback: "local canvas storyboard" },
     continuous: true,
+    locked: Boolean(guide.locked),
+    skipAhead: guide.skipAhead !== false,
     steps: guide.steps.map((step) => ({
       number: step.number,
       waitForUser: step.waitForUser,
@@ -288,13 +435,17 @@ export function generateFix(reviewId) {
 }
 
 export function defaultGuide() {
+  return officialGuide({ availableTools: ["allen-key"] });
+}
+
+export function remixGuide() {
   return parseGuide(LACK_GUIDE, {
     instructions: "Do not overtighten. Allen key is in the bag.",
     availableTools: ["allen-key"],
   });
 }
 
-export { LACK_GUIDE, SAMPLE_REVIEWS };
+export { LACK_GUIDE, OFFICIAL_LACK_GUIDE, OFFICIAL_PRODUCTS, SAMPLE_REVIEWS };
 
 export function shoppingList(guide) {
   const ids = [...new Set(guide.steps.flatMap((s) => [s.toolRequired, ...s.partsUsed].filter(Boolean)))];
