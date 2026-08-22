@@ -518,6 +518,47 @@ function isTableLeg(part) {
   return inferShape(part) === "post" || /leg/.test(part.id);
 }
 
+/* ------------------------------------------------------------------ Lab CAD
+   Fusion-lite bodies cooked on the bench. A sketch-extrude becomes a real
+   piece through the ordinary project API: catalog stock (an off-cut slab or a
+   dowel) scaled through the pose, tagged with texture "lab-box"/"lab-cyl" so
+   sync() knows to render it as a clean primitive. No server changes needed. */
+
+const LAB_GRAY = "#d9d9d9";
+const LAB_STOCK = {
+  box: { partId: "pine-offcut", dims: { x: 550, y: 550, z: 18 } },
+  cyl: { partId: "dowel-18", dims: { x: 18, y: 18, z: 400 } },
+};
+
+function labKindOf(piece) {
+  const hit = /^lab-(box|cyl)$/.exec(piece?.texture || "");
+  return hit ? hit[1] : null;
+}
+
+function makeLabSolid(kind, part, piece) {
+  const w = part.dimsMm.x * MM;
+  const d = part.dimsMm.y * MM;
+  const h = part.dimsMm.z * MM;
+  const mat = stdMat({ color: new THREE.Color(piece.color || LAB_GRAY), roughness: 0.58 });
+  const g = new THREE.Group();
+  const geo = kind === "cyl" ? new THREE.CylinderGeometry(w / 2, w / 2, h, 40) : new THREE.BoxGeometry(w, h, d);
+  add(g, geo, mat);
+  return g;
+}
+
+function escText(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+const asMm = (meters) => Math.max(1, Math.round(meters * 1000));
+const round4 = (v) => Math.round(v * 10000) / 10000;
+
 export function createWorkshop(canvas) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a1a1a);
@@ -602,15 +643,13 @@ export function createWorkshop(canvas) {
   scene.add(fx);
 
   const transform = new TransformControls(camera, canvas);
-  transform.addEventListener("dragging-changed", (e) => {
-    orbit.enabled = !e.value;
-  });
-  scene.add(transform.getHelper());
-
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const meshes = new Map();
   let selected = null;
+  let boxHelper = null;
+  let snapOn = true;
+  let editMode = "translate";
   let simOn = false;
   let simOpts = {};
   let rain = [];
@@ -618,6 +657,96 @@ export function createWorkshop(canvas) {
   let forceArrow = null;
   let ledBlinkOn = false;
   let onSelect = () => {};
+  let onPoseCommit = () => {};
+
+  function applySnap() {
+    if (snapOn) {
+      transform.setTranslationSnap(0.01);
+      transform.setRotationSnap(Math.PI / 12);
+      transform.setScaleSnap(0.1);
+    } else {
+      transform.setTranslationSnap(null);
+      transform.setRotationSnap(null);
+      transform.setScaleSnap(null);
+    }
+  }
+  applySnap();
+  transform.setMode(editMode);
+
+  function readPose(mesh = selected) {
+    if (!mesh?.userData?.piece) return null;
+    const pos = new THREE.Vector3();
+    mesh.getWorldPosition(pos);
+    return {
+      id: mesh.userData.piece.id,
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      rx: mesh.rotation.x,
+      ry: mesh.rotation.y,
+      rz: mesh.rotation.z,
+      sx: mesh.scale.x,
+      sy: mesh.scale.y,
+      sz: mesh.scale.z,
+    };
+  }
+
+  function markSelected(mesh) {
+    if (boxHelper) {
+      scene.remove(boxHelper);
+      boxHelper.dispose();
+      boxHelper = null;
+    }
+    if (!mesh) return;
+    boxHelper = new THREE.BoxHelper(mesh, 0xffc84a);
+    scene.add(boxHelper);
+  }
+
+  function attach(mesh, quiet = false) {
+    selected = mesh || null;
+    if (!mesh) {
+      transform.detach();
+      markSelected(null);
+      if (!quiet) onSelect(null);
+      return false;
+    }
+    transform.attach(mesh);
+    markSelected(mesh);
+    if (!quiet) onSelect(mesh.userData);
+    return true;
+  }
+
+  function selectById(id, quiet = false) {
+    if (!id) return attach(null, quiet);
+    const mesh = meshes.get(id);
+    if (!mesh) return attach(null, quiet);
+    return attach(mesh, quiet);
+  }
+
+  function applyPose(piece) {
+    const mesh = meshes.get(piece?.id);
+    if (!mesh) return false;
+    if (mesh.parent && mesh.parent !== group) {
+      const world = new THREE.Vector3(piece.x || 0, piece.y || 0, piece.z || 0);
+      mesh.parent.worldToLocal(world);
+      mesh.position.copy(world);
+    } else {
+      mesh.position.set(piece.x || 0, piece.y || 0, piece.z || 0);
+    }
+    mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
+    mesh.scale.set(piece.sx || 1, piece.sy || 1, piece.sz || 1);
+    markSelected(mesh);
+    return true;
+  }
+
+  transform.addEventListener("dragging-changed", (e) => {
+    orbit.enabled = !e.value;
+    if (!e.value) {
+      const pose = readPose(selected);
+      if (pose) onPoseCommit(pose);
+    }
+  });
+  scene.add(transform.getHelper());
 
   // Blender-style viewport shading: solid and wire share one override material
   // each; "material" restores whatever the part builders assigned.
@@ -731,8 +860,12 @@ export function createWorkshop(canvas) {
   }
 
   function sync(project, partsById) {
+    const keepId = selected?.userData?.piece?.id || project.selection || null;
+    transform.detach();
     group.clear();
     meshes.clear();
+    selected = null;
+    markSelected(null);
     for (const piece of project.pieces) {
       const part = partsById[piece.partId];
       if (!part) continue;
@@ -741,7 +874,6 @@ export function createWorkshop(canvas) {
       group.add(mesh);
       meshes.set(piece.id, mesh);
     }
-    groupTables(project, partsById);
     cableGroup.clear();
     for (const cable of project.cables) {
       const a = meshes.get(cable.fromPiece);
@@ -779,20 +911,26 @@ export function createWorkshop(canvas) {
       group.add(strip);
     }
     applyShading();
+    if (keepId && meshes.has(keepId)) attach(meshes.get(keepId), true);
   }
 
   function pick(ev) {
+    if (transform.axis || transform.dragging) return;
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
     const hits = ray.intersectObjects(group.children, true);
-    if (!hits.length) return;
+    if (!hits.length) {
+      attach(null);
+      return;
+    }
     const mesh = hitsWalk(hits[0].object);
-    if (!mesh) return;
-    selected = mesh;
-    transform.attach(mesh);
-    onSelect(mesh.userData);
+    if (!mesh) {
+      attach(null);
+      return;
+    }
+    attach(mesh);
   }
 
   canvas.addEventListener("pointerdown", (ev) => {
@@ -901,6 +1039,7 @@ export function createWorkshop(canvas) {
         }
       }
     }
+    if (boxHelper && selected) boxHelper.update();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -916,24 +1055,29 @@ export function createWorkshop(canvas) {
     explode,
     setLed,
     resize,
+    select: (id) => selectById(id),
+    clearSelect: () => attach(null),
+    applyPose,
     onSelect: (fn) => {
       onSelect = fn;
     },
+    onPoseCommit: (fn) => {
+      onPoseCommit = fn;
+    },
     getSelected: () => selected?.userData || null,
-    getSelectedPose: () => {
-      if (!selected) return null;
-      const pos = new THREE.Vector3();
-      selected.getWorldPosition(pos);
-      return {
-        id: selected.userData.piece.id,
-        x: pos.x,
-        y: pos.y,
-        z: pos.z,
-        ry: selected.rotation.y,
-      };
-    },
+    getSelectedPose: () => readPose(selected),
     setMode: (mode) => {
+      if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
+      editMode = mode;
       transform.setMode(mode);
+      return editMode;
     },
+    getMode: () => editMode,
+    setSnap: (on) => {
+      snapOn = Boolean(on);
+      applySnap();
+      return snapOn;
+    },
+    getSnap: () => snapOn,
   };
 }

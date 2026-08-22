@@ -12,6 +12,16 @@ function emptyLabTools() {
   return Object.fromEntries(LAB_TOOLS.map((tool) => [tool, null]));
 }
 
+const POSE_FIELDS = ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz", "texture", "color", "functionLabel"];
+const HISTORY_LIMIT = 40;
+
+/** 10 mm grid, 15° turns, 0.1 scale steps — same units as the Lab status bar. */
+export const SNAP = Object.freeze({
+  gridM: 0.01,
+  angleRad: Math.PI / 12,
+  scale: 0.1,
+});
+
 export function emptyProject() {
   return {
     name: "Sandbox",
@@ -22,6 +32,7 @@ export function emptyProject() {
     abstractions: [],
     labTools: emptyLabTools(),
     selection: null,
+    history: { past: [], future: [] },
     sim: {
       on: false,
       snapshot: null,
@@ -102,11 +113,130 @@ export function removePiece(project, id) {
   return piece;
 }
 
-export function movePiece(project, id, pose) {
+export function pickPose(raw = {}) {
+  const pose = {};
+  for (const key of POSE_FIELDS) {
+    if (raw[key] !== undefined) pose[key] = raw[key];
+  }
+  return pose;
+}
+
+export function snapNumber(value, step) {
+  if (!Number.isFinite(value) || !step) return value;
+  return Math.round(value / step) * step;
+}
+
+export function snapPose(pose = {}, opts = {}) {
+  const grid = opts.gridM ?? SNAP.gridM;
+  const angle = opts.angleRad ?? SNAP.angleRad;
+  const scale = opts.scale ?? SNAP.scale;
+  const next = { ...pose };
+  for (const key of ["x", "y", "z"]) {
+    if (next[key] != null) next[key] = snapNumber(Number(next[key]), grid);
+  }
+  for (const key of ["rx", "ry", "rz"]) {
+    if (next[key] != null) next[key] = snapNumber(Number(next[key]), angle);
+  }
+  for (const key of ["sx", "sy", "sz"]) {
+    if (next[key] != null) next[key] = Math.max(scale, snapNumber(Number(next[key]), scale));
+  }
+  return next;
+}
+
+function cloneEditState(project) {
+  return JSON.parse(
+    JSON.stringify({
+      pieces: project.pieces,
+      cables: project.cables,
+      tapes: project.tapes,
+      joints: project.joints || [],
+      abstractions: project.abstractions || [],
+      selection: project.selection ?? null,
+    }),
+  );
+}
+
+function applyEditState(project, snapshot) {
+  project.pieces = JSON.parse(JSON.stringify(snapshot.pieces));
+  project.cables = JSON.parse(JSON.stringify(snapshot.cables));
+  project.tapes = JSON.parse(JSON.stringify(snapshot.tapes));
+  project.joints = JSON.parse(JSON.stringify(snapshot.joints || []));
+  project.abstractions = JSON.parse(JSON.stringify(snapshot.abstractions || []));
+  project.selection = snapshot.selection ?? null;
+}
+
+function ensureHistory(project) {
+  if (!project.history) project.history = { past: [], future: [] };
+  project.history.past ||= [];
+  project.history.future ||= [];
+  return project.history;
+}
+
+export function rememberEdit(project) {
+  const history = ensureHistory(project);
+  history.past.push(cloneEditState(project));
+  if (history.past.length > HISTORY_LIMIT) history.past.shift();
+  history.future = [];
+  return editStatus(project);
+}
+
+export function discardLastEdit(project) {
+  const history = ensureHistory(project);
+  if (history.past.length) history.past.pop();
+  return editStatus(project);
+}
+
+export function undoEdit(project) {
+  const history = ensureHistory(project);
+  if (!history.past.length) return null;
+  history.future.push(cloneEditState(project));
+  applyEditState(project, history.past.pop());
+  return editStatus(project);
+}
+
+export function redoEdit(project) {
+  const history = ensureHistory(project);
+  if (!history.future.length) return null;
+  history.past.push(cloneEditState(project));
+  applyEditState(project, history.future.pop());
+  return editStatus(project);
+}
+
+export function editStatus(project) {
+  return {
+    canUndo: Boolean(project.history?.past?.length),
+    canRedo: Boolean(project.history?.future?.length),
+  };
+}
+
+export function projectPayload(project) {
+  const { history, ...rest } = project;
+  return {
+    ...rest,
+    chrome: benchChrome(project),
+    edit: editStatus(project),
+  };
+}
+
+export function movePiece(project, id, pose = {}) {
   const piece = project.pieces.find((p) => p.id === id);
   if (!piece) return null;
-  Object.assign(piece, pose);
+  Object.assign(piece, pickPose(pose));
+  project.selection = id;
   return piece;
+}
+
+export function duplicatePiece(project, id, offset = {}) {
+  const piece = project.pieces.find((p) => p.id === id);
+  if (!piece) return null;
+  const copy = addPiece(project, piece.partId, {
+    ...pickPose(piece),
+    x: (Number(piece.x) || 0) + (offset.x ?? 0.08),
+    y: Number(piece.y) || 0,
+    z: (Number(piece.z) || 0) + (offset.z ?? 0.08),
+  });
+  project.selection = copy.id;
+  return copy;
 }
 
 export function rescale(project, id, scale) {

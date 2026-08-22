@@ -64,18 +64,27 @@ import {
   addTape,
   benchChrome,
   catalogPreview,
+  discardLastEdit,
+  duplicatePiece,
+  editStatus,
   emptyProject,
   isolateAsBoard,
   labelFunction,
   movePiece,
   persistLabTool,
+  pickPose,
+  projectPayload,
+  rememberEdit,
   removeJoint,
   removePiece,
   resetSim,
   rescale,
   retexture,
+  redoEdit,
   seedLampTable,
+  snapPose,
   snapshotSim,
+  undoEdit,
 } from "./lib/project.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -478,41 +487,86 @@ app.post("/api/agents/chat", async (req, res) => {
 });
 
 app.get("/api/project", (_req, res) => {
-  res.json({ ...state.project, chrome: benchChrome(state.project) });
+  res.json(projectPayload(state.project));
 });
 
 app.post("/api/project/seed", (req, res) => {
   state.project = req.body?.empty ? emptyProject() : seedLampTable();
-  res.json({ ...state.project, chrome: benchChrome(state.project) });
+  res.json(projectPayload(state.project));
 });
 
 app.post("/api/project/add", (req, res) => {
   try {
+    rememberEdit(state.project);
     const pose = { ...(req.body?.pose || {}) };
     if (req.body?.functionLabel !== undefined) pose.functionLabel = req.body.functionLabel;
     const piece = addPiece(state.project, req.body?.partId, pose);
-    res.json(piece);
+    state.project.selection = piece.id;
+    res.json({ ...piece, edit: editStatus(state.project) });
   } catch (err) {
+    discardLastEdit(state.project);
     res.status(400).json({ error: String(err.message || err) });
   }
 });
 
 app.post("/api/project/remove", (req, res) => {
+  const existing = state.project.pieces.find((p) => p.id === req.body?.id);
+  if (!existing) return res.status(404).json({ ok: false, error: "No piece with that id." });
+  rememberEdit(state.project);
   const removed = removePiece(state.project, req.body?.id);
-  if (!removed) return res.status(404).json({ ok: false, error: "No piece with that id." });
-  res.json({ ok: true, removed, chrome: benchChrome(state.project) });
+  res.json({ ok: true, removed, chrome: benchChrome(state.project), edit: editStatus(state.project) });
 });
 
 app.post("/api/project/move", (req, res) => {
-  res.json(movePiece(state.project, req.body?.id, req.body || {}) || { error: "missing" });
+  const id = req.body?.id;
+  if (!state.project.pieces.some((p) => p.id === id)) {
+    return res.status(404).json({ ok: false, error: "No piece with that id." });
+  }
+  rememberEdit(state.project);
+  let pose = pickPose(req.body);
+  if (req.body?.snap) pose = snapPose(pose);
+  const piece = movePiece(state.project, id, pose);
+  res.json({ ok: true, piece, edit: editStatus(state.project) });
+});
+
+app.post("/api/project/duplicate", (req, res) => {
+  const id = req.body?.id;
+  if (!state.project.pieces.some((p) => p.id === id)) {
+    return res.status(404).json({ ok: false, error: "No piece with that id." });
+  }
+  rememberEdit(state.project);
+  const piece = duplicatePiece(state.project, id, req.body?.offset);
+  res.json({ ok: true, piece, chrome: benchChrome(state.project), edit: editStatus(state.project) });
+});
+
+app.post("/api/project/undo", (_req, res) => {
+  const edit = undoEdit(state.project);
+  if (!edit) return res.status(400).json({ ok: false, error: "Nothing to undo." });
+  res.json({ ok: true, ...projectPayload(state.project) });
+});
+
+app.post("/api/project/redo", (_req, res) => {
+  const edit = redoEdit(state.project);
+  if (!edit) return res.status(400).json({ ok: false, error: "Nothing to redo." });
+  res.json({ ok: true, ...projectPayload(state.project) });
 });
 
 app.post("/api/project/rescale", (req, res) => {
-  res.json(rescale(state.project, req.body?.id, req.body?.scale ?? 1));
+  if (!state.project.pieces.some((p) => p.id === req.body?.id)) {
+    return res.status(404).json({ ok: false, error: "No piece with that id." });
+  }
+  rememberEdit(state.project);
+  const piece = rescale(state.project, req.body?.id, req.body?.scale ?? 1);
+  res.json({ ok: true, piece, edit: editStatus(state.project) });
 });
 
 app.post("/api/project/retexture", (req, res) => {
-  res.json(retexture(state.project, req.body?.id, req.body || {}));
+  if (!state.project.pieces.some((p) => p.id === req.body?.id)) {
+    return res.status(404).json({ ok: false, error: "No piece with that id." });
+  }
+  rememberEdit(state.project);
+  const piece = retexture(state.project, req.body?.id, req.body || {});
+  res.json({ ok: true, piece, edit: editStatus(state.project) });
 });
 
 app.post("/api/project/cable", (req, res) => {
@@ -528,7 +582,11 @@ app.post("/api/project/cable", (req, res) => {
 });
 
 app.post("/api/project/tape", (req, res) => {
-  res.json(addTape(state.project, req.body?.tapeId || "tape-gaffer", req.body?.pieceIds || []));
+  rememberEdit(state.project);
+  res.json({
+    ...addTape(state.project, req.body?.tapeId || "tape-gaffer", req.body?.pieceIds || []),
+    edit: editStatus(state.project),
+  });
 });
 
 app.post("/api/project/joint", (req, res) => {
@@ -554,13 +612,19 @@ app.post("/api/project/label", (req, res) => {
   if (raw != null && raw !== "" && !isPieceFunction(raw)) {
     return res.status(400).json({ error: "Unknown function", functions: PIECE_FUNCTIONS });
   }
+  const existing = state.project.pieces.find((p) => p.id === req.body?.id);
+  if (!existing) return res.status(404).json({ error: "No piece with that id." });
+  rememberEdit(state.project);
   const piece = labelFunction(state.project, req.body?.id, normalizeFunction(raw) ?? raw);
-  if (!piece) return res.status(404).json({ error: "No piece with that id." });
-  res.json(piece);
+  res.json({ ...piece, edit: editStatus(state.project) });
 });
 
 app.post("/api/project/isolate", (req, res) => {
-  res.json(isolateAsBoard(state.project, req.body?.pieceIds || [], req.body?.label || "board"));
+  rememberEdit(state.project);
+  res.json({
+    ...isolateAsBoard(state.project, req.body?.pieceIds || [], req.body?.label || "board"),
+    edit: editStatus(state.project),
+  });
 });
 
 app.post("/api/project/sim/start", (_req, res) => {
