@@ -58,6 +58,12 @@ import { FAL_SCENE_REQUIRED, MODEL as TRIPO_MODEL, QUEUE as TRIPO_QUEUE, renderS
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
+import {
+  SCAN_VIDEO_MAX_BYTES,
+  SCAN_VIDEO_TIMEOUT_MS,
+  isAllowedOrigin,
+  parseVideoUrl,
+} from "./lib/scan-video.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
 import { exportPrintJob } from "./lib/printer.js";
@@ -145,10 +151,8 @@ const app = express();
 app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (!origin || origin === "null" || origin === "file://") {
+  if (isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin || "*");
-  } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -1099,6 +1103,49 @@ app.post("/api/firmware/run", (req, res) => {
   const result = runSketch(source, { buttonDown: Boolean(req.body?.buttonDown) });
   state.project.firmware.lastRun = result;
   res.json({ analysis: analyzeSketch(source), ...result });
+});
+
+app.get("/api/scan/video", async (req, res) => {
+  let target;
+  try {
+    target = parseVideoUrl(req.query?.url);
+  } catch (error) {
+    return res.status(400).json({ ok: false, reason: error.message || "Paste a video URL." });
+  }
+  let host = "";
+  try {
+    host = new URL(target).host;
+  } catch {
+    host = "";
+  }
+  ikealiveLog("scan", "video proxy", { host });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SCAN_VIDEO_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(target, {
+      signal: controller.signal,
+      headers: { Accept: "video/*,*/*" },
+      redirect: "follow",
+    });
+    if (!upstream.ok) {
+      return res.status(upstream.status === 404 ? 404 : 502).json({
+        ok: false,
+        reason: "Could not fetch that video.",
+      });
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > SCAN_VIDEO_MAX_BYTES) {
+      return res.status(413).json({ ok: false, reason: "Video is too large for a local scan (80 MB)." });
+    }
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(buf);
+  } catch (error) {
+    ikealiveWarn("scan", "video proxy failed", { host, reason: error?.message || "fetch" });
+    return res.status(502).json({ ok: false, reason: "Could not reach that video URL." });
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 app.post("/api/adaptation/plan", (req, res) => {

@@ -226,6 +226,8 @@ test("house.js regenerates the house as a textured 3D scene", () => {
   assert.match(house, /frameRoomCamera/, "the camera frames the room");
   assert.match(house, /KeyW/, "WASD walks around the room");
   assert.match(house, /overlayFootprintPx/, "the AR overlay scales the table to room metres");
+  assert.match(house, /resolveRoomScale/, "room metres come from measurements, vanishing, known object, or two taps");
+  assert.match(house, /room-scale-kind/);
 });
 
 test("the bench hands its pieces — including scanned meshes — to the house", () => {

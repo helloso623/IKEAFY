@@ -6,6 +6,8 @@
  * Photos are segmented and meshed locally in the browser.
  */
 
+import { resolveScanScale } from "./frame-scale.js";
+
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
 function median(values) {
@@ -352,6 +354,7 @@ export async function reconstructFromFiles(files, options) {
     ["front", "side", "top"].map(async (view) => [view, silhouetteFromImageData(await imageDataFromFile(files[view]))]),
   );
   const masks = Object.fromEntries(entries);
-  const hull = carveVisualHull(masks, options);
-  return { ...hull, ...meshVisualHull(hull), masks };
+  const scale = resolveScanScale(masks, options);
+  const hull = carveVisualHull(masks, { ...options, scaleMm: scale.scaleMm, scaleKind: scale.scaleKind });
+  return { ...hull, ...meshVisualHull(hull), masks, scale };
 }
