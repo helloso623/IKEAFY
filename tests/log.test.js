@@ -44,13 +44,15 @@ test("Seedance renderer logs queue, poll, and missing FAL_KEY without interpolat
   assert.doesNotMatch(video, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
 });
 
-test("Flux Schnell image logs submit, poll, and url without interpolating the key", () => {
+test("Nano Banana 2 image logs submit, poll, and url without interpolating the key", () => {
   assert.match(image, /ikealiveLog\("image"/);
+  assert.match(image, /fal-ai\/nano-banana-2/);
   assert.match(image, /missing FAL_KEY/);
   assert.match(image, /"submit"/);
   assert.match(image, /"poll"/);
   assert.match(image, /"url"/);
   assert.match(image, /promptChars/);
+  assert.match(image, /model:\s*MODEL/);
   assert.doesNotMatch(image, /ikealiveLog\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(image, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(image, /base64/);

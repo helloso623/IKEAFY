@@ -12,7 +12,7 @@ const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
   "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 const FAL_IMAGE_REQUIRED =
-  "Set FAL_KEY for Flux Schnell instruction stills. Image mode is a live plate, not a canvas table drawing.";
+  "Set FAL_KEY for Nano Banana 2 instruction stills. Image mode is a live plate, not a canvas table drawing.";
 const STILL_MS = 4000;
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
@@ -222,7 +222,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
     if (mode !== "video") {
       if (mode === "images") {
-        announce("Rendering Flux Schnell stills…");
+        announce("Rendering Nano Banana 2 stills…");
         await bootImageReel();
         if (state.reel.some((clip) => clip.imageUrl)) {
           announce("Stills ready. Watch the first step.");
@@ -991,7 +991,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       frames: [],
       videoUrl: null,
       imageUrl: null,
-      provider: images ? "flux-schnell" : "seedance-2.5",
+      provider: images ? "nano-banana-2" : "seedance-2.5",
     }));
   }
 
@@ -1124,12 +1124,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
         continue;
       }
       try {
-        const status = `Rendering Flux Schnell · step ${clip.number} of ${clips.length}…`;
+        const status = `Rendering Nano Banana 2 · step ${clip.number} of ${clips.length}…`;
         announce(status);
         if (!state.reel[state.clipIndex]?.imageUrl) showFilmStatus(status);
         await renderClipImage(clip);
         live += 1;
-        setOut(el.renderOut, `Flux Schnell · ${live}/${clips.length} stills`);
+        setOut(el.renderOut, `Nano Banana 2 · ${live}/${clips.length} stills`);
         if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
       } catch (error) {
         fail(error);
@@ -1153,7 +1153,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.frameIndex = 0;
     renderSteps();
     renderTransport();
-    showFilmStatus("Rendering Flux Schnell stills…");
+    showFilmStatus("Rendering Nano Banana 2 stills…");
 
     if (!(await falIsLive())) {
       showFilmStatus(FAL_IMAGE_REQUIRED);
@@ -1165,8 +1165,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const first = state.reel[state.clipIndex];
     try {
       if (first) {
-        announce(`Rendering Flux Schnell · step ${first.number}…`);
-        showFilmStatus(`Rendering Flux Schnell · step ${first.number}…`);
+        announce(`Rendering Nano Banana 2 · step ${first.number}…`);
+        showFilmStatus(`Rendering Nano Banana 2 · step ${first.number}…`);
         await renderClipImage(first);
       }
     } catch (error) {
@@ -1245,8 +1245,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
       hideVideo();
       showFilmStatus(
         play
-          ? `Rendering Flux Schnell · step ${clip.number}…`
-          : `No Flux still for step ${clip.number} yet.`,
+          ? `Rendering Nano Banana 2 · step ${clip.number}…`
+          : `No Nano Banana still for step ${clip.number} yet.`,
       );
       return;
     }

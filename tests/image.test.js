@@ -19,7 +19,7 @@ function restoreEnv(name, previous) {
   else process.env[name] = previous;
 }
 
-test("renders no Flux still without a FAL key", async () => {
+test("renders no Nano Banana still without a FAL key", async () => {
   const previous = process.env.FAL_KEY;
   delete process.env.FAL_KEY;
 
@@ -31,8 +31,8 @@ test("renders no Flux still without a FAL key", async () => {
     assert.equal(result.ok, false);
     assert.equal(result.live, false);
     assert.equal(result.provider, "none");
-    assert.equal(result.partner, "Flux Schnell");
-    assert.equal(result.model, "fal-ai/flux/schnell");
+    assert.equal(result.partner, "Nano Banana 2");
+    assert.equal(result.model, "fal-ai/nano-banana-2");
     assert.equal(result.imageUrl, null);
     assert.match(result.reason, /FAL_KEY/);
     assert.match(result.reason, /not a canvas table drawing/);
@@ -52,7 +52,7 @@ test("promptForStepImage uses the real step body, not a canned LACK plate", () =
   assert.doesNotMatch(prompt, /Unpack the pieces in the photos/i);
 });
 
-test("Flux Schnell queue uses the step prompt and returns the image url", async () => {
+test("nano-banana-2 queue uses the step prompt and returns the image url", async () => {
   const previous = process.env.FAL_KEY;
   process.env.FAL_KEY = "fal-test";
   const calls = [];
@@ -79,25 +79,30 @@ test("Flux Schnell queue uses the step prompt and returns the image url", async 
 
     assert.equal(result.ok, true);
     assert.equal(result.live, true);
-    assert.equal(result.provider, "flux-schnell");
-    assert.equal(result.partner, "Flux Schnell");
-    assert.equal(result.model, "fal-ai/flux/schnell");
+    assert.equal(result.provider, "nano-banana-2");
+    assert.equal(result.partner, "Nano Banana 2");
+    assert.equal(result.model, "fal-ai/nano-banana-2");
     assert.equal(result.imageUrl, "https://fal.media/files/demo.jpg");
     assert.match(result.prompt, /Slot the left side panel onto the base/);
     assert.match(result.prompt, /keep hands in frame/);
     assert.doesNotMatch(result.prompt, /table top face down/i);
 
     const submit = calls[0];
-    assert.equal(submit.url, "https://queue.fal.run/fal-ai/flux/schnell");
+    assert.equal(submit.url, "https://queue.fal.run/fal-ai/nano-banana-2");
     assert.equal(submit.method, "POST");
     const payload = JSON.parse(submit.body);
     assert.equal(payload.prompt, result.prompt);
-    assert.equal(payload.image_size, "landscape_16_9");
+    assert.equal(payload.num_images, 1);
+    assert.equal(payload.aspect_ratio, "16:9");
+    assert.equal(payload.output_format, "png");
+    assert.equal(payload.resolution, "1K");
+    assert.equal(payload.limit_generations, true);
+    assert.equal("image_size" in payload, false);
+    assert.equal("num_inference_steps" in payload, false);
     assert.equal("duration" in payload, false);
-    assert.equal("resolution" in payload, false);
 
-    assert.equal(calls[1].url, "https://queue.fal.run/fal-ai/flux/schnell/requests/img-1/status");
-    assert.equal(calls[2].url, "https://queue.fal.run/fal-ai/flux/schnell/requests/img-1");
+    assert.equal(calls[1].url, "https://queue.fal.run/fal-ai/nano-banana-2/requests/img-1/status");
+    assert.equal(calls[2].url, "https://queue.fal.run/fal-ai/nano-banana-2/requests/img-1");
     assert.equal(
       calls.some((call) => call.url.includes("seedance")),
       false,
@@ -116,7 +121,7 @@ test("falImageTimeoutMs reads timeout env with a 3 minute default", () => {
   assert.equal(FAL_IMAGE_POLL_MS, 1000);
 });
 
-test("Flux Schnell keeps polling IN_QUEUE and IN_PROGRESS on /requests/$ID", async () => {
+test("nano-banana-2 keeps polling IN_QUEUE and IN_PROGRESS on /requests/$ID", async () => {
   const previous = process.env.FAL_KEY;
   process.env.FAL_KEY = "fal-test";
   const states = ["IN_QUEUE", "IN_PROGRESS", "COMPLETED"];
@@ -144,13 +149,13 @@ test("Flux Schnell keeps polling IN_QUEUE and IN_PROGRESS on /requests/$ID", asy
       calls.filter((call) => call.url.endsWith("/requests/img-2/status")).length,
       3,
     );
-    assert.equal(calls.at(-1).url, "https://queue.fal.run/fal-ai/flux/schnell/requests/img-2");
+    assert.equal(calls.at(-1).url, "https://queue.fal.run/fal-ai/nano-banana-2/requests/img-2");
   } finally {
     restoreEnv("FAL_KEY", previous);
   }
 });
 
-test("Flux errors do not fall back to a canvas storyboard plate", async () => {
+test("Nano Banana errors do not fall back to a canvas storyboard plate", async () => {
   const previous = process.env.FAL_KEY;
   process.env.FAL_KEY = "fal-test";
   const fetchFn = async () => ({

@@ -3,14 +3,14 @@ import { hasFal } from "./video.js";
 
 export { hasFal };
 
-export const MODEL = "fal-ai/flux/schnell";
-export const PARTNER = "Flux Schnell";
+export const MODEL = "fal-ai/nano-banana-2";
+export const PARTNER = "Nano Banana 2";
 export const FAL_IMAGE_REQUIRED =
-  "Set FAL_KEY for Flux Schnell instruction stills. Image mode is a live plate, not a canvas table drawing.";
-const MODEL_ROOT = "https://queue.fal.run/fal-ai/flux/schnell";
+  "Set FAL_KEY for Nano Banana 2 instruction stills. Image mode is a live plate, not a canvas table drawing.";
+const MODEL_ROOT = "https://queue.fal.run/fal-ai/nano-banana-2";
 const QUEUE = MODEL_ROOT;
 export const FAL_IMAGE_POLL_MS = 1000;
-/** Flux Schnell is cheap and fast; 3 minutes is plenty even when queued. */
+/** Nano Banana 2 is fast; 3 minutes is plenty even when queued. */
 export const DEFAULT_FAL_IMAGE_TIMEOUT_MS = 3 * 60 * 1000;
 
 export function falImageTimeoutMs(env = process.env) {
@@ -81,8 +81,10 @@ async function falQueue(
   const timeoutMs = falImageTimeoutMs();
   ikealiveLog("image", "submit", {
     queue: QUEUE,
+    model: MODEL,
     promptChars: String(payload?.prompt || "").length,
-    imageSize: payload?.image_size,
+    aspectRatio: payload?.aspect_ratio,
+    resolution: payload?.resolution,
     timeoutMs,
   });
   const submitted = await fetchFn(QUEUE, {
@@ -164,29 +166,30 @@ export async function renderStepImage({ guide, stepNumber, extra = "" } = {}, de
   };
 
   if (!hasFal()) {
-    ikealiveWarn("image", "missing FAL_KEY — no Flux still", { stepNumber });
+    ikealiveWarn("image", "missing FAL_KEY — no Nano Banana still", { stepNumber });
     return local;
   }
 
-  ikealiveLog("image", "render", { stepNumber, title: guide?.title || null, keyed: true });
+  ikealiveLog("image", "render", { stepNumber, title: guide?.title || null, keyed: true, model: MODEL });
   const result = await falQueue(
     {
       prompt,
-      image_size: "landscape_16_9",
-      num_inference_steps: 4,
       num_images: 1,
-      enable_safety_checker: true,
+      aspect_ratio: "16:9",
+      output_format: "png",
+      resolution: "1K",
+      limit_generations: true,
     },
     deps,
   );
   const imageUrl = imageUrlFrom(result);
   if (!imageUrl) throw new Error("fal returned no image url");
-  ikealiveLog("image", "url", { stepNumber, imageUrl, provider: "flux-schnell" });
+  ikealiveLog("image", "url", { stepNumber, imageUrl, provider: "nano-banana-2", model: MODEL });
   return {
     ...local,
     ok: true,
     live: true,
-    provider: "flux-schnell",
+    provider: "nano-banana-2",
     imageUrl,
     reason: null,
   };

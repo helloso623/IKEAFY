@@ -133,14 +133,14 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
 });
 
-test("image instructions render Flux Schnell stills in the film stage", () => {
+test("image instructions render Nano Banana 2 stills in the film stage", () => {
   assert.match(html, /id="film-still"/);
   assert.match(studio, /bootImageReel/);
   assert.match(studio, /renderClipImage/);
   assert.match(studio, /showStill/);
   assert.match(studio, /api\.renderImage/);
   assert.match(studio, /ikealiveLog\("image"/);
-  assert.match(studio, /FAL_IMAGE_REQUIRED|Flux Schnell instruction stills/);
+  assert.match(studio, /FAL_IMAGE_REQUIRED|Nano Banana 2 instruction stills/);
   assert.match(apiSource, /ikeafy\/image\/render/);
   assert.match(apiSource, /^\s{2}renderImage:/m);
   const index = read("server/index.js");
@@ -148,7 +148,9 @@ test("image instructions render Flux Schnell stills in the film stage", () => {
   assert.match(index, /renderStepImage/);
   assert.match(index, /ikealiveLog\("image"/);
   const image = read("server/lib/image.js");
-  assert.match(image, /fal-ai\/flux\/schnell/);
+  assert.match(image, /fal-ai\/nano-banana-2/);
+  assert.match(image, /https:\/\/queue\.fal\.run\/fal-ai\/nano-banana-2/);
+  assert.doesNotMatch(image, /fal-ai\/flux\/schnell/);
   assert.match(image, /ikealiveLog\("image", "submit"/);
   assert.match(image, /ikealiveLog\("image", "poll"/);
   assert.match(image, /ikealiveLog\("image", "url"/);

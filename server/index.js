@@ -109,17 +109,17 @@ const VIDEO_PARTNERS = {
 };
 
 const IMAGE_PARTNERS = {
-  flux: {
-    name: "Flux Schnell",
-    model: "fal-ai/flux/schnell",
+  nanoBanana: {
+    name: "Nano Banana 2",
+    model: "fal-ai/nano-banana-2",
     status: "optional",
-    note: "Cheap instruction stills through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a LACK table.",
+    note: "Instruction stills through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a LACK table.",
   },
   fal: {
     name: "fal.ai",
     status: "optional",
     keyed: hasFal(),
-    note: "Set FAL_KEY to let lib/image.js call Flux Schnell. Nothing leaves the machine without it.",
+    note: "Set FAL_KEY to let lib/image.js call Nano Banana 2. Nothing leaves the machine without it.",
   },
 };
 
@@ -160,7 +160,7 @@ app.get("/api/health", (_req, res) => {
     },
     image: {
       partners: IMAGE_PARTNERS,
-      renderer: hasFal() ? "fal-ai/flux/schnell via fal.ai" : "none",
+      renderer: hasFal() ? "fal-ai/nano-banana-2 via fal.ai" : "none",
       live: hasFal(),
       route: "/api/ikeafy/image/render",
     },
@@ -395,7 +395,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image mode uses Flux Schnell stills, not Seedance."
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
         : "3D engine instructions are not implemented yet.";
     ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
     return res.json({
@@ -453,7 +453,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image mode uses Flux Schnell stills, not Seedance."
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
         : "3D engine instructions are not implemented yet.";
     ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
     return res.json({
@@ -534,7 +534,7 @@ app.post("/api/ikeafy/image/render", async (req, res) => {
   if (renderMode !== "images") {
     const reason =
       renderMode === "video"
-        ? "Video mode uses Seedance films, not Flux stills."
+        ? "Video mode uses Seedance films, not Nano Banana stills."
         : "3D engine instructions are not implemented yet.";
     ikealiveLog("image", "image route skipped", { mode: renderMode, reason });
     return res.json({
