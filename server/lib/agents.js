@@ -84,17 +84,44 @@ const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
 const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
 const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon/i;
+const CATALOG_ASK =
+  /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon)\b/i;
+const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
+const ELECTRONICS_ASK =
+  /arduino|nano|esp32|led|firmware|sketch|pin\b|board|circuit|usb|header|button|lamp|light|wire|cable/i;
+
+function isCatalogAsk(text) {
+  return CATALOG_ASK.test(text) || PART_HINTS.test(text);
+}
+
+function isElectronicsAsk(text) {
+  return ELECTRONICS_ASK.test(String(text || ""));
+}
+
+function catalogNeedle(message) {
+  const lower = String(message || "").toLowerCase();
+  for (const token of ["led", "table", "tape", "lack", "linnmon", "linmon", "arduino", "nano", "esp32", "cable", "leg", "dowel", "screw"]) {
+    if (lower.includes(token)) return token === "linmon" ? "linnmon" : token;
+  }
+  return lower
+    .replace(/[?!.,]/g, " ")
+    .replace(/\b(what|which|who|where|when|why|how|can|could|should|is|are|do|does|did|will|would|please|find|show|list|get|search|look|recommend|suggest|help|me|my|a|an|the|some|any|for|with|under|over|cheap|cheaper|best|good|about|add)\b/g, " ")
+    .replace(/\$?\d+(?:\.\d+)?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export function routeAgent(text) {
-  if (ROOM_HINTS.test(text)) return ROSTER.find((a) => a.id === "stylist");
-  if (IKEA_HINTS.test(text)) return ROSTER.find((a) => a.id === "assembler");
-  if (MOVE_HINTS.test(text)) return ROSTER.find((a) => a.id === "shop");
-  if (PART_HINTS.test(text)) return ROSTER.find((a) => a.id === "scout");
-  if (/arduino|sketch|pin|firmware/i.test(text)) return ROSTER.find((a) => a.id === "firmware");
-  if (/weather|rain|heat|flow|aero|wave/i.test(text)) return ROSTER.find((a) => a.id === "lab");
-  if (/stress|break|load/i.test(text)) return ROSTER.find((a) => a.id === "stress");
-  if (/board|net|isolat|circuit/i.test(text)) return ROSTER.find((a) => a.id === "circuit");
-  if (HARD_HINTS.test(text)) return ROSTER.find((a) => a.id === "architect");
+  const t = String(text || "");
+  if (ROOM_HINTS.test(t) && !isCatalogAsk(t)) return ROSTER.find((a) => a.id === "stylist");
+  if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
+  if (IKEA_HINTS.test(t)) return ROSTER.find((a) => a.id === "assembler");
+  if (MOVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "shop");
+  if (/arduino|sketch|pin|firmware/i.test(t)) return ROSTER.find((a) => a.id === "firmware");
+  if (/weather|rain|heat|flow|aero|wave/i.test(t)) return ROSTER.find((a) => a.id === "lab");
+  if (/stress|break|load/i.test(t)) return ROSTER.find((a) => a.id === "stress");
+  if (/board|net|isolat|circuit/i.test(t)) return ROSTER.find((a) => a.id === "circuit");
+  if (HARD_HINTS.test(t)) return ROSTER.find((a) => a.id === "architect");
   return ROSTER.find((a) => a.id === "foreman");
 }
 
