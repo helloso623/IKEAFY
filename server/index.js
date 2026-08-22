@@ -256,7 +256,7 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       endpoint: PLATE_VISION_ENDPOINT,
       model: PLATE_VISION_MODEL,
-      normalizer: "fastino/gliner2-base-v1",
+      normalizer: "pioneer/gliner2",
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -1557,6 +1557,9 @@ app.listen(port, "0.0.0.0", () => {
   ikealiveLog("parse", "GLiNER 2 configuration", {
     status: gliner.status,
     model: gliner.model,
+    mode: gliner.mode,
+    provider: gliner.provider,
+    pioneerApiKey: gliner.pioneerApiKey,
     python: gliner.python,
     setupCommand: gliner.setupCommand,
     falPlateVision: hasFal(),

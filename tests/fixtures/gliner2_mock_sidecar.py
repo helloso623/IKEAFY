@@ -36,6 +36,8 @@ write(
         "python": sys.executable,
         "packageVersion": "test-mock",
         "model": os.environ.get("GLINER2_MODEL", "fastino/gliner2-base-v1"),
+        "mode": "api" if os.environ.get("PIONEER_API_KEY") else "local",
+        "provider": "pioneer" if os.environ.get("PIONEER_API_KEY") else "local",
     }
 )
 
