@@ -37,6 +37,7 @@ import {
   goBack,
   normalizeRenderMode,
   peekStep,
+  sceneLockFor,
   setAssemblyRenderMode,
   skipStep,
   startAssemblyAsync,
@@ -379,6 +380,13 @@ function rememberRenderMode(body = {}) {
   return { stored, mode };
 }
 
+function renderLock(body = {}) {
+  const { stored, mode } = rememberRenderMode(body);
+  const guide = guideForVideo(body);
+  const { bible, seed } = sceneLockFor(body.runId, guide);
+  return { stored, mode, guide, bible, seed };
+}
+
 app.post("/api/ikeafy/render", (req, res) => {
   const body = req.body || {};
   const mode = normalizeRenderMode(body.mode || body.renderMode);
@@ -418,8 +426,7 @@ app.post("/api/ikeafy/video", (req, res) => {
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
-  const { stored, mode } = rememberRenderMode(body);
-  const guide = guideForVideo(body);
+  const { stored, mode, guide, bible, seed } = renderLock(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
   const renderMode = mode || "video";
   ikealiveLog("video", "POST /api/ikeafy/video/render", {
@@ -449,6 +456,8 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       guide,
       stepNumber,
       extra: body.instructions || body.extra || "",
+      bible,
+      seed,
     });
     if (stored?.guide) state.guide = stored.guide;
     if (!result.videoUrl) {
@@ -478,8 +487,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
-  const { mode } = rememberRenderMode(body);
-  const guide = guideForVideo(body);
+  const { mode, guide, bible, seed } = renderLock(body);
   const renderMode = mode || "video";
   ikealiveLog("video", "POST /api/ikeafy/video/reel", {
     steps: guide?.steps?.length || 0,
@@ -522,6 +530,8 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
         guide,
         stepNumber: step.number,
         extra: body.instructions || body.extra || "",
+        bible,
+        seed,
       });
       if (!result.videoUrl) {
         return res.status(503).json({
@@ -557,8 +567,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
 
 app.post("/api/ikeafy/image/render", async (req, res) => {
   const body = req.body || {};
-  const { stored, mode } = rememberRenderMode(body);
-  const guide = guideForVideo(body);
+  const { stored, mode, guide, bible, seed } = renderLock(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
   const renderMode = mode || "images";
   ikealiveLog("image", "POST /api/ikeafy/image/render", {
@@ -588,6 +597,8 @@ app.post("/api/ikeafy/image/render", async (req, res) => {
       guide,
       stepNumber,
       extra: body.instructions || body.extra || "",
+      bible,
+      seed,
     });
     if (stored?.guide) state.guide = stored.guide;
     if (!result.imageUrl) {
@@ -617,8 +628,7 @@ app.post("/api/ikeafy/image/render", async (req, res) => {
 
 app.post("/api/ikeafy/scene/render", async (req, res) => {
   const body = req.body || {};
-  const { stored, mode } = rememberRenderMode(body);
-  const guide = guideForVideo(body);
+  const { stored, mode, guide, bible, seed } = renderLock(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
   const renderMode = mode || "scene";
   ikealiveLog("3d", "POST /api/ikeafy/scene/render", {
@@ -649,6 +659,8 @@ app.post("/api/ikeafy/scene/render", async (req, res) => {
       guide,
       stepNumber,
       extra: body.instructions || body.extra || "",
+      bible,
+      seed,
     });
     if (stored?.guide) state.guide = stored.guide;
     if (!result.meshUrl) {

@@ -4,6 +4,7 @@ import {
   assemblyView,
   confirmStep,
   editStep,
+  getAssembly,
   goBack,
   normalizeRenderMode,
   peekStep,
@@ -187,4 +188,13 @@ test("an assembly run stores the chosen instruction render mode", () => {
   assert.equal(later.ok, true);
   assert.equal(later.run.renderMode, "video");
   assert.equal(assemblyView(scene.run.id).run.renderMode, "video");
+});
+
+test("an assembly run locks a scene bible and render seed", () => {
+  const started = startAssembly({ mode: "custom", guide: CUSTOM });
+  const run = getAssembly(started.run.id);
+  assert.ok(run.bible);
+  assert.match(run.bible.lockText, /Pine crate|Shelf from an offcut/);
+  assert.equal(typeof run.seed, "number");
+  assert.equal(getAssembly(started.run.id).seed, run.seed);
 });

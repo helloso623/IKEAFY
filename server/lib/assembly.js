@@ -11,6 +11,7 @@
 import { expandStep, officialGuide, parseGuide, parseGuideAsync, shoppingListAsync } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
 import { extractPdfText } from "./pdf-text.js";
+import { allocRenderSeed, ensureSceneLock, sceneBibleFromGuide } from "./bible.js";
 
 const CONFIRM_BY_ACTION = {
   unpack: "The kit matches the parts list.",
@@ -135,6 +136,8 @@ function beginRun(mode, guide, renderMode = null) {
     renderMode: normalizeRenderMode(renderMode),
     locked: Boolean(guide.locked),
     guide,
+    bible: sceneBibleFromGuide(guide),
+    seed: allocRenderSeed(),
     total: guide.steps.length,
     cursor: 1,
     confirmed: [],
@@ -149,6 +152,11 @@ function beginRun(mode, guide, renderMode = null) {
 
 export function getAssembly(id) {
   return runs.get(id) || null;
+}
+
+/** Bible + seed for a run, derived once and reused for every step prompt. */
+export function sceneLockFor(id, guide) {
+  return ensureSceneLock(id ? runs.get(id) : null, guide);
 }
 
 export function setAssemblyRenderMode(id, renderMode) {
