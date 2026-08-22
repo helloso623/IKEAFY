@@ -9,7 +9,7 @@ It is a full-page product tab, not a side panel. Electronics is a feature of the
 ## The flow
 
 1. **Input.** Search an IKEA product by name — only **LACK** is unlocked; **KALLAX**, **BILLY** and **MALM** sit visibly locked — or drop a building guide (photo, PDF, text) into the field, paste the steps, and optionally note the tools you own.
-2. **Progress.** Parsing (Pioneer / GLiNER 2), generating step films (Veed), looking up kit vs extra and retailers (Tavily).
+2. **Progress.** Parsing (Pioneer / GLiNER 2, OpenAI when a key is set), generating step films (ByteDance Seedance 2.5), looking up kit vs extra and retailers (Tavily).
 3. **Results — Instructions.** Step boxes with a film each time, a button to see the actual guide, a 3D scheme for the current plate, extra context (text, images, video) to regenerate a clearer explanation, reviews pinned to the hard steps, a broken-part desk that drafts a **free spare-fittings request** (or tells you to go to the store when there is no part number), and a chat for quick questions.
 4. **Results — Material.** Everything in the box vs what to purchase, with label badges and a colour swatch for each part. Extra items show several shop propositions (IKEA, Amazon, local).
 
@@ -19,7 +19,7 @@ Official mode never lets you skip ahead; the plates unlock strictly in order.
 
 The studio runs fully local today. Three partners are named in `/api/health` and stood in for until keys and wiring land:
 
-- **Veed Fabric 1.0 via fal** — the step films. With `FAL_KEY` set, plates become rendered video; without it, a local canvas storyboard plays the same beats. Optional by design.
+- **ByteDance Seedance 2.5 via fal** — the step films. With `FAL_KEY` set, plates become rendered video from the real step text; without it, a local canvas storyboard plays the same beats. Optional by design. Official LACK stays on the transcribed sheet and is never AI-rewritten.
 - **GLiNER (Pioneer / GLiNER 2)** — entity extraction from pasted guides, and the first desk for small chat questions. Harder questions escalate to a larger OpenAI model when a key is set. A local parser stands in.
 - **Tavily** — live research for prices and spare-part listings. Today each extra part gets several catalog store URLs, not a live scrape.
 

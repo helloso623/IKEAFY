@@ -18,20 +18,20 @@ npm run dev
 - UI: `http://localhost:5173`
 - API: `http://localhost:8787`
 
-Do not put keys in the repo. `.env` is gitignored. Rotate any key that was pasted in chat. `FAL_KEY` is optional — it enables Veed Fabric 1.0 film renders; without it the studio uses the local canvas storyboard.
+Do not put keys in the repo. `.env` is gitignored. Rotate any key that was pasted in chat. `OPENAI_API_KEY` turns a pasted or photographed guide into real steps (without it, numbered text still parses locally). `FAL_KEY` is optional — it enables ByteDance Seedance 2.5 film renders via fal.ai; without it the studio uses the local canvas storyboard.
 
 ## The IKEAFY studio (the main tab)
 
 The studio takes the full page. It does not auto-play a sheet: you start from **input**, watch **progress**, then read **results**.
 
 1. **Input** — search an official IKEA product by name (only **LACK** is unlocked; KALLAX, BILLY, MALM are shown locked) or drop a building guide (photo / PDF / text), paste the steps, add optional notes about the tools you have, and hit **Parse into a film**.
-2. **Progress** — parsing (GLiNER 2), generating films (Veed), looking up parts (Tavily).
+2. **Progress** — parsing (GLiNER 2 / OpenAI when keyed), generating films (Seedance 2.5), looking up parts (Tavily).
 3. **Results · Instructions** — a film per step, **See actual guide**, a 3D scheme, extra context (text / image / video) to regenerate the plate, reviews of where other builders struggled, a **broken part** photo that either drafts a **free spare-fittings request** or tells you to go to the store when there is no part number, and **Ask the shop** (GLiNER 2 for small questions, larger OpenAI model when it has to escalate).
 4. **Results · Material** — kit vs extra with **included** / **to purchase** badges, a colour swatch for each part, and several retailer propositions (IKEA, Amazon, local) on anything you have to buy.
 
 The **Bench** tab is still in the same app. Electronics controls (isolate a cluster as a named board, label functions, cables, Arduino flash) appear there when something electronic is on the bench.
 
-Partner hooks (Veed Fabric 1.0 via fal, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and stand in locally — see `docs/IKEAFY.md`.
+Partner hooks (ByteDance Seedance 2.5 via fal, Pioneer/GLiNER 2, Tavily) are named in `/api/health` and stand in locally — see `docs/IKEAFY.md`.
 
 ## The supporting tabs
 

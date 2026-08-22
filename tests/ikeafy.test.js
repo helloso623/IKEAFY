@@ -11,6 +11,7 @@ import {
   officialGuide,
   officialProducts,
   parseGuide,
+  parseGuideAsync,
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
@@ -172,4 +173,80 @@ test("expand and broken part attach to a step", () => {
   assert.ok(broken.spare.id);
   const fix = generateFix("r1");
   assert.match(fix.fix, /glue|M6/i);
+});
+
+test("empty custom input is not the official LACK table", () => {
+  const guide = parseGuide("");
+  assert.equal(guide.steps.length, 0);
+  assert.equal(guide.locked, false);
+  assert.doesNotMatch(guide.title, /LACK/i);
+  assert.equal(guide.raw, "");
+});
+
+test("custom numbered text keeps its own steps", () => {
+  const guide = parseGuide(`Wall shelf\n1. Hang the rail on the two wall plugs.\n2. Slot the shelf onto the rail.`);
+  assert.equal(guide.steps.length, 2);
+  assert.match(guide.steps[0].body, /rail/);
+  assert.ok(!guide.steps.some((step) => /table top face down/i.test(step.body)));
+  assert.ok(!guide.bom.included.some((line) => line.id === "allen-key"));
+});
+
+test("parseGuideAsync stays local without an OpenAI key", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const guide = await parseGuideAsync(`Crate\n1. Screw the side onto the base.`);
+    assert.equal(guide.parser, "local-gliner-standin");
+    assert.equal(guide.steps.length, 1);
+    assert.match(guide.steps[0].body, /Screw the side/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
+test("parseGuideAsync uses the OpenAI result for this input, not LACK", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test";
+  let sent = "";
+  const fetchFn = async (_url, init = {}) => {
+    sent = String(init.body || "");
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                title: "Wall shelf",
+                steps: [
+                  {
+                    number: 1,
+                    action: "place",
+                    body: "Hang the rail on the two wall plugs.",
+                    partsUsed: [],
+                    toolRequired: "screwdriver",
+                    warnings: [],
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    };
+  };
+  try {
+    const guide = await parseGuideAsync("Hang the rail on the two wall plugs.", {}, { fetchFn });
+    assert.equal(guide.parser, "openai");
+    assert.equal(guide.title, "Wall shelf");
+    assert.equal(guide.steps.length, 1);
+    assert.match(guide.steps[0].body, /rail/);
+    assert.doesNotMatch(guide.title, /LACK/i);
+    assert.match(sent, /Hang the rail on the two wall plugs/);
+    assert.match(sent, /Do not invent a LACK table/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
 });

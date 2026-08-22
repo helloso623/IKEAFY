@@ -14,7 +14,7 @@ const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 
 const PROGRESS_BEATS = [
   { id: "parse", label: "Parsing the building guide into steps (Pioneer / GLiNER 2)" },
-  { id: "film", label: "Generating a tutorial film for each step (Veed)" },
+  { id: "film", label: "Generating a tutorial film for each step (Seedance 2.5)" },
   { id: "parts", label: "Looking up kit vs extra and retailers (Tavily)" },
 ];
 
@@ -53,6 +53,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     reviews: first("#reviews"),
     film: first("#film"),
     frame: first("#film-frame"),
+    video: first("#film-video"),
     scheme: first("#step-scheme"),
     caption: first("#film-caption"),
     seeGuide: first("#see-guide"),
@@ -543,20 +544,25 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("custom");
       const raw = el.guide?.value || "";
-      if (!raw.trim() && !state.attachments.length) {
+      const images = state.attachments
+        .filter((file) => file.dataUrl)
+        .slice(0, 4)
+        .map((file) => ({ name: file.name, type: file.type, dataUrl: file.dataUrl }));
+      if (!raw.trim() && !images.length && !state.attachments.length) {
         announce("Paste a guide or drop a file first.");
         return null;
       }
-      const attached = state.attachments.map((f) => f.name).join(", ");
-      const guideText = raw.trim()
-        ? raw
-        : `Custom build from ${attached}\n1. Unpack the pieces in the photos.\n2. Identify each part against the pictures.\n3. Assemble following the attached guide.`;
+      if (!raw.trim() && !images.length) {
+        announce("Drop a photo of the guide, or paste the steps as text.");
+        return null;
+      }
       announce("Turning your guide into a film…");
       const view = await runWithProgress(() =>
         api.runStart({
           mode: "custom",
-          guide: guideText,
+          guide: raw,
           instructions: el.notes?.value || "",
+          images,
         }),
       );
       if (view?.ok === false) return fail(new Error(view.reason));
@@ -606,11 +612,41 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
+  function readDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function isGuideImage(file) {
+    return Boolean(file?.type?.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic)$/i.test(file?.name || ""));
+  }
+
   async function ingestFiles(fileList) {
     const files = [...(fileList || [])];
     if (!files.length) return;
+    const maxImages = 4;
+    const maxBytes = 800 * 1024;
     for (const file of files) {
-      state.attachments.push({ name: file.name, type: file.type, size: file.size });
+      const attachment = { name: file.name, type: file.type || "", size: file.size };
+      if (isGuideImage(file)) {
+        const already = state.attachments.filter((item) => item.dataUrl).length;
+        if (already >= maxImages) {
+          announce("Up to four photos — extra images are listed but not sent.");
+        } else if (file.size > maxBytes) {
+          announce(`${file.name} is too large to send (max ~800KB).`);
+        } else {
+          try {
+            attachment.dataUrl = await readDataUrl(file);
+          } catch {
+            announce(`Could not read ${file.name}.`);
+          }
+        }
+      }
+      state.attachments.push(attachment);
       if (file.type.startsWith("text/") || /\.(txt|md)$/i.test(file.name)) {
         const body = await file.text();
         if (el.guide) el.guide.value = [el.guide.value, body].filter(Boolean).join("\n\n");
@@ -657,6 +693,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.playing += 1;
     if (state.timer) clearTimeout(state.timer);
     state.timer = null;
+    if (el.video) {
+      el.video.pause();
+      el.video.removeAttribute("src");
+      el.video.load();
+      el.video.onended = null;
+      el.video.onerror = null;
+      el.video.classList.add("hidden");
+    }
+    el.frame?.classList.remove("hidden");
   }
 
   function drawFrame(frame = {}) {
@@ -939,7 +984,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   async function loadFrames() {
-    if (!api.renderVideo || !state.run) return [];
+    if (!api.renderVideo || !state.run) return { frames: [], videoUrl: null };
     try {
       const extra = el.extraContext?.value || "";
       const media = [...(el.extraMedia?.files || [])].map((f) => f.name);
@@ -953,26 +998,47 @@ export function initStudio({ api, hud = () => {} } = {}) {
       setOut(
         el.renderOut,
         result.videoUrl
-          ? `${result.model} via fal.ai — ${result.videoUrl}`
+          ? `${result.model} via fal.ai — live step film`
           : `${result.provider} · local canvas storyboard (set FAL_KEY for ${result.model})`,
       );
-      return result.frames || result.plan || [];
+      return {
+        frames: result.frames || result.plan || [],
+        videoUrl: result.videoUrl || null,
+        caption: state.step?.body || "",
+      };
     } catch (error) {
       fail(error);
-      return [];
+      return { frames: [], videoUrl: null };
     }
   }
 
-  async function playCurrent() {
-    if (!state.run) return;
-    stopPlayback();
-    el.film?.classList.remove("hidden");
-    state.frames = await loadFrames();
-    state.frameIndex = 0;
-    state.watched = false;
-    renderConfirm();
-    const token = state.playing;
+  function playLiveVideo(url, caption, token) {
+    if (!el.video) return false;
+    el.frame?.classList.add("hidden");
+    el.video.classList.remove("hidden");
+    el.video.src = url;
+    setOut(el.caption, caption || state.step?.body);
+    drawScheme(state.step);
+    const done = () => {
+      if (state.destroyed || token !== state.playing) return;
+      finishFrames();
+    };
+    el.video.onended = done;
+    el.video.onerror = () => {
+      if (state.destroyed || token !== state.playing) return;
+      el.video.classList.add("hidden");
+      el.frame?.classList.remove("hidden");
+      if (state.frames.length) playStoryboard(token);
+      else done();
+    };
+    const play = el.video.play();
+    if (play && typeof play.catch === "function") play.catch(() => {});
+    return true;
+  }
 
+  function playStoryboard(token) {
+    el.video?.classList.add("hidden");
+    el.frame?.classList.remove("hidden");
     const advance = () => {
       if (state.destroyed || token !== state.playing) return;
       const frame = state.frames[state.frameIndex];
@@ -990,6 +1056,21 @@ export function initStudio({ api, hud = () => {} } = {}) {
       state.timer = setTimeout(advance, Math.max(120, Number(frame.durationMs) || 1000));
     };
     advance();
+  }
+
+  async function playCurrent() {
+    if (!state.run) return;
+    stopPlayback();
+    const token = state.playing;
+    el.film?.classList.remove("hidden");
+    const loaded = await loadFrames();
+    if (state.destroyed || token !== state.playing) return;
+    state.frames = loaded.frames || [];
+    state.frameIndex = 0;
+    state.watched = false;
+    renderConfirm();
+    if (loaded.videoUrl && playLiveVideo(loaded.videoUrl, loaded.caption, token)) return;
+    playStoryboard(token);
   }
 
   function finishFrames() {

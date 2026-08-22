@@ -1,4 +1,5 @@
 import { bomFromIds, getPart, listParts, searchParts, retailerOffers } from "./catalog.js";
+import { usableOpenAiKey } from "./secrets.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -196,7 +197,10 @@ export function parseGuide(
   { instructions = "", availableTools = [], official = false, productArticle = null } = {},
 ) {
   const locked = Boolean(official);
-  const text = String(raw || "").trim() || LACK_GUIDE;
+  const text = String(raw || "").trim();
+  if (!text) {
+    return emptyGuide({ locked, productArticle, instructions });
+  }
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const title = lines[0].replace(/^\d+[\.)]\s*/, "");
   const stepLines = lines.filter((l) => /^\d+[\.)]/.test(l));
@@ -237,11 +241,50 @@ export function parseGuide(
     }
   }
 
+  return finishGuide({
+    title,
+    steps,
+    locked,
+    productArticle,
+    instructions,
+    appliedEdits,
+    ignoredEdits,
+    raw: text,
+    parser: "local-gliner-standin",
+  });
+}
+
+function emptyGuide({ locked = false, productArticle = null, instructions = "" } = {}) {
+  return finishGuide({
+    title: "",
+    steps: [],
+    locked,
+    productArticle,
+    instructions,
+    appliedEdits: [],
+    ignoredEdits: [],
+    raw: "",
+    parser: "local-gliner-standin",
+  });
+}
+
+function finishGuide({
+  title,
+  steps,
+  locked,
+  productArticle,
+  instructions,
+  appliedEdits,
+  ignoredEdits,
+  raw,
+  parser,
+}) {
   const partIds = [...new Set(steps.flatMap((s) => s.partsUsed))];
-  if (!partIds.includes("allen-key")) partIds.push("allen-key");
+  if (locked && !partIds.includes("allen-key")) partIds.push("allen-key");
   const bom = bomFromIds(partIds);
+  const named = String(title || "").trim() || "Untitled build";
   return {
-    title: /lack|table|linmon|eket/i.test(title) ? title : `${title} (IKEAFY)`,
+    title: named,
     official: locked,
     locked,
     editable: !locked,
@@ -255,16 +298,148 @@ export function parseGuide(
     },
     steps,
     bom,
+    parser,
     partners: {
-      parser: "local-gliner-standin",
-      video: "local-storyboard",
+      parser,
+      video: "seedance-2.5",
       search: "catalog-list",
     },
-    raw: text,
+    raw,
     instructions,
     appliedEdits,
     ignoredEdits,
   };
+}
+
+const ALLOWED_ACTIONS = new Set(ACTION_WORDS.map(([, action]) => action).concat("assemble", "prepare"));
+
+function resolvePartIds(names = []) {
+  const ids = [];
+  for (const name of names) {
+    const token = String(name || "").trim();
+    if (!token) continue;
+    if (getPart(token)) ids.push(token);
+    else ids.push(...inferParts(token));
+  }
+  return [...new Set(ids)];
+}
+
+function parseJsonObject(text) {
+  const raw = String(text || "").trim();
+  const fenced = raw.match(/\{[\s\S]*\}/);
+  if (!fenced) return null;
+  try {
+    return JSON.parse(fenced[0]);
+  } catch {
+    return null;
+  }
+}
+
+function guideFromModel(parsed, { raw, instructions = "", availableTools = [] } = {}) {
+  if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) return null;
+  const steps = parsed.steps.map((step, i) => {
+    const body = String(step.body || step.instruction || step.text || "").trim();
+    const action = ALLOWED_ACTIONS.has(step.action) ? step.action : inferAction(body);
+    return {
+      number: i + 1,
+      action,
+      body: body || `Step ${i + 1}`,
+      partsUsed: resolvePartIds(step.partsUsed || step.parts || []),
+      toolRequired: step.toolRequired || inferTool(body, availableTools),
+      warnings: Array.isArray(step.warnings) ? step.warnings.map(String) : [],
+      waitForUser: true,
+      locked: false,
+      editable: true,
+      image: {
+        bw: `plate-${i + 1}-bw`,
+        color: `plate-${i + 1}-color`,
+        theme: "birch-workshop",
+      },
+    };
+  });
+  return finishGuide({
+    title: parsed.title || "Custom build",
+    steps,
+    locked: false,
+    productArticle: null,
+    instructions,
+    appliedEdits: [],
+    ignoredEdits: [],
+    raw,
+    parser: "openai",
+  });
+}
+
+async function extractGuideWithOpenAI(
+  { raw, images = [], instructions = "", availableTools = [] } = {},
+  { fetchFn = fetch } = {},
+) {
+  const key = usableOpenAiKey();
+  if (!key) return null;
+  const catalogHint = listParts()
+    .slice(0, 48)
+    .map((p) => `${p.id} (${p.name})`)
+    .join("; ");
+  const model = process.env.OPENAI_MODEL_HARD || process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini";
+  const userContent = [];
+  const brief = [
+    raw ? `Guide text:\n${String(raw).slice(0, 12000)}` : "The builder attached photos of a building guide.",
+    instructions ? `Builder notes / tools: ${instructions}` : "",
+    availableTools.length ? `Tools on hand: ${availableTools.join(", ")}` : "",
+    "Turn this into assembly steps for THIS input. Do not substitute an IKEA LACK table unless the input is actually about LACK.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  userContent.push({ type: "text", text: brief });
+  for (const image of images.slice(0, 4)) {
+    const url = image.dataUrl || image.url;
+    if (!url || !String(url).startsWith("data:image")) continue;
+    userContent.push({ type: "image_url", image_url: { url } });
+  }
+  if (userContent.length === 1 && !raw) return null;
+
+  const res = await fetchFn("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You parse building guides into IKEAFY JSON. Catalog part ids you may use: ${catalogHint}. Actions: unpack, place, align, fasten, flip, inspect, install, tape, solder, wire, assemble, prepare. Reply with JSON {"title":string,"steps":[{"number":1,"action":"assemble","body":"one clear instruction","partsUsed":["part-id"],"toolRequired":null,"warnings":[]}]}. Keep each body to one move. Do not invent a LACK table.`,
+        },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  const parsed = parseJsonObject(json.choices?.[0]?.message?.content);
+  return guideFromModel(parsed, { raw, instructions, availableTools });
+}
+
+/**
+ * Custom guides go through OpenAI when a key is set so pasted text and dropped
+ * photos become the actual steps. Official sheets stay on the transcribed text.
+ */
+export async function parseGuideAsync(
+  raw,
+  { instructions = "", availableTools = [], official = false, productArticle = null, images = [] } = {},
+  deps = {},
+) {
+  if (official) return parseGuide(raw, { instructions, availableTools, official, productArticle });
+  const local = parseGuide(raw, { instructions, availableTools });
+  try {
+    const hosted = await extractGuideWithOpenAI({ raw, images, instructions, availableTools }, deps);
+    if (hosted?.steps?.length) return hosted;
+  } catch {
+    // Fall through to the local parser — never leak the key.
+  }
+  return local;
 }
 
 export function officialProducts() {
@@ -440,7 +615,7 @@ export function makeVideoPlan(guide) {
   return {
     title: `${guide.title} — IKEAFY film`,
     theme: guide.theme,
-    partner: { name: "Veed", status: "proposed", fallback: "local canvas storyboard" },
+    partner: { name: "ByteDance Seedance 2.5", status: "optional", fallback: "local canvas storyboard" },
     continuous: true,
     locked: Boolean(guide.locked),
     skipAhead: guide.skipAhead !== false,
