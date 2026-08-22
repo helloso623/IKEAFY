@@ -554,6 +554,7 @@ aiDock = bindAiDock({
   orb: $("ai-orb"),
   dock: $("ai-dock"),
   close: $("ai-dock-close"),
+  max: $("ai-dock-max"),
   sceneNode: $("ai-scene"),
   historyNode: $("ai-history"),
   input: $("chat-in"),
@@ -747,6 +748,10 @@ shop.onPoseCommit((pose) => {
   commitPose(pose);
 });
 
+shop.onSculpt?.(({ mode, name }) => {
+  hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
+});
+
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
 // a joint mate lands as api.move (plus a joint record) so undo covers both.
 shop.onSketch?.(async ({ partId, pose, label }) => {
@@ -881,9 +886,32 @@ function deleteSelected() {
   removePiece(id);
 }
 
+const SCULPT_HINTS = {
+  grab: "Grab — drag on the piece to pull vertices with it.",
+  smooth: "Smooth — drag on the piece to relax the surface.",
+  inflate: "Inflate — drag on the piece to puff the surface out.",
+};
+
+function setSculptTool(mode) {
+  if (!shop.getSelected() && shop.getSculptMode() !== mode) {
+    hud("Pick a piece, then sculpt it.");
+  }
+  const next = shop.setSculptMode(shop.getSculptMode() === mode ? null : mode);
+  if (next) hud(SCULPT_HINTS[next]);
+}
+
+function subdivideSelectedBody() {
+  if (!shop.getSelected()) return hud("Pick a piece, then Subdiv.");
+  if (shop.subdivideSelected()) hud("Subdivided — every face split in four. Now sculpt it.");
+  else hud("That body is already dense enough.");
+}
+
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
+  const sculpt = ev.target.closest("[data-sculpt]")?.dataset.sculpt;
+  if (sculpt) setSculptTool(sculpt);
+  if (ev.target.closest("[data-subdivide]")) subdivideSelectedBody();
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-delete]")) deleteSelected();

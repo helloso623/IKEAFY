@@ -2531,12 +2531,23 @@ body.lab-resizing * {
   box-shadow: var(--shadow);
 }
 .ai-dock[hidden] { display: none !important; }
+.ai-dock.max {
+  top: 4.6rem;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  width: auto;
+  max-height: none;
+}
+.ai-dock.max .ai-history { max-height: 12rem; }
 .ai-dock-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
 }
+.ai-dock-head-actions { display: flex; gap: 0.35rem; }
+.ai-dock-head-actions .quiet { padding: 0.25rem 0.7rem; font-size: 0.76rem; }
 .ai-dock-head strong {
   font-family: var(--serif);
   font-size: 1.15rem;
@@ -2612,6 +2623,8 @@ body.lab-resizing * {
 }
 
 #view.measuring { cursor: crosshair; }
+#view.sculpting { cursor: grab; }
+#view.sculpting:active { cursor: grabbing; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;
