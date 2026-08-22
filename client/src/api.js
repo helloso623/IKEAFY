@@ -45,7 +45,8 @@ async function req(url, opts = {}) {
   }
 }
 
-const post = (url, body) => req(url, { method: "POST", body: JSON.stringify(body || {}) });
+const post = (url, body, opts = {}) =>
+  req(url, { ...opts, method: "POST", body: JSON.stringify(body || {}) });
 
 async function postChat(body) {
   try {
@@ -109,7 +110,7 @@ export const api = {
   lookupManual: (productName) => post("/api/ikeafy/manual", { productName }),
 
   // Assembly runs — the server owns the cursor, so these are the only way forward.
-  runStart: (body = {}) => post("/api/assembly/start", body),
+  runStart: (body = {}, opts = {}) => post("/api/assembly/start", body, opts),
   runView: (id) => req(`/api/assembly/${id}`),
   runPeek: (id, step) => req(`/api/assembly/${id}/step/${step}`),
   runConfirm: (id, body = {}) => post(`/api/assembly/${id}/confirm`, body),

@@ -84,6 +84,7 @@ import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior }
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, fallbackChat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
+import { PLATE_VISION_ENDPOINT, PLATE_VISION_MODEL } from "./lib/plate-vision.js";
 import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import { finishFurnitureBuild } from "./lib/build-plan.js";
 import {
@@ -215,6 +216,12 @@ app.get("/api/health", (_req, res) => {
     render: {
       route: "/api/ikeafy/render",
       modes: ["video", "images", "scene"],
+    },
+    plateVision: {
+      live: hasFal(),
+      endpoint: PLATE_VISION_ENDPOINT,
+      model: PLATE_VISION_MODEL,
+      normalizer: "fastino/gliner2-base-v1",
     },
     shopping: {
       partner: hasTavily() ? "tavily" : "tavily-standin",
@@ -785,25 +792,30 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  */
 app.post("/api/assembly/start", async (req, res) => {
   const body = req.body || {};
+  const requestId =
+    String(body.requestId || req.get("x-request-id") || "").trim().slice(0, 100) ||
+    `assembly-${Date.now().toString(36)}`;
   ikealiveLog("assembly", "POST /api/assembly/start", {
+    requestId,
     mode: body.mode || "official",
     article: body.article || null,
     plates: Array.isArray(body.images) ? body.images.length : 0,
     hasGuideText: Boolean(body.guide),
     renderMode: normalizeRenderMode(body.renderMode) || null,
   });
-  const result = await startAssemblyAsync(req.body || {});
+  const result = await startAssemblyAsync({ ...body, requestId });
   if (result.ok && getAssembly(result.run?.id)?.guide) {
     state.guide = getAssembly(result.run.id).guide;
   }
   if (result.ok) {
     ikealiveLog("assembly", "run ready", {
+      requestId,
       runId: result.run?.id || null,
       mode: result.run?.mode || body.mode || null,
       steps: result.outline?.length || result.run?.total || 0,
     });
   } else {
-    ikealiveWarn("assembly", "start failed", { reason: result.reason || null });
+    ikealiveWarn("assembly", "start failed", { requestId, reason: result.reason || null });
   }
   res.status(result.ok ? 200 : 400).json(result);
 });

@@ -102,6 +102,7 @@ export async function startAssemblyAsync({
   images = [],
   pdfBase64 = "",
   renderMode = null,
+  requestId = null,
 } = {}, deps = {}) {
   if (mode === "official") {
     return withShopping(startAssembly({ mode, article, instructions, availableTools, renderMode }), deps);
@@ -114,12 +115,16 @@ export async function startAssemblyAsync({
     const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
     text = [extracted, text].filter(Boolean).join("\n\n");
   }
-  const guide = await parseGuideAsync(text, { instructions, availableTools, images: plates });
+  const guide = await parseGuideAsync(
+    text,
+    { instructions, availableTools, images: plates },
+    { ...deps, requestId },
+  );
   if (!guide?.steps?.length) {
     return {
       ok: false,
       reason: plates.length
-        ? guide?.parseError || "OpenAI could not read those PDF plates into assembly steps."
+        ? guide?.parseError || "fal plate vision could not read those PDF plates into assembly steps."
         : "That guide has no steps. Drop a PDF or paste a numbered guide.",
     };
   }
