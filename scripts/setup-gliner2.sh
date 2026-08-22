@@ -34,6 +34,13 @@ echo "[ikealive:gliner2] creating $VENV with $("$PYTHON" --version 2>&1)"
 "$PYTHON" -m venv "$VENV"
 "$VENV/bin/python" -m pip install --upgrade pip
 "$VENV/bin/python" -m pip install -r "$ROOT/requirements-gliner2.txt"
+# Refresh Mozilla CA bundle used by requests/urllib3 for Pioneer api.fastino.ai.
+"$VENV/bin/python" -m pip install --upgrade certifi
+CERTIFI_PATH="$("$VENV/bin/python" -m certifi)"
+echo "[ikealive:gliner2] certifi CA bundle: $CERTIFI_PATH"
+echo "[ikealive:gliner2] If Pioneer TLS fails with CERTIFICATE_VERIFY_FAILED, set SSL_CERT_FILE=$CERTIFI_PATH"
+echo "[ikealive:gliner2] (and optionally REQUESTS_CA_BUNDLE to the same path), then restart IKEAlive."
+echo "[ikealive:gliner2] Do not disable SSL verification."
 
 echo "[ikealive:gliner2] checking GLiNER 2 sidecar"
 if [[ -n "${PIONEER_API_KEY:-}${GLINER2_API_KEY:-}" ]]; then

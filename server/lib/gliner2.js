@@ -69,8 +69,83 @@ function runtimeError(detail, cause, code = "GLINER2_RUNTIME_UNAVAILABLE") {
   return error;
 }
 
+/** Pioneer/Fastino cloud API TLS or connection failures — not a missing local venv. */
+export function isPioneerApiTlsOrConnectionDetail(detail) {
+  const text = String(detail || "");
+  if (!text.trim()) return false;
+  const lower = text.toLowerCase();
+  if (/api\.fastino\.ai/i.test(text)) return true;
+  if (/gliner2apierror/i.test(text)) return true;
+  if (/sslcertverificationerror/i.test(text)) return true;
+  if (/certificate[_ ]verify[_ ]failed/i.test(lower)) return true;
+  if (/certificate has expired/i.test(lower)) return true;
+  if (/sslerror/i.test(text) && /fastino|pioneer|gliner/i.test(lower)) return true;
+  if (/httpsconnectionpool/i.test(lower) && /fastino|pioneer/i.test(lower)) return true;
+  if (/connection error/i.test(lower) && /fastino|pioneer|gliner2api/i.test(lower)) return true;
+  return false;
+}
+
+export function pioneerApiConnectionError(detail, cause) {
+  const trimmed = safeDiagnostic(stripLocalRuntimeBoilerplate(detail));
+  const message = [
+    "Pioneer GLiNER 2 API TLS/certificate failure talking to api.fastino.ai.",
+    trimmed ? `Detail: ${trimmed}.` : null,
+    "Check network access, system/CA certificates, SSL_CERT_FILE / REQUESTS_CA_BUNDLE (often `python -m certifi` in `.venv-gliner2`), or Fastino status.",
+    "This is not a missing local GLiNER 2 install.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const error = new Error(message, cause ? { cause } : undefined);
+  error.name = "Gliner2ApiConnectionError";
+  error.code = "GLINER2_API_CONNECTION_ERROR";
+  return error;
+}
+
+function stripLocalRuntimeBoilerplate(detail) {
+  return String(detail || "")
+    .replace(/^GLiNER 2 local runtime is unavailable\s*\(/i, "")
+    .replace(/\)\.\s*Run `npm run setup:gliner2`[\s\S]*$/i, "")
+    .replace(/\s*Run `npm run setup:gliner2`[\s\S]*$/i, "")
+    .replace(/\s*Set GLINER2_PYTHON[\s\S]*$/i, "")
+    .replace(/\s*This is not a missing local GLiNER 2 install\.?/i, "")
+    .trim();
+}
+
+export function gliner2FailureFromDetail(detail, cause, code = "GLINER2_RUNTIME_UNAVAILABLE") {
+  if (isPioneerApiTlsOrConnectionDetail(detail)) {
+    return pioneerApiConnectionError(detail, cause);
+  }
+  return runtimeError(detail, cause, code);
+}
+
 export function isGliner2RuntimeError(error) {
-  return String(error?.code || "").startsWith("GLINER2_") || error?.name === "Gliner2RuntimeError";
+  const code = String(error?.code || "");
+  return (
+    code.startsWith("GLINER2_") ||
+    error?.name === "Gliner2RuntimeError" ||
+    error?.name === "Gliner2ApiConnectionError"
+  );
+}
+
+export function isGliner2ApiConnectionError(error) {
+  return (
+    error?.code === "GLINER2_API_CONNECTION_ERROR" ||
+    error?.name === "Gliner2ApiConnectionError" ||
+    isPioneerApiTlsOrConnectionDetail(error?.message)
+  );
+}
+
+/** User/log-facing reason; keeps Pioneer TLS failures distinct from setup:gliner2. */
+export function formatGliner2FailureReason(error) {
+  const detail = safeDiagnostic(error?.message || error);
+  if (error?.code === "GLINER2_API_CONNECTION_ERROR" || error?.name === "Gliner2ApiConnectionError") {
+    return detail;
+  }
+  if (isPioneerApiTlsOrConnectionDetail(detail)) {
+    return pioneerApiConnectionError(detail).message;
+  }
+  if (isGliner2RuntimeError(error) || detail.includes(GLINER2_SETUP_COMMAND)) return detail;
+  return runtimeError(detail || "unknown error").message;
 }
 
 function safeDiagnostic(value) {
@@ -157,14 +232,15 @@ function acceptLine(active, line) {
     return;
   }
   const detail = safeDiagnostic(message.error) || "inference failed";
-  const error = runtimeError(detail, null, "GLINER2_INFERENCE_ERROR");
-  ikealiveWarn("gliner2", "error", {
+  const error = gliner2FailureFromDetail(detail, null, "GLINER2_INFERENCE_ERROR");
+  ikealiveWarn("gliner2", isGliner2ApiConnectionError(error) ? "api-tls" : "error", {
     requestId: request.requestId,
     id: message.id,
     operation: request.operation,
     stage: "inference",
     elapsedMs,
-    reason: detail,
+    reason: error.message,
+    code: error.code,
   });
   request.reject(error);
 }
@@ -175,7 +251,9 @@ function forwardStderr(active, chunk) {
   active.stderrBuffer = lines.pop() || "";
   for (const line of lines) {
     const detail = safeDiagnostic(line);
-    if (detail) ikealiveWarn("gliner2", "stderr", { detail });
+    if (!detail) continue;
+    active.recentStderr = [...(active.recentStderr || []), detail].slice(-8);
+    ikealiveWarn("gliner2", "stderr", { detail });
   }
 }
 
@@ -196,6 +274,11 @@ function ensureSidecar({ startupTimeoutMs } = {}) {
     "GLINER2_API_KEY",
     "GLINER2_API_BASE_URL",
     "GLINER2_MODE",
+    // CA / TLS for Pioneer api.fastino.ai (never disable verify by default).
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
     "HF_HOME",
     "TRANSFORMERS_CACHE",
     "TORCH_HOME",
@@ -235,6 +318,7 @@ function ensureSidecar({ startupTimeoutMs } = {}) {
     rejectReady,
     stdoutBuffer: "",
     stderrBuffer: "",
+    recentStderr: [],
     startupTimer: null,
   };
   runtime = active;
@@ -263,16 +347,26 @@ function ensureSidecar({ startupTimeoutMs } = {}) {
     forwardStderr(active, chunk);
   });
   child.on("error", (cause) => {
-    const error = runtimeError(cause?.code === "ENOENT" ? `Python executable not found: ${python}` : cause?.message, cause);
+    const error = gliner2FailureFromDetail(
+      cause?.code === "ENOENT" ? `Python executable not found: ${python}` : cause?.message,
+      cause,
+    );
     ikealiveWarn("gliner2", "error", { stage: "spawn", python, reason: cause?.message || cause });
     stopSidecar(error, active);
   });
   child.on("exit", (code, signal) => {
     if (runtime !== active) return;
     if (active.stderrBuffer.trim()) forwardStderr(active, "\n");
-    const detail = `sidecar exited before ${active.ready ? "response" : "ready"} (${signal || code || "unknown"})`;
-    const error = runtimeError(detail);
-    ikealiveWarn("gliner2", "error", { stage: active.ready ? "runtime" : "startup", code, signal, reason: detail });
+    const stderrTail = (active.recentStderr || []).join(" | ");
+    const exited = `sidecar exited before ${active.ready ? "response" : "ready"} (${signal || code || "unknown"})`;
+    const detail = stderrTail && isPioneerApiTlsOrConnectionDetail(stderrTail) ? stderrTail : exited;
+    const error = gliner2FailureFromDetail(detail);
+    ikealiveWarn("gliner2", isGliner2ApiConnectionError(error) ? "api-tls" : "error", {
+      stage: active.ready ? "runtime" : "startup",
+      code,
+      signal,
+      reason: error.message,
+    });
     stopSidecar(error, active);
   });
   return readyPromise;
@@ -314,7 +408,7 @@ export async function inferWithGliner2(
       if (!error) return;
       clearTimeout(timer);
       pending.delete(id);
-      const wrapped = runtimeError(`could not write to sidecar: ${safeDiagnostic(error.message)}`, error);
+      const wrapped = gliner2FailureFromDetail(`could not write to sidecar: ${safeDiagnostic(error.message)}`, error);
       ikealiveWarn("gliner2", "error", { requestId, id, operation, stage: "write", reason: error.message });
       reject(wrapped);
       stopSidecar(wrapped, active);

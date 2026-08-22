@@ -1,15 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { applyGeneratedAction, generatedMeshSpec } from "../client/src/chat-actions.js";
 import { buildAiMeshGeometry } from "../client/src/ai-mesh.js";
 import {
   bindShapeSummonButtons,
   SHAPE_SUMMON_NAMES,
   shapeSummonSpec,
 } from "../client/src/shape-summon.js";
+import { chat, routeAgent, sanitizeActions } from "../server/lib/agents.js";
+import { isMeshBuildAsk, localMeshAction } from "../server/lib/mesh-plan.js";
+import { emptyProject } from "../server/lib/project.js";
 
-test("all six summon shapes build finite editable triangle geometry", () => {
-  assert.deepEqual(SHAPE_SUMMON_NAMES, ["cube", "sphere", "cylinder", "cone", "torus", "plane"]);
+function withoutHosted(run) {
+  return async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  };
+}
+
+test("all summon shapes build finite editable triangle geometry", () => {
+  assert.deepEqual(SHAPE_SUMMON_NAMES, [
+    "cube",
+    "box",
+    "sphere",
+    "cylinder",
+    "cone",
+    "torus",
+    "plane",
+    "prism",
+  ]);
   for (const name of SHAPE_SUMMON_NAMES) {
     const spec = shapeSummonSpec(name);
     const geometry = buildAiMeshGeometry(spec);
@@ -39,40 +65,14 @@ test("every summon button receives a live click listener", () => {
     { querySelectorAll: () => buttons },
     (spec, name) => summoned.push([name, spec.components[0].shape]),
   );
-  assert.equal(count, 6);
+  assert.equal(count, SHAPE_SUMMON_NAMES.length);
   assert.ok(buttons.every((button) => button.listeners.length === 1));
   for (const button of buttons) button.click();
-  assert.deepEqual(summoned, [
-    ["cube", "box"],
-    ["sphere", "sphere"],
-    ["cylinder", "cylinder"],
-    ["cone", "cone"],
-    ["torus", "torus"],
-    ["plane", "plane"],
-  ]);
+  assert.deepEqual(
+    summoned,
+    SHAPE_SUMMON_NAMES.map((name) => [name, name === "cube" ? "box" : name]),
+  );
 });
-import assert from "node:assert/strict";
-import test from "node:test";
-
-import { applyGeneratedAction, generatedMeshSpec } from "../client/src/chat-actions.js";
-import { buildAiMeshGeometry } from "../client/src/ai-mesh.js";
-import { SHAPE_SUMMON_NAMES, shapeSummonSpec } from "../client/src/shape-summon.js";
-import { chat, routeAgent, sanitizeActions } from "../server/lib/agents.js";
-import { isMeshBuildAsk, localMeshAction } from "../server/lib/mesh-plan.js";
-import { emptyProject } from "../server/lib/project.js";
-
-function withoutHosted(run) {
-  return async () => {
-    const previous = process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_API_KEY;
-    try {
-      await run();
-    } finally {
-      if (previous === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previous;
-    }
-  };
-}
 
 test("shape words summon their matching editable Three.js primitives", () => {
   const cases = [

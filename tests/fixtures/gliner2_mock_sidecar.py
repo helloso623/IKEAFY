@@ -53,6 +53,12 @@ for line in sys.stdin:
         text = str(request.get("text") or "")
         if os.environ.get("GLINER2_MOCK_INFER") == "fail":
             raise RuntimeError("mock inference failed")
+        if os.environ.get("GLINER2_MOCK_INFER") == "ssl_fail":
+            raise RuntimeError(
+                "GLiNER2APIError: Connection error: HTTPSConnectionPool(host='api.fastino.ai', port=443): "
+                "Max retries exceeded with url: /gliner-2 (Caused by SSLError(SSLCertVerificationError(1, "
+                "'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1032)')))"
+            )
         if "Hang the rail" in text or "wall plugs" in text:
             result = {
                 "assembly_guide": [{"title": "Wall shelf"}],

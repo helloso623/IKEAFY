@@ -329,6 +329,34 @@ test("drawing PDF still tries fal when text-side GLiNER fails but fal+normalize 
   assert.equal(guide.steps.length, 1);
 });
 
+test("Pioneer TLS failure still uses fal structured steps without setup:gliner2 messaging", async () => {
+  const sslDetail =
+    "GLiNER2APIError: Connection error: HTTPSConnectionPool(host='api.fastino.ai', port=443): " +
+    "Max retries exceeded (Caused by SSLError(SSLCertVerificationError(1, " +
+    "'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired')))";
+  const guide = await parseGuideAsync(
+    "BILLY.pdf: 16 pages; the first 8 plates were read.",
+    { images: [{ name: "BILLY p1", dataUrl: "data:image/jpeg;base64,abc" }] },
+    {
+      falVisionFn: async () => ({
+        title: "BILLY bookcase",
+        steps: [{ number: 1, body: "Fasten side panel 1 to base 2 with dowels.", action: "fasten" }],
+      }),
+      glinerInfer: async () => {
+        const error = new Error(sslDetail);
+        error.name = "Gliner2RuntimeError";
+        error.code = "GLINER2_INFERENCE_ERROR";
+        throw error;
+      },
+    },
+  );
+  assert.equal(guide.parser, "fal-plate-vision");
+  assert.equal(guide.steps.length, 1);
+  assert.equal(guide.parseError, undefined);
+  assert.equal(guide.parseWarning, undefined);
+  assert.doesNotMatch(JSON.stringify(guide), /setup:gliner2/);
+});
+
 test("text-rich PDF uses mocked GLiNER 2 without fal plate vision", async () => {
   let request;
   const guide = await parseGuideAsync(
