@@ -1,11 +1,41 @@
 import { getPart, listParts } from "./catalog.js";
-import { routeCable } from "./cables.js";
+import { buildNetlist, ercReport, routeCable } from "./cables.js";
 import { normalizeFunction } from "./functions.js";
 
 export const LAB_TOOLS = Object.freeze(["fusion", "kicad", "blender", "sim", "generate"]);
 
 function uid(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Reference designators, like a schematic sheet: U for MCUs, D for LEDs… */
+function refPrefix(part) {
+  if (!part) return null;
+  if (part.firmwareRole === "mcu") return "U";
+  if (part.firmwareRole === "led") return "D";
+  if (part.firmwareRole === "button") return "SW";
+  if (/resistor/.test(part.id)) return "R";
+  if (/breadboard/.test(part.id)) return "BB";
+  if (/psu|supply/.test(part.id)) return "PS";
+  if (part.category === "cable") return "W";
+  if (part.category === "electronics") return "U";
+  return null;
+}
+
+function nextRef(project, prefix) {
+  const used = project.pieces
+    .map((p) => p.ref)
+    .filter((r) => typeof r === "string" && r.startsWith(prefix) && /^\d+$/.test(r.slice(prefix.length)))
+    .map((r) => Number(r.slice(prefix.length)));
+  return `${prefix}${used.length ? Math.max(...used) + 1 : 1}`;
+}
+
+export function projectNetlist(project) {
+  return buildNetlist(project, getPart);
+}
+
+export function projectErc(project) {
+  return ercReport(project, getPart);
 }
 
 function emptyLabTools() {
@@ -60,15 +90,20 @@ export function seedLampTable() {
   const led = addPiece(project, "led-5mm", { x: 0.14, y: 0.26, z: 0.04 });
   const btn = addPiece(project, "tactile-btn", { x: 0.02, y: 0.26, z: 0.04 });
   const board = addPiece(project, "breadboard", { x: 0.08, y: 0.248, z: 0.04 });
-  addPiece(project, "resistor-220", { x: 0.11, y: 0.255, z: 0.02 });
+  const res = addPiece(project, "resistor-220", { x: 0.11, y: 0.255, z: 0.02 });
   const box = addPiece(project, "enclosure-print", { x: 0.08, y: 0.27, z: 0.08 });
   labelFunction(project, nano.id, "control");
   labelFunction(project, led.id, "light");
   labelFunction(project, btn.id, "sense");
   labelFunction(project, box.id, "decorate");
   isolateAsBoard(project, [nano.id, led.id, btn.id, board.id], "lamp-board");
-  addCable(project, nano.id, "d13", led.id, "anode");
+  // Wired the way ERC wants it: D13 through the series resistor into the LED,
+  // returns to GND, button on D2 with its own ground leg.
+  addCable(project, nano.id, "d13", res.id, "a");
+  addCable(project, res.id, "b", led.id, "anode");
+  addCable(project, led.id, "cathode", nano.id, "gnd");
   addCable(project, nano.id, "d2", btn.id, "a");
+  addCable(project, btn.id, "b", nano.id, "gnd");
   addTape(project, "tape-gaffer", [top.id, nano.id]);
   return project;
 }
@@ -76,9 +111,11 @@ export function seedLampTable() {
 export function addPiece(project, partId, pose = {}) {
   const part = getPart(partId);
   if (!part) throw new Error(`Unknown part ${partId}`);
+  const prefix = refPrefix(part);
   const piece = {
     id: uid("p"),
     partId,
+    ref: prefix ? nextRef(project, prefix) : null,
     x: pose.x || 0,
     y: pose.y || 0,
     z: pose.z || 0,
@@ -215,6 +252,8 @@ export function projectPayload(project) {
     ...rest,
     chrome: benchChrome(project),
     edit: editStatus(project),
+    netlist: projectNetlist(project),
+    erc: projectErc(project),
   };
 }
 
@@ -251,12 +290,42 @@ export function retexture(project, id, { texture, color }) {
   return movePiece(project, id, { texture, color });
 }
 
+/**
+ * Wire two ports, the way a schematic editor would: incompatible connectors,
+ * doubled wires and rail-to-ground shorts are refused with a reason instead of
+ * being drawn. A kept wire comes back carrying the name of the net it joined.
+ */
 export function addCable(project, fromPiece, fromPort, toPiece, toPort) {
   const a = project.pieces.find((p) => p.id === fromPiece);
   const b = project.pieces.find((p) => p.id === toPiece);
   const pa = getPart(a?.partId)?.ports?.find((p) => p.id === fromPort);
   const pb = getPart(b?.partId)?.ports?.find((p) => p.id === toPort);
+  if (!a || !b || !pa || !pb) {
+    return { ok: false, refused: true, code: "unknown-port", reason: "Pick two real ports — one end of that wire is missing." };
+  }
+  if (fromPiece === toPiece && fromPort === toPort) {
+    return { ok: false, refused: true, code: "self", reason: "A wire needs two different ports." };
+  }
+  const dupe = project.cables.some(
+    (c) =>
+      (c.fromPiece === fromPiece && c.fromPort === fromPort && c.toPiece === toPiece && c.toPort === toPort) ||
+      (c.fromPiece === toPiece && c.fromPort === toPort && c.toPiece === fromPiece && c.toPort === fromPort),
+  );
+  if (dupe) {
+    return { ok: false, refused: true, code: "duplicate", reason: "Those two ports are already on the same wire." };
+  }
   const route = routeCable(pa, pb, { managed: "bundled", slackMm: 50 });
+  if (!route.ok) {
+    return { ok: false, refused: true, code: "no-mate", reason: route.reason };
+  }
+  const draft = {
+    pieces: project.pieces,
+    cables: [...project.cables, { id: "draft", fromPiece, fromPort, toPiece, toPort, ok: true }],
+  };
+  const short = ercReport(draft, getPart).errors.find((f) => f.code === "power-short");
+  if (short) {
+    return { ok: false, refused: true, code: "power-short", reason: `ERC refuses: ${short.text}` };
+  }
   const cable = {
     id: uid("c"),
     fromPiece,
@@ -266,6 +335,7 @@ export function addCable(project, fromPiece, fromPort, toPiece, toPort) {
     ...route,
   };
   project.cables.push(cable);
+  cable.net = buildNetlist(project, getPart).cableNets[cable.id] || null;
   return cable;
 }
 
@@ -370,18 +440,16 @@ export function persistLabTool(project, tool, value) {
 }
 
 /**
- * What the bench should even show. A table with four legs on it has no ports,
- * no nets and no firmware, so the electronics panels are not "disabled" — they
- * are not drawn at all.
+ * Lab is furniture-only for now. Catalog may still list boards and cables,
+ * but ports, nets, isolate-as-board and firmware stay off the inspect panel.
  */
 export function benchChrome(project) {
   const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);
   const electronics = parts.filter((p) => p.category === "electronics" || p.firmwareRole);
   const cables = parts.filter((p) => p.category === "cable");
-  const hasElectronics = electronics.length > 0;
   const labTools = Object.fromEntries(LAB_TOOLS.map((tool) => [tool, true]));
   return {
-    electronics: hasElectronics,
+    electronics: false,
     lab: true,
     labTools,
     counts: {
@@ -392,17 +460,15 @@ export function benchChrome(project) {
       joints: (project.joints || []).length,
     },
     show: {
-      cablesPanel: hasElectronics || (project.cables || []).length > 0,
-      isolateBoard: hasElectronics,
-      labelFunction: hasElectronics,
-      firmware: parts.some((p) => p.firmwareRole === "mcu"),
-      ports: hasElectronics,
+      cablesPanel: false,
+      isolateBoard: false,
+      labelFunction: false,
+      firmware: false,
+      ports: false,
       tape: parts.length > 0,
       ...labTools,
     },
-    note: hasElectronics
-      ? "Electronics on the bench — ports, nets and firmware are live."
-      : "Nothing electronic on the bench, so the electronics controls stay off the panel.",
+    note: "Lab is furniture-only for now — electronics stay off the bench.",
   };
 }
 

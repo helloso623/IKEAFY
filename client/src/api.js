@@ -38,6 +38,7 @@ export const api = {
   undo: () => post("/api/project/undo"),
   redo: () => post("/api/project/redo"),
   tape: (tapeId, pieceIds) => post("/api/project/tape", { tapeId, pieceIds }),
+  cable: (body) => post("/api/project/cable", body),
   isolate: (pieceIds, label) => post("/api/project/isolate", { pieceIds, label }),
   label: (id, label) => post("/api/project/label", { id, label }),
   functions: () => req("/api/project/functions"),
@@ -84,4 +85,5 @@ export const api = {
   flash: (functions) => post("/api/firmware/generate", { functions }),
   runFw: (buttonDown) => post("/api/firmware/run", { buttonDown }),
   adapt: (body) => post("/api/adaptation/plan", body),
+  scan: (body) => post("/api/adaptation/scan", body),
 };

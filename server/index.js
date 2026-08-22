@@ -56,7 +56,7 @@ import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior }
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
-import { orderInRoom, planRoom } from "./lib/adaptation.js";
+import { orderInRoom, planRoom, scanAssemblies } from "./lib/adaptation.js";
 import {
   addCable,
   addJoint,
@@ -109,7 +109,7 @@ const app = express();
 app.use(express.json({ limit: "16mb" }));
 
 const state = {
-  project: seedLampTable(),
+  project: emptyProject(),
   guide: defaultGuide(),
   adaptation: planRoom({ want: "table", budget: 40 }),
 };
@@ -157,6 +157,10 @@ app.get("/api/catalog", (req, res) => {
   const minSpecs = {};
   if (req.query.loadKg) minSpecs.loadKg = Number(req.query.loadKg);
   if (req.query.voltage) minSpecs.voltage = Number(req.query.voltage);
+  const dimsMm = {};
+  if (req.query.x || req.query.maxX) dimsMm.x = Number(req.query.x || req.query.maxX);
+  if (req.query.y || req.query.maxY) dimsMm.y = Number(req.query.y || req.query.maxY);
+  if (req.query.z || req.query.maxZ) dimsMm.z = Number(req.query.z || req.query.maxZ);
   res.json(
     searchParts({
       query: req.query.q || "",
@@ -164,6 +168,7 @@ app.get("/api/catalog", (req, res) => {
       category: req.query.category,
       store: req.query.store,
       minSpecs,
+      dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
     }),
   );
 });
@@ -491,7 +496,7 @@ app.get("/api/project", (_req, res) => {
 });
 
 app.post("/api/project/seed", (req, res) => {
-  state.project = req.body?.empty ? emptyProject() : seedLampTable();
+  state.project = req.body?.lamp ? seedLampTable() : emptyProject();
   res.json(projectPayload(state.project));
 });
 
@@ -570,15 +575,20 @@ app.post("/api/project/retexture", (req, res) => {
 });
 
 app.post("/api/project/cable", (req, res) => {
-  res.json(
-    addCable(
-      state.project,
-      req.body?.fromPiece,
-      req.body?.fromPort,
-      req.body?.toPiece,
-      req.body?.toPort,
-    ),
+  rememberEdit(state.project);
+  const result = addCable(
+    state.project,
+    req.body?.fromPiece,
+    req.body?.fromPort,
+    req.body?.toPiece,
+    req.body?.toPort,
   );
+  // ERC refusals are data, not errors — the wire simply is not drawn.
+  if (result?.ok === false) {
+    discardLastEdit(state.project);
+    return res.json(result);
+  }
+  res.json({ ...result, edit: editStatus(state.project) });
 });
 
 app.post("/api/project/tape", (req, res) => {
@@ -679,6 +689,14 @@ app.post("/api/firmware/run", (req, res) => {
 app.post("/api/adaptation/plan", (req, res) => {
   state.adaptation = planRoom(req.body || {});
   res.json(state.adaptation);
+});
+
+app.post("/api/adaptation/scan", (req, res) => {
+  res.json(scanAssemblies(req.body || {}));
+});
+
+app.post("/api/catalog/scan", (req, res) => {
+  res.json(scanAssemblies(req.body || {}));
 });
 
 app.post("/api/adaptation/order", (req, res) => {

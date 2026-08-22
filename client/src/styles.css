@@ -128,6 +128,27 @@ a { color: inherit; text-decoration: none; }
 .lab-only { display: none; }
 #app.mode-lab .lab-only { display: inline-flex; }
 
+.lab-spaces {
+  align-items: center;
+  gap: 0.12rem;
+  padding: 0.12rem;
+  background: var(--paper-deep);
+  border-radius: 999px;
+}
+.lab-spaces button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.32rem 0.75rem;
+  color: var(--soft);
+  font-weight: 500;
+}
+.lab-spaces button:hover { color: var(--ink); background: var(--card); }
+.lab-spaces button.on {
+  color: var(--card);
+  background: var(--ink);
+}
+
 .omnibox-form { display: none; }
 #app.mode-lab .omnibox-form,
 #app.mode-bench .omnibox-form,
@@ -877,7 +898,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 #app.mode-ikeafy[data-interface="upload"] .stage,
 #app.mode-ikeafy[data-interface="upload"] .rail,
-#app.mode-ikeafy[data-interface="upload"] .house-drawer,
 #app.mode-ikeafy[data-interface="upload"] .shop-chat {
   display: none !important;
 }
@@ -892,7 +912,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 #app.mode-ikeafy[data-interface="watch"] .iface-upload,
 #app.mode-ikeafy[data-interface="watch"] .rail.left,
 #app.mode-ikeafy[data-interface="watch"] .rail.right,
-#app.mode-ikeafy[data-interface="watch"] .house-drawer,
 #app.mode-ikeafy[data-interface="watch"] .shop-chat {
   display: none !important;
 }
@@ -920,11 +939,10 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 #app.mode-bench,
 #app.mode-house {
   grid-template-columns: minmax(280px, 320px) 1fr minmax(320px, 370px);
-  grid-template-rows: auto 1fr minmax(210px, 34vh);
+  grid-template-rows: auto 1fr;
   grid-template-areas:
     "top top top"
-    "left stage right"
-    "left house right";
+    "left stage right";
 }
 #app.mode-lab .iface-upload,
 #app.mode-bench .iface-upload,
@@ -951,31 +969,29 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 #app.mode-bench .film,
 #app.mode-house .film { display: none; }
 
-#app.mode-lab .house-drawer {
-  grid-area: house;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.85rem;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 0.2rem 1.15rem;
-}
-#app.mode-lab .house-drawer .rail {
-  min-height: 0;
-  overflow: auto;
-  padding: 0;
-}
 #app.mode-lab #ar-photo {
   position: absolute;
-  inset: auto 1rem 1rem auto;
+  inset: 0;
   z-index: 2;
-  width: min(42%, 300px);
-  height: min(36%, 200px);
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  background: rgba(246, 245, 242, 0.2);
+  background: #14181e;
+}
+#app.mode-lab:not([data-lab="ar"]) #ar-photo {
+  display: none !important;
+}
+#app.mode-lab[data-lab="ar"] #ar-photo {
+  pointer-events: auto;
+}
+#app.mode-lab[data-lab="ar"] #view {
+  opacity: 0;
+  pointer-events: none;
+}
+#app.mode-lab[data-lab="ar"] .lab-viewport,
+#app.mode-lab[data-lab="ar"] .viewport-strip,
+#app.mode-lab[data-lab="ar"] .vs-out {
+  display: none !important;
 }
 #app.mode-lab #view {
   opacity: 1;
@@ -1025,8 +1041,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 .lab-folder-sum::-webkit-details-marker { display: none; }
 .lab-filter { display: flex; gap: 0.45rem; margin: 0.45rem 0; }
-
-#electronics-only h2 { font-size: 1.1rem; margin: 0.9rem 0 0.4rem; }
 
 .edit-bar {
   display: flex;
@@ -1178,6 +1192,44 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 .house-notes:empty { display: none; }
 
+.scan-panel {
+  margin: 0;
+  padding-top: 0.65rem;
+  color: var(--soft);
+  border-top: 1px solid var(--line);
+  font-family: var(--type);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.scan-panel:empty { display: none; }
+.scan-kicker {
+  margin: 0 0 0.35rem;
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: none;
+}
+.scan-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.scan-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.scan-meta span { color: var(--ink); font-weight: 600; }
+.scan-item button {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+}
+
 /* -------------------------------------------------------------- responsive */
 
 @media (max-width: 1100px) {
@@ -1195,12 +1247,8 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   #app.mode-bench,
   #app.mode-house {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 36vh auto auto auto;
-    grid-template-areas: "top" "stage" "house" "left" "right";
-  }
-  #app.mode-lab .house-drawer {
-    grid-template-columns: 1fr;
-    padding: 0 1rem 1rem;
+    grid-template-rows: auto 36vh auto auto;
+    grid-template-areas: "top" "stage" "left" "right";
   }
   .feature-grid { grid-template-columns: 1fr; }
   .landing { padding-top: 2.5rem; }
@@ -1436,6 +1484,29 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 
 .lab-swatch-lib { background: var(--lab-accent); }
 .lab-swatch-body { background: var(--lab-accent-2); }
+.lab-swatch-room { background: #8a9aaa; }
+
+.lab-dims {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin: 0.45rem 0;
+}
+.lab-browser .house-caption,
+.lab-browser .house-notes,
+.lab-inspector .house-caption,
+.lab-inspector .house-notes {
+  color: var(--lab-soft);
+  border-color: var(--lab-line);
+}
+.lab-browser .house-go { width: 100%; margin-top: 0.35rem; }
+.lab-browser #lab-room .field > span {
+  color: var(--lab-soft);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .lab-filter {
   display: grid;
@@ -1549,9 +1620,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .lab-inspector .more-tools { color: var(--lab-soft); }
 .lab-inspector .more-tools summary { color: var(--lab-soft); }
 .lab-inspector .more-tools summary:hover { color: var(--lab-ink); }
-
-.lab-inspector:has(#cables-panel:not(.hidden)) .lab-empty-net,
-.lab-inspector:has(#electronics-only:not(.hidden)) .lab-empty-net { display: none; }
 
 .lab-console {
   margin-top: auto;

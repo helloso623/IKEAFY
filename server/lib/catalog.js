@@ -600,18 +600,64 @@ export function getPart(id) {
   return PARTS.find((p) => p.id === id) || null;
 }
 
+function asMm(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function normalizeDims(dimsMm, extra = {}) {
+  const src = dimsMm && typeof dimsMm === "object" ? dimsMm : {};
+  const x = asMm(src.x ?? extra.x ?? extra.maxX);
+  const y = asMm(src.y ?? extra.y ?? extra.maxY);
+  const z = asMm(src.z ?? extra.z ?? extra.maxZ);
+  if (!x && !y && !z) return null;
+  return {
+    x: x || y || z,
+    y: y || x || z,
+    ...(z ? { z } : {}),
+  };
+}
+
+/** True when the part's footprint fits the envelope (XY, optionally rotated). Height is optional. */
+export function fitsDims(part, dimsMm, { slack = 1, axes = "xy" } = {}) {
+  const envelope = normalizeDims(dimsMm);
+  const d = part?.dimsMm;
+  if (!envelope || !d) return false;
+  const w = asMm(d.x);
+  const depth = asMm(d.y);
+  const h = asMm(d.z);
+  const maxX = envelope.x * slack + 1e-6;
+  const maxY = envelope.y * slack + 1e-6;
+  const unrotated = w <= maxX && depth <= maxY;
+  const rotated = depth <= maxX && w <= maxY;
+  if (!(unrotated || rotated)) return false;
+  if (String(axes).includes("z") && envelope.z) {
+    return h <= envelope.z * slack + 1e-6;
+  }
+  return true;
+}
+
 export function searchParts({
   query = "",
   maxCost = Infinity,
   category,
   minSpecs = {},
   store,
+  dimsMm,
+  maxX,
+  maxY,
+  maxZ,
+  x,
+  y,
+  z,
 } = {}) {
   const q = String(query || "").trim().toLowerCase();
+  const envelope = normalizeDims(dimsMm, { x: x ?? maxX, y: y ?? maxY, z: z ?? maxZ });
   return PARTS.filter((part) => {
     if (part.cost > maxCost) return false;
     if (category && part.category !== category) return false;
     if (store && part.store !== store) return false;
+    if (envelope && !fitsDims(part, envelope)) return false;
     if (q) {
       const hay = `${part.id} ${part.name} ${part.sku} ${part.ikeaArticle || ""} ${part.brand} ${part.category} ${part.material} ${part.shape || ""}`.toLowerCase();
       const tokens = q.split(/\s+/).filter(Boolean);

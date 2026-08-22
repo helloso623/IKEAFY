@@ -1,6 +1,7 @@
 /**
  * Lab → House: a room photo, measurements and a budget become a placement
- * plan. The photo stays on #ar-photo; the overlay draws the piece on top.
+ * plan. Photo + measurements sit in the Lab rails with the bench. AR owns
+ * #ar-photo as the room-camera overlay.
  */
 
 const $ = (id) => document.getElementById(id);
@@ -148,12 +149,30 @@ function notesFor(plan) {
   return lines.join("\n");
 }
 
-export function initHouse({ api, hud = () => {} } = {}) {
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+function fmtMm(dims) {
+  if (!dims) return "";
+  const parts = [dims.x, dims.y, dims.z].map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  return parts.length ? `${parts.map((n) => Math.round(n)).join(" × ")} mm` : "";
+}
+
+export function initHouse({ api, hud = () => {}, onPhoto, onPlan, getSelectedPart, onAdd } = {}) {
   if (!api?.adapt) throw new Error("initHouse requires api.adapt");
 
   const photoInput = $("room-photo");
   const adaptBtn = $("adapt-btn");
   const out = $("adapt-out");
+  const scanBtn = $("scan-btn");
+  const scanOut = $("scan-out");
   const canvas = $("ar-photo");
   if (!adaptBtn || !canvas) {
     return { applyPlan() {}, draw() {}, setActive() {}, hasPhoto: () => false };
@@ -191,9 +210,8 @@ export function initHouse({ api, hud = () => {} } = {}) {
 
   function setActive(on) {
     markPhoto();
-    const show = Boolean(on && (photo || lastPlan));
-    canvas.classList.toggle("hidden", !show);
-    if (show) draw(lastPlan);
+    canvas.classList.toggle("hidden", !on);
+    if (on) draw(lastPlan);
   }
 
   async function adaptRoom() {
@@ -212,6 +230,7 @@ export function initHouse({ api, hud = () => {} } = {}) {
         photoName,
       });
       applyPlan(plan);
+      onPlan?.(plan);
       hud(`Placed ${plan.pick?.name || "a table"} in the room.`);
     } catch (err) {
       const message = err?.message || "Could not place a piece in this room.";
@@ -224,6 +243,91 @@ export function initHouse({ api, hud = () => {} } = {}) {
     adaptRoom();
   });
 
+  function readScanBody() {
+    const budget = readNumber("room-budget", 40);
+    const part = getSelectedPart?.();
+    if (part?.dimsMm && (Number(part.dimsMm.x) > 0 || Number(part.dimsMm.y) > 0)) {
+      return {
+        source: "piece",
+        partId: part.id,
+        name: part.name,
+        dimsMm: { x: part.dimsMm.x, y: part.dimsMm.y, z: part.dimsMm.z },
+        budget,
+        want: "table",
+      };
+    }
+    return {
+      source: "room",
+      widthM: readNumber("room-w", 3.2),
+      depthM: readNumber("room-d", 3.8),
+      budget,
+      want: "table",
+    };
+  }
+
+  function renderScan(result) {
+    if (!scanOut) return;
+    const suggestions = result?.suggestions || [];
+    const scanned = result?.scanned || {};
+    const headline = escapeHtml(result?.headline || "you could end up with this");
+    const where =
+      scanned.source === "piece"
+        ? `Scan of the selected piece · ${escapeHtml(scanned.mm || fmtMm(scanned.dimsMm))}`
+        : `Scan of the room · ${escapeHtml(scanned.mm || fmtMm(scanned.dimsMm))}`;
+    const items = suggestions
+      .map((item) => {
+        const mm = escapeHtml(item.mm || fmtMm(item.dimsMm));
+        const price = money(item.cost ?? item.price);
+        return `<div class="item scan-item">
+          <div class="scan-meta">
+            <span>${escapeHtml(item.name)}</span>
+            <small>${mm}${price ? ` · ${price}` : ""}</small>
+          </div>
+          <button type="button" data-add="${escapeHtml(item.id)}">Add to bench</button>
+        </div>`;
+      })
+      .join("");
+    scanOut.innerHTML = `<p class="scan-kicker">${headline}</p><p class="hint">${where}</p>${
+      items || `<p class="hint">Nothing in the catalog fits these dimensions and budget.</p>`
+    }`;
+  }
+
+  async function scanFits() {
+    if (!api.scan) {
+      hud("Scan is not wired.");
+      return;
+    }
+    if (scanOut) scanOut.textContent = "Scanning the catalog…";
+    hud("Scanning the catalog…");
+    try {
+      const result = await api.scan(readScanBody());
+      renderScan(result);
+      const first = result.suggestions?.[0];
+      hud(first ? `You could end up with ${first.name}.` : "Nothing in the catalog fits.");
+    } catch (err) {
+      const message = err?.message || "Could not scan the catalog.";
+      if (scanOut) scanOut.textContent = message;
+      hud(message);
+    }
+  }
+
+  scanBtn?.addEventListener("click", () => {
+    $("lab-room") && ($("lab-room").open = true);
+    scanFits();
+  });
+
+  scanOut?.addEventListener("click", async (ev) => {
+    const id = ev.target.closest("[data-add]")?.dataset.add;
+    if (!id) return;
+    try {
+      if (onAdd) await onAdd(id);
+      else await api.add(id, { x: 0.25, y: 0.28, z: 0.1 });
+      hud(`Added to the bench.`);
+    } catch (err) {
+      hud(err?.message || "Could not add that piece.");
+    }
+  });
+
   photoInput?.addEventListener("change", (ev) => {
     const file = ev.target.files?.[0];
     if (!file) return;
@@ -231,6 +335,7 @@ export function initHouse({ api, hud = () => {} } = {}) {
     img.onload = () => {
       photo = img;
       markPhoto();
+      onPhoto?.(img);
       draw(lastPlan);
       URL.revokeObjectURL(img.src);
     };
@@ -239,7 +344,7 @@ export function initHouse({ api, hud = () => {} } = {}) {
 
   window.addEventListener("resize", () => {
     const app = $("app");
-    if (app?.dataset.mode === "house" || app?.dataset.mode === "lab") draw(lastPlan);
+    if (app?.dataset.mode === "lab" && app?.dataset.lab === "ar") draw(lastPlan);
   });
 
   return {
