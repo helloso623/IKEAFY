@@ -597,7 +597,7 @@ export function createWorkshop(canvas) {
 
   const floorMap = grayWoodMap({ planks: 12, seed: 2 });
   floorMap.repeat.set(3, 3);
-  // One ground only. Bench occupies y ∈ [-0.06, 0]; the floor sits 2 mm under
+  // One ground only. Bench occupies y in [-0.06, 0]; the floor sits 2 mm under
   // that box so nothing shares y = 0 with the worktop. No GridHelper — it
   // was a second surface on the same plane and flickered through the wood.
   const floor = new THREE.Mesh(
