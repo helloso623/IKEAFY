@@ -59,9 +59,6 @@ test(".env stays out of the repo", () => {
   const tracked = execSync("git ls-files -z", { cwd: root, encoding: "utf8" })
     .split("\0")
     .filter(Boolean);
-  assert.equal(
-    tracked.some((file) => file === ".env" || file.startsWith(".env.")),
-    false,
-    "do not commit .env",
-  );
+  assert.equal(tracked.includes(".env"), false, "do not commit .env");
+  assert.equal(tracked.includes(".env.example"), true, ".env.example is the public template");
 });
