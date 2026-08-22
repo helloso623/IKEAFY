@@ -2424,9 +2424,10 @@ export function createWorkshop(canvas) {
       onPoseCommit = fn;
     },
     getSelected: () => selected?.userData || null,
-    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, voxelCount, triangleCount }) => ({
+    getReconstructed: () => [...reconstructed.values()].map(({ piece, part, positions, voxelCount, triangleCount }) => ({
       piece,
       part,
+      positions,
       voxelCount,
       triangleCount,
     })),
