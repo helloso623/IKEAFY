@@ -241,6 +241,22 @@ function isLabShelfPart(part) {
   return true;
 }
 
+const ELECTRONICS_SEARCH =
+  /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+
+function isElectronicsQuery(query) {
+  return ELECTRONICS_SEARCH.test(String(query || ""));
+}
+
+function showElectronicsOn() {
+  return Boolean($("show-electronics")?.checked);
+}
+
+function filterLabCatalog(parts, typed) {
+  if (showElectronicsOn() || isElectronicsQuery(typed)) return parts;
+  return parts.filter(isLabShelfPart);
+}
+
 async function loadCatalog(raw) {
   const typed = raw == null ? activeQuery() : String(raw);
   const q = { q: catalogNeedle(typed) };
@@ -366,6 +382,10 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
 
 $("cost")?.addEventListener("change", () => {
   costBarrier = $("cost").value;
+  loadCatalog(activeQuery());
+});
+
+$("show-electronics")?.addEventListener("change", () => {
   loadCatalog(activeQuery());
 });
 
@@ -887,7 +907,7 @@ window.addEventListener("keydown", (ev) => {
 
 async function boot() {
   const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
-  for (const p of all.filter(isLabShelfPart)) partsById[p.id] = p;
+  for (const p of filterLabCatalog(all, "")) partsById[p.id] = p;
   const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
   $("agent-bar").innerHTML = roster;
   const studioBar = $("ikea-agent-bar");

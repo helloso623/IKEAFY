@@ -1,5 +1,13 @@
+export function apiRoot(loc = globalThis.location) {
+  if (loc?.protocol === "file:") {
+    const port = Number(globalThis.__IKEALIVE_API_PORT__) || 8787;
+    return `http://127.0.0.1:${port}`;
+  }
+  return "";
+}
+
 async function req(url, opts) {
-  const res = await fetch(url, {
+  const res = await fetch(`${apiRoot()}${url}`, {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });

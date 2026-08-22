@@ -28,6 +28,7 @@ npm run electron
 | Path | What lives here |
 | --- | --- |
 | `client/` | Vite + Three UI (studio, bench, house) |
+| `electron/` | Desktop shell that loads the Vite client + Express API |
 | `server/` | Express API |
 | `guides/` | Official building guides |
 | `docs/` | Short product notes |
