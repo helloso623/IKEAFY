@@ -1,12 +1,53 @@
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import test from "node:test";
 
 import {
   buildPlanSource,
   hardwareBomForProject,
   matchIkeaArticle,
   modelComponents,
+  modelSignature,
 } from "../server/lib/build-plan.js";
+import { addPiece, appendDiyBuild, emptyProject } from "../server/lib/project.js";
+
+test("the DIY BOM follows the current scaled table dimensions and searches hardware by size", () => {
+  const project = emptyProject();
+  project.name = "Changed table";
+  const top = addPiece(project, "lack-top", { x: 0, y: 0.72, z: 0, sx: 1.4, sz: 1.1 });
+  top.sy = 1;
+  for (const [x, z] of [
+    [-0.3, -0.3],
+    [0.3, -0.3],
+    [-0.3, 0.3],
+    [0.3, 0.3],
+  ]) {
+    addPiece(project, "lack-leg", { x, y: 0.35, z });
+  }
+  const bom = hardwareBomForProject(project);
+  assert.equal(bom.ok, true);
+  assert.equal(bom.modelDimensionsMm.x, 770);
+  assert.ok(bom.modelSignature.startsWith("model-"));
+  assert.ok(bom.lines.every((line) => line.searchQuery.includes(line.dimensions)));
+  assert.match(buildPlanSource(bom), /Changed table/);
+});
+
+test("model signatures change with dimensions and old DIY revisions remain in history", () => {
+  const component = {
+    pieceId: "p1",
+    partId: "lack-top",
+    dimsMm: { x: 550, y: 550, z: 50 },
+    poseM: { x: 0, y: 0.4, z: 0 },
+  };
+  const first = modelSignature([component]);
+  const changed = modelSignature([{ ...component, dimsMm: { ...component.dimsMm, x: 700 } }]);
+  assert.notEqual(first, changed);
+
+  const project = emptyProject();
+  appendDiyBuild(project, { id: "old", signature: first, bom: { lines: [{ id: "a" }] } });
+  appendDiyBuild(project, { id: "current", signature: changed, bom: { lines: [{ id: "b" }] } });
+  assert.deepEqual(project.diyHistory.map((entry) => entry.id), ["old", "current"]);
+  assert.equal(project.diyHistory[0].bom.lines[0].id, "a");
+});
 
 function piece(partId, id, scale = {}) {
   return { id, partId, sx: 1, sy: 1, sz: 1, ...scale };

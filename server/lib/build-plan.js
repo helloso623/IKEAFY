@@ -45,8 +45,8 @@ function mm(value) {
 function pieceDims(piece, part) {
   return {
     x: mm(part?.dimsMm?.x * Math.abs(Number(piece?.sx) || 1)),
-    y: mm(part?.dimsMm?.y * Math.abs(Number(piece?.sy) || 1)),
-    z: mm(part?.dimsMm?.z * Math.abs(Number(piece?.sz) || 1)),
+    y: mm(part?.dimsMm?.y * Math.abs(Number(piece?.sz) || 1)),
+    z: mm(part?.dimsMm?.z * Math.abs(Number(piece?.sy) || 1)),
   };
 }
 
@@ -75,9 +75,54 @@ export function modelComponents(project = {}) {
         material: part.material || "",
         ikeaArticle: part.ikeaArticle || null,
         dimsMm: pieceDims(piece, part),
+        poseM: {
+          x: Number(piece.x) || 0,
+          y: Number(piece.y) || 0,
+          z: Number(piece.z) || 0,
+        },
       };
     })
     .filter(Boolean);
+}
+
+export function modelDimensionsMm(components = []) {
+  if (!components.length) return { x: 0, y: 0, z: 0 };
+  const bounds = components.reduce(
+    (box, component) => {
+      const pose = component.poseM || {};
+      const dims = component.dimsMm || {};
+      box.minX = Math.min(box.minX, (Number(pose.x) || 0) * 1000 - dims.x / 2);
+      box.maxX = Math.max(box.maxX, (Number(pose.x) || 0) * 1000 + dims.x / 2);
+      box.minY = Math.min(box.minY, (Number(pose.z) || 0) * 1000 - dims.y / 2);
+      box.maxY = Math.max(box.maxY, (Number(pose.z) || 0) * 1000 + dims.y / 2);
+      box.minZ = Math.min(box.minZ, (Number(pose.y) || 0) * 1000 - dims.z / 2);
+      box.maxZ = Math.max(box.maxZ, (Number(pose.y) || 0) * 1000 + dims.z / 2);
+      return box;
+    },
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity },
+  );
+  return {
+    x: mm(bounds.maxX - bounds.minX),
+    y: mm(bounds.maxY - bounds.minY),
+    z: mm(bounds.maxZ - bounds.minZ),
+  };
+}
+
+export function modelSignature(components = []) {
+  const source = [...components]
+    .sort((a, b) => String(a.pieceId).localeCompare(String(b.pieceId)))
+    .map(
+      (component) =>
+        `${component.partId}:${component.dimsMm.x}x${component.dimsMm.y}x${component.dimsMm.z}` +
+        `@${component.poseM.x.toFixed(3)},${component.poseM.y.toFixed(3)},${component.poseM.z.toFixed(3)}`,
+    )
+    .join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `model-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function furnitureProfile(components) {
@@ -135,6 +180,7 @@ function hardwareLine(id, name, qty, dimensions, shape, why, unitCost, extra = {
     catalogMatch: extra.catalogMatch || null,
     ikeaArticle: extra.ikeaArticle || null,
     sources: (SOURCES[id] || []).map((source) => ({ ...source })),
+    searchQuery: `buy ${dimensions} ${name}`.replace(/\s+/g, " ").trim(),
   };
 }
 
@@ -183,6 +229,7 @@ export function hardwareBomForProject(project = {}) {
   }
   const profile = furnitureProfile(components);
   const ikeaMatch = matchIkeaArticle(components);
+  const dimensionsMm = modelDimensionsMm(components);
   const lines = directHardware(components);
   const add = (line) => {
     if (!lines.some((existing) => existing.id === line.id)) lines.push(line);
@@ -323,6 +370,8 @@ export function hardwareBomForProject(project = {}) {
     name: String(project.name || "Custom furniture").trim() || "Custom furniture",
     scope: "Hardware and non-wood components only",
     components,
+    modelDimensionsMm: dimensionsMm,
+    modelSignature: modelSignature(components),
     profile: {
       tableLike: profile.tableLike,
       shelfLike: profile.shelfLike,

@@ -60,6 +60,7 @@ export function emptyProject() {
     tapes: [],
     joints: [],
     abstractions: [],
+    diyHistory: [],
     labTools: emptyLabTools(),
     selection: null,
     history: { past: [], future: [] },
@@ -429,6 +430,17 @@ export function persistLabTool(project, tool, value) {
     project.sim.lastReport = project.labTools[tool];
   }
   return project.labTools[tool];
+}
+
+/** Keep immutable DIY outputs so a later model edit never overwrites its BOM. */
+export function appendDiyBuild(project, build, limit = 12) {
+  project.diyHistory ||= [];
+  const stored = JSON.parse(JSON.stringify(build));
+  project.diyHistory.push(stored);
+  if (project.diyHistory.length > Math.max(1, Number(limit) || 12)) {
+    project.diyHistory.splice(0, project.diyHistory.length - Math.max(1, Number(limit) || 12));
+  }
+  return stored;
 }
 
 /**
