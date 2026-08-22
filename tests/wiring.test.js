@@ -122,6 +122,41 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
 });
 
+test("upload offers video, image, and 3D instruction controls before Seedance", () => {
+  for (const id of ["render-modes", "render-mode-video", "render-mode-images", "render-mode-scene"]) {
+    assert.ok(markupIds.has(id), `upload markup is missing #${id}`);
+  }
+  assert.match(html, /data-render-mode="video"/);
+  assert.match(html, /data-render-mode="images"/);
+  assert.match(html, /data-render-mode="scene"/);
+  assert.match(html, /Video instructions/);
+  assert.match(html, /Image instructions/);
+  assert.match(html, /3D instructions/);
+  assert.match(html, /Get the Reel/);
+  assert.match(studio, /#render-mode-video/);
+  assert.match(studio, /#render-mode-images/);
+  assert.match(studio, /#render-mode-scene/);
+  assert.match(studio, /chooseRenderMode/);
+  assert.match(studio, /afterGuideReady/);
+  assert.match(studio, /startChosenRender/);
+  assert.match(studio, /ikealiveLog\("render"/);
+  assert.match(studio, /api\.runStart\(\{[\s\S]*?renderMode:/);
+  assert.match(studio, /api\.renderVideo\(\{[\s\S]*?renderMode:/);
+  assert.match(studio, /api\.render\(/);
+  assert.match(studio, /mode !== "video"/);
+  assert.match(apiSource, /ikeafy\/render/);
+  assert.match(apiSource, /^\s{2}render:/m);
+  const index = read("server/index.js");
+  assert.match(index, /\/api\/ikeafy\/render/);
+  assert.match(index, /ikealiveLog\("render"/);
+  const parseCustom = studio.slice(studio.indexOf("async function parseCustom"), studio.indexOf("function saveCustom"));
+  assert.match(parseCustom, /afterGuideReady/);
+  assert.doesNotMatch(parseCustom, /await bootReel\(/);
+  const startOfficial = studio.slice(studio.indexOf("async function startOfficial"), studio.indexOf("async function parseCustom"));
+  assert.match(startOfficial, /afterGuideReady/);
+  assert.doesNotMatch(startOfficial, /await bootReel\(/);
+});
+
 test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
   assert.equal(
     /Unpack the pieces in the photos/.test(studio),
