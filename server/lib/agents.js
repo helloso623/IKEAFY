@@ -10,6 +10,12 @@ import {
   GLINER2_BACKEND,
   GLINER2_MODEL,
 } from "./gliner2.js";
+import {
+  AI_MESH_SHAPES,
+  isMeshBuildAsk,
+  localMeshAction,
+  sanitizeMeshAction,
+} from "./mesh-plan.js";
 
 export const ROSTER = [
   {
@@ -89,6 +95,21 @@ export const ROSTER = [
   },
 ];
 
+export const FURNITURE_DESK_IDS = Object.freeze(["cad", "creative", "assembler"]);
+
+export function isFurnitureBuildAsk(text) {
+  return /\bbuild\s+this\s+furniture\b/i.test(String(text || ""));
+}
+
+export function furnitureBuildDesks() {
+  return FURNITURE_DESK_IDS.map((id) => ROSTER.find((agent) => agent.id === id)).filter(Boolean);
+}
+
+export function manyAgentsNote(desks = furnitureBuildDesks()) {
+  const names = desks.map((desk) => desk.name).join(", ");
+  return `Many agents: ${names} ran in parallel on “build this furniture”.`;
+}
+
 const CAD_HINTS =
   /\b(cad|fusion(?:\s*360)?|parametric|solidworks|step file|stp file|iges|manufactur|extrude|fillet|chamfer|dimensioned drawing)\b/i;
 const EDA_HINTS =
@@ -101,7 +122,7 @@ const HARD_HINTS = /stress|break|aero|flow|weather|rain|heat|cold|firmware|ardui
 const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
 const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
-const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create /i;
+const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create |spawn /i;
 const CATALOG_ASK =
   /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon|leg|lamp)\b/i;
 const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
@@ -112,19 +133,28 @@ const SMALL_QUESTION =
 const COMPLEX_QUESTION =
   /fix|broken|regenerate|redesign|calculate|rewrite|rebuild|why (is|does|did)|stuck for|explain how to|design a|optim/i;
 const BENCH_COMMAND =
-  /\b(add|put|drop|place|generate|make|model|build|create|move|rotate|label|isolate)\b/i;
-const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop )\b/i;
+  /\b(add|put|drop|place|generate|make|model|build|create|spawn|move|rotate|label|isolate)\b/i;
+const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop |spawn )\b/i;
 const ROOM_CREATE_ASK =
   /\b(make|model|build|create|design|furnish|generate)\b[\s\S]*\b(living\s+room|bedroom|dining\s+room|office|room|space|interior)\b/i;
 const GENERIC_TABLE_ASK =
   /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
 const MAKE_TABLE_ASK =
-  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\btables?\b/i;
+  /\b(make|model|build|create|design|generate|add|place|put|drop|spawn|get)\b[\s\S]*\btables?\b/i;
 const MAKE_STOOL_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
 const MAKE_SHELF_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
-const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "studio", "scan", "move"]);
+const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "mesh", "studio", "scan", "move"]);
+const ROUND_TABLE_PART_ID = "generic-round-pedestal-table";
+const ROUND_FORM_HINT = /\b(round(?:ed)?|circular|circle|disc(?:-shaped)?|disk(?:-shaped)?)\b/i;
+const ROUND_TABLE_OBJECT_HINT = /\b(tables?|table[\s-]*tops?|tops?|pedestals?)\b/i;
+const CENTRAL_PEDESTAL_HINT =
+  /\bpedestals?\b|\b(?:one|single|central|center|centre)(?:\s+central)?\s+(?:legs?|supports?|columns?)\b/i;
+const ROUND_TABLE_EDIT_HINT =
+  /\b(spawn|add|place|put|drop|make|model|build|create|generate|get)\b/i;
+const ROUND_TABLE_FOLLOW_UP =
+  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one|the\s+table)\s*[.!]?$/i;
 const QTY_WORDS = {
   one: 1,
   two: 2,
@@ -194,10 +224,12 @@ export function routeAgent(text) {
   if (CAD_HINTS.test(t)) return ROSTER.find((a) => a.id === "cad");
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
+  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
+  if (isMeshBuildAsk(t)) return ROSTER.find((a) => a.id === "creative");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
+  if (isRoundTableDescription(t)) return ROSTER.find((a) => a.id === "creative");
   if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");
   if (ROOM_HINTS.test(t) && !isCatalogAsk(t) && !benchCmd) return ROSTER.find((a) => a.id === "stylist");
-  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
   if (IKEA_HINTS.test(t)) return ROSTER.find((a) => a.id === "assembler");
   if (MOVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "shop");
@@ -251,6 +283,73 @@ function expandPart(part) {
 function positiveNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function isRoundTableDescription(message) {
+  const text = String(message || "");
+  if (/\black\b/i.test(text)) return false;
+  if (/\b(square|rectangular)\b/i.test(text) && !/\bnot\s+(?:a\s+)?(?:square|rectangular)\b/i.test(text)) {
+    return false;
+  }
+  if (
+    /\b(?:round|rounded)\s+(?:off\s+)?(?:the\s+)?(?:corners?|edges?)\b/i.test(text) &&
+    !/\bcircular\b|\bpedestal\b|\b(?:round|rounded)\s+tables?\b/i.test(text)
+  ) {
+    return false;
+  }
+  const hasForm = ROUND_FORM_HINT.test(text);
+  const hasObject = ROUND_TABLE_OBJECT_HINT.test(text);
+  if (!hasForm || !hasObject) return false;
+  return (
+    ROUND_TABLE_EDIT_HINT.test(text) ||
+    CENTRAL_PEDESTAL_HINT.test(text) ||
+    /\b(?:round|rounded|circular)\s+(?:top(?:ped)?\s+)?tables?\b/i.test(text) ||
+    /\bcircular\s+(?:table[\s-]*)?top\b/i.test(text) ||
+    /^\s*like\b/i.test(text)
+  );
+}
+
+function hasRoundTableContext(ctx = {}) {
+  const scenePieces = Array.isArray(ctx.scene?.pieces) ? ctx.scene.pieces : [];
+  if (
+    ctx.scene?.selected?.partId === ROUND_TABLE_PART_ID ||
+    scenePieces.some((piece) => piece?.partId === ROUND_TABLE_PART_ID) ||
+    ctx.project?.pieces?.some((piece) => piece?.partId === ROUND_TABLE_PART_ID)
+  ) {
+    return true;
+  }
+  return (Array.isArray(ctx.history) ? ctx.history : [])
+    .slice(-12)
+    .some((entry) => entry && isRoundTableDescription(entry.content));
+}
+
+function isRoundTableIntent(message, ctx = {}) {
+  const text = String(message || "").trim();
+  if (/\black\b/i.test(text)) return false;
+  if (isRoundTableDescription(text)) return true;
+  if (!hasRoundTableContext(ctx)) return false;
+  return ROUND_TABLE_FOLLOW_UP.test(text) || CENTRAL_PEDESTAL_HINT.test(text);
+}
+
+function geometryForPart(part) {
+  const geometry = part?.specs?.geometry;
+  return geometry && typeof geometry === "object" ? JSON.parse(JSON.stringify(geometry)) : undefined;
+}
+
+function roundTablePlan() {
+  const part = getPart(ROUND_TABLE_PART_ID);
+  if (!part) return null;
+  return {
+    part,
+    label: "round pedestal table",
+    specs: `${Math.round(part.dimsMm.x)} mm diameter × ${Math.round(part.dimsMm.z)} mm high`,
+    action: {
+      type: "add",
+      partId: part.id,
+      pose: { x: 0, y: 0, z: 0 },
+      geometry: geometryForPart(part),
+    },
+  };
 }
 
 function roomFromDescription(message, ctx = {}) {
@@ -508,13 +607,16 @@ export function planCreativeActions(message, ctx = {}) {
   if (ROOM_CREATE_ASK.test(lower)) {
     const room = roomFromDescription(message, ctx);
     actions.push({ type: "room", room });
-    if (/\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
-      const table = genericTablePlan();
+    const wantsRoundTable = isRoundTableIntent(message, ctx);
+    if (wantsRoundTable || /\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
+      const table = wantsRoundTable ? roundTablePlan() : genericTablePlan();
       if (table) {
         actions.push(table.action);
         return {
           handles: true,
-          text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
+          text: wantsRoundTable
+            ? `Spawned an editable ${table.specs} round table with a circular top, one central tapered pedestal, and a disc base in the ${room.widthM}×${room.depthM} m ${room.kind}.`
+            : `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
           actions,
         };
       }
@@ -524,6 +626,17 @@ export function planCreativeActions(message, ctx = {}) {
       text: `Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor and four walls.`,
       actions,
     };
+  }
+
+  if (isRoundTableIntent(message, ctx)) {
+    const table = roundTablePlan();
+    if (table) {
+      return {
+        handles: true,
+        text: `Spawned an editable ${table.specs} round table: circular cylinder top, one central tapered pedestal, and a disc base.`,
+        actions: [table.action],
+      };
+    }
   }
 
   if (
@@ -721,10 +834,12 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
       const part = getPart(action.partId);
       if (!part) continue;
       if (!isLabShelfPart(part)) continue;
+      const geometry = geometryForPart(part);
       out.push({
         type: "add",
         partId: part.id,
         pose: action.pose && typeof action.pose === "object" ? action.pose : {},
+        ...(geometry ? { geometry } : {}),
       });
       continue;
     }
@@ -1028,6 +1143,105 @@ function hasShopCreate(actions) {
   return (Array.isArray(actions) ? actions : []).some((action) => action && SHOP_CREATE_TYPES.has(action.type));
 }
 
+function cadDesk(message, ctx = {}) {
+  void message;
+  const artifact = {
+    kind: "parametric-model",
+    label: "bench-part",
+    parameters: { widthMm: 550, depthMm: 550, heightMm: 450 },
+  };
+  if (ctx.project) persistLabTool(ctx.project, "fusion", artifact);
+  return {
+    text: "Opened a Fusion-like parametric part with editable millimetre dimensions.",
+    actions: [{ type: "cad", tool: "fusion", artifact }],
+  };
+}
+
+function creativeDesk(message, ctx = {}) {
+  const ask = isFurnitureBuildAsk(message) ? "make a table" : message;
+  const planned = planCreativeActions(ask, ctx);
+  if (planned.handles) {
+    applyCreativeActions(ctx.project, planned.actions);
+    const artifact = { kind: "scene", label: "bench-concept", renderer: "blender-like" };
+    if (ctx.project) persistLabTool(ctx.project, "blender", artifact);
+    return {
+      text: planned.text,
+      actions: [...planned.actions, { type: "creative", tool: "blender", artifact }],
+    };
+  }
+  const artifact = { kind: "scene", label: "bench-concept", renderer: "blender-like" };
+  if (ctx.project) persistLabTool(ctx.project, "blender", artifact);
+  return {
+    text: "Creative staged a Blender-like bench scene for form, material and render work.",
+    actions: [{ type: "creative", tool: "blender", artifact }],
+  };
+}
+
+function assemblerDesk(message, ctx = {}) {
+  const guide = isFurnitureBuildAsk(message) ? defaultGuide() : ctx.guide || defaultGuide();
+  if (!isFurnitureBuildAsk(message) && /stuck|expand|help|can't|cannot/.test(String(message || "").toLowerCase())) {
+    const step = Number((String(message).match(/step\s+(\d+)/) || [])[1] || ctx.step || 1);
+    const expanded = expandStep(guide, step, { stuckNote: message });
+    return {
+      text: expanded.step?.detail || "No step.",
+      actions: [{ type: "expand_step", ...expanded }],
+    };
+  }
+  const parsed = isFurnitureBuildAsk(message) ? guide : parseGuide(message);
+  return {
+    text: `Parsed ${parsed.steps.length} steps for ${parsed.title}. Play the film when you are ready.`,
+    actions: [{ type: "ikeafy", guide: parsed }],
+  };
+}
+
+const DESK_RUNNERS = {
+  cad: cadDesk,
+  creative: creativeDesk,
+  assembler: assemblerDesk,
+};
+
+export async function runFurnitureDesks(message, ctx = {}) {
+  ctx = mergeChatContext(ctx);
+  const desks = furnitureBuildDesks();
+  const results = await Promise.all(
+    desks.map(async (agent) => {
+      const runner = DESK_RUNNERS[agent.id];
+      const local = runner ? runner(message, ctx) : { text: "", actions: [] };
+      return { agent, backend: "local-steward", text: local.text, actions: local.actions || [] };
+    }),
+  );
+  const actions = [];
+  const seen = new Set();
+  for (const result of results) {
+    for (const action of result.actions || []) {
+      const key =
+        action.type === "add" || action.type === "add_part"
+          ? `add:${action.partId}:${JSON.stringify(action.pose || {})}`
+          : `${action.type}:${action.tool || action.partId || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      actions.push(action);
+    }
+  }
+  const note = manyAgentsNote(desks);
+  const deskLines = results
+    .map((result) => `${result.agent?.name || "Desk"}: ${result.text}`)
+    .join(" ");
+  return {
+    agent: ROSTER.find((agent) => agent.id === "creative"),
+    backend: "local-steward",
+    text: `${note} ${deskLines}`.trim(),
+    actions,
+    desks: results.map((result) => ({
+      id: result.agent?.id,
+      name: result.agent?.name,
+      backend: result.backend,
+    })),
+    manyAgents: true,
+    from: "many-agents",
+  };
+}
+
 function stewardCanCreate(message, ctx = {}) {
   const text = String(message || "");
   if (planStudioActions(text).handles) return true;
@@ -1123,6 +1337,9 @@ export async function chat(message, ctx = {}) {
   try {
     message = String(message || "").trim();
     ctx = mergeChatContext(ctx);
+    if (isFurnitureBuildAsk(message)) {
+      return runFurnitureDesks(message, ctx);
+    }
     const agent = routeAgent(message);
     const escalate = shouldEscalate(message);
     const creative = isCreativeAsk(message);

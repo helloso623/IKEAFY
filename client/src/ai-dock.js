@@ -98,6 +98,17 @@ export function setAiDockOpen(open, { orb, dock, input } = {}) {
   if (shown) input?.focus?.();
 }
 
+export function setAiDockMax(on, { dock, max } = {}) {
+  const wide = Boolean(on);
+  dock?.classList.toggle("max", wide);
+  if (max) {
+    max.setAttribute("aria-pressed", wide ? "true" : "false");
+    max.textContent = wide ? "Restore" : "Maximize";
+    max.title = wide ? "Restore the small dock" : "Maximize the AI dock";
+  }
+  return wide;
+}
+
 export function renderCommandHistory(node, entries = []) {
   if (!node) return;
   const rows = Array.isArray(entries) ? entries.slice(0, 24) : [];
@@ -120,6 +131,7 @@ export function bindAiDock({
   orb,
   dock,
   close,
+  max,
   sceneNode,
   historyNode,
   input,
@@ -128,8 +140,14 @@ export function bindAiDock({
 } = {}) {
   if (!orb || !dock) return { available: false, open() {}, close() {}, toggle() {} };
 
+  let maxed = false;
+
   function isOpen() {
     return !dock.hidden;
+  }
+
+  function setMax(on) {
+    maxed = setAiDockMax(on, { dock, max });
   }
 
   function refreshScene() {
@@ -162,6 +180,8 @@ export function bindAiDock({
     refreshScene,
     remember,
     isOpen,
+    setMax,
+    isMax: () => maxed,
     open() {
       setOpen(true);
     },
@@ -180,6 +200,10 @@ export function bindAiDock({
   close?.addEventListener("click", (event) => {
     event.preventDefault();
     api.close();
+  });
+  max?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setMax(!maxed);
   });
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isOpen()) api.close();

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSceneContext, setAiDockOpen } from "../client/src/ai-dock.js";
+import { buildSceneContext, setAiDockMax, setAiDockOpen } from "../client/src/ai-dock.js";
 
 test("buildSceneContext lists the selected piece and Lab mode", () => {
   const scene = buildSceneContext({
@@ -41,4 +41,29 @@ test("setAiDockOpen toggles hidden and aria", () => {
   assert.equal(flags.open, true);
   assert.equal(flags["aria-hidden"], "false");
   assert.equal(flags["orb-aria-expanded"], "true");
+});
+
+test("setAiDockMax swaps the dock between small and maximized", () => {
+  const flags = {};
+  const dock = {
+    classList: {
+      toggle(name, on) {
+        flags[name] = on;
+      },
+    },
+  };
+  const max = {
+    textContent: "",
+    title: "",
+    setAttribute(name, value) {
+      flags[`max-${name}`] = value;
+    },
+  };
+  assert.equal(setAiDockMax(true, { dock, max }), true);
+  assert.equal(flags.max, true);
+  assert.equal(flags["max-aria-pressed"], "true");
+  assert.equal(max.textContent, "Restore");
+  assert.equal(setAiDockMax(false, { dock, max }), false);
+  assert.equal(flags.max, false);
+  assert.equal(max.textContent, "Maximize");
 });
