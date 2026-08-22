@@ -8,8 +8,7 @@ import {
   ownedTools,
   pickManualPdfHit,
   findIkeaManual,
-  searchDiyOffers,
-  searchFurniturePieceOffers,
+  searchBuildWayOffers,
   searchToolOffers,
 } from "../server/lib/tavily.js";
 
@@ -80,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("board research asks for dimensioned shaped pieces instead of fasteners", async () => {
+test("ways-to-make research asks for methods and shaped pieces instead of fasteners", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -94,51 +93,21 @@ test("board research asks for dimensioned shaped pieces instead of fasteners", a
     };
   };
   try {
-    const offers = await searchFurniturePieceOffers(
-      [
-        { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
-        { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
-      ],
+    const offers = await searchBuildWayOffers(
+      {
+        modelDimensionsMm: { x: 900, y: 500, z: 740 },
+        cutList: [
+          { qty: 1, name: "table top", dimensions: "900 × 500 × 18 mm" },
+          { qty: 4, name: "table leg", dimensions: "50 × 50 × 722 mm" },
+        ],
+        ways: [],
+      },
       { fetchFn },
     );
-    assert.match(query, /buy cut-to-size furniture board/i);
-    assert.match(query, /tabletop|table legs/i);
+    assert.match(query, /ways to build custom table/i);
+    assert.match(query, /cut list|tabletop|table legs/i);
     assert.match(query, /-screws -bolts -fasteners/);
     assert.equal(offers.length, 1);
-  } finally {
-    if (previous === undefined) delete process.env.TAVILY_API_KEY;
-    else process.env.TAVILY_API_KEY = previous;
-  }
-});
-
-test("DIY research keeps board and hardware offers in separate current-model groups", async () => {
-  const previous = process.env.TAVILY_API_KEY;
-  process.env.TAVILY_API_KEY = "tvly-test";
-  const queries = [];
-  const fetchFn = async (_url, init = {}) => {
-    const query = JSON.parse(init.body).query;
-    queries.push(query);
-    const hardware = /connection hardware/i.test(query);
-    return {
-      ok: true,
-      json: async () => ({
-        results: [{
-          title: hardware ? "Mounting plates" : "Cut tabletop",
-          url: hardware ? "https://example.com/plates" : "https://example.org/top",
-        }],
-      }),
-    };
-  };
-  try {
-    const offers = await searchDiyOffers({
-      modelDimensionsMm: { x: 900, y: 500, z: 740 },
-      cutList: [{ qty: 1, name: "tabletop", dimensions: "900 × 500 × 18 mm" }],
-      hardwareLines: [{ qty: 4, name: "mounting plate", dimensions: "80 × 80 mm" }],
-      ways: [],
-    }, { fetchFn });
-    assert.equal(queries.length, 2);
-    assert.match(queries.find((query) => /connection hardware/i.test(query)), /80 × 80 mm/);
-    assert.deepEqual(new Set(offers.map((offer) => offer.group)), new Set(["boards-and-stock", "hardware"]));
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;

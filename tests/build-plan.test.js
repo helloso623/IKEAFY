@@ -49,7 +49,7 @@ test("model signatures change and old ways remain in history", () => {
   assert.equal(project.diyHistory[0].bom.lines[0].id, "top-a");
 });
 
-test("LACK-sized model yields dimensioned pieces and connection hardware", () => {
+test("LACK-sized model yields a tabletop and legs without a fastener list", () => {
   const plan = buildWaysForProject({
     name: "My side table",
     pieces: [piece("generic-side-table", "table-1")],
@@ -57,8 +57,8 @@ test("LACK-sized model yields dimensioned pieces and connection hardware", () =>
   assert.equal(plan.ikeaMatch.article, "304.499.08");
   assert.deepEqual(plan.cutList.map((line) => [line.role, line.qty]), [["top", 1], ["leg", 4]]);
   assert.ok(plan.cutList.every((line) => line.category === "furniture-piece"));
-  assert.ok(plan.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
-  assert.ok(plan.hardwareLines.some((line) => /screw/i.test(line.name)));
+  assert.equal(plan.hardwareLines, undefined);
+  assert.equal(plan.lines.some((line) => /screw|bolt|fastener|mounting plate/i.test(line.name)), false);
   assert.equal(plan.lines.some((line) => line.sources.some((source) => /mcmaster/i.test(source.url))), false);
 });
 
@@ -116,7 +116,7 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.deepEqual(plan.cutList.map((line) => line.shape), ["circular slab", "tapered cylinder", "circular slab"]);
   assert.ok(plan.ways.some((way) => way.id === "turned-pedestal"));
   assert.equal(plan.cutList[0].dimsMm.x, 900);
-  assert.ok(plan.hardwareLines.some((line) => /connector bolts/i.test(line.name)));
+  assert.equal(plan.hardwareLines, undefined);
 });
 
 test("ways-to-make source is numbered for the IKEAlive parser", () => {
@@ -127,8 +127,7 @@ test("ways-to-make source is numbered for the IKEAlive parser", () => {
   const source = buildPlanSource(plan);
   assert.match(source, /Construction ways:/);
   assert.match(source, /Cut list:/);
-  assert.match(source, /Connection hardware:/);
-  assert.match(source, /shelf brackets|wall screws/i);
+  assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
   assert.match(source, /^1\. Freeze this model revision/m);
   assert.match(source, /^6\. Turn the table upright/m);
 });

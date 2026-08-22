@@ -83,19 +83,14 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   const packet = await response.json();
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /boards, shaped stock, and connection hardware/i);
+  assert.match(packet.bom.scope, /Construction ways, cut stock, tops, legs/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
-  assert.deepEqual(packet.bom.cutList.map((line) => line.role), ["top", "leg"]);
-  assert.ok(packet.bom.hardwareLines.some((line) => /mounting plate/i.test(line.name)));
-  assert.ok(packet.bom.hardwareLines.some((line) => /screw/i.test(line.name)));
+  assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
+  assert.equal(packet.bom.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
-
-  const live = await (await fetch(`${base}/api/project/diy`)).json();
-  assert.equal(live.bom.modelSignature, packet.bom.modelSignature);
-  assert.equal(live.bom.hardwareLines.length, packet.bom.hardwareLines.length);
 
   const moved = await fetch(`${base}/api/project/move`, {
     method: "POST",

@@ -160,33 +160,6 @@ export async function searchBuildWayOffers(build = {}, { fetchFn = fetch } = {})
   return searchOfferQuery(query, key, fetchFn);
 }
 
-/** A separate dimensions-bearing search for the current model's connection hardware. */
-export async function searchHardwareOffers(lines = [], { fetchFn = fetch } = {}) {
-  const key = usableTavilyKey();
-  const items = (lines || [])
-    .slice(0, 10)
-    .map((line) => `${line.qty} ${line.name} ${line.dimensions || ""}`.trim())
-    .filter(Boolean);
-  if (!key || !items.length) return [];
-  const query = `buy furniture connection hardware ${items.join(" OR ")} -lumber -tabletop -wood board`;
-  return searchOfferQuery(query, key, fetchFn);
-}
-
-/**
- * Refresh construction/stock and connection-hardware research together.
- * Group labels keep the two result sets distinct in the live DIY packet.
- */
-export async function searchDiyOffers(build = {}, deps = {}) {
-  const [materials, hardware] = await Promise.all([
-    searchBuildWayOffers(build, deps),
-    searchHardwareOffers(build.hardwareLines || [], deps),
-  ]);
-  return [
-    ...materials.map((offer) => ({ ...offer, group: "boards-and-stock" })),
-    ...hardware.map((offer) => ({ ...offer, group: "hardware" })),
-  ];
-}
-
 function extraLineFromId(id) {
   const part = getPart(id);
   if (part) {
