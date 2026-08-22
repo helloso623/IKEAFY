@@ -4,6 +4,7 @@ import { parseGuide, expandStep, defaultGuide } from "./ikeafy.js";
 import { planRoom } from "./adaptation.js";
 import { sketchFromFunctions } from "./firmware.js";
 import { addPiece } from "./project.js";
+import { usableOpenAiKey } from "./secrets.js";
 
 export const ROSTER = [
   {
@@ -189,7 +190,7 @@ function localReply(message, ctx) {
 }
 
 async function hostedReply(message, ctx, agent) {
-  const key = process.env.OPENAI_API_KEY;
+  const key = usableOpenAiKey();
   if (!key) return null;
   const model =
     agent.role === "hard"
@@ -232,7 +233,7 @@ export async function chat(message, ctx = {}) {
 }
 
 export function hasHostedBrain() {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return Boolean(usableOpenAiKey());
 }
 
 export function systemIssues(projectParts, options) {

@@ -26,6 +26,7 @@ import {
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
+import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom } from "./lib/adaptation.js";
 import {
   addCable,
@@ -310,6 +311,8 @@ function loadDotEnv(file) {
     if (eq < 1) continue;
     const key = trimmed.slice(0, eq);
     const value = trimmed.slice(eq + 1);
-    if (!process.env[key]) process.env[key] = value;
+    if (!process.env[key] || (key === "OPENAI_API_KEY" && !usableOpenAiKey(process.env[key]))) {
+      process.env[key] = value;
+    }
   }
 }
