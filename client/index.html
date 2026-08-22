@@ -40,8 +40,6 @@
           </nav>
           <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
             <button type="button" data-lab="desk" class="on">Bench</button>
-            <button type="button" data-lab="house">House</button>
-            <button type="button" id="scan-btn">Scan</button>
           </nav>
         </div>
         <form id="omnibox-form" class="omnibox-form" role="search">
@@ -195,8 +193,6 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <canvas id="ar-photo" class="hidden" aria-label="Room photo with furniture overlay"></canvas>
-        <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport hooks. Filled by src/lab.js; stay hidden so the CAD view-bar is the only toolbar. -->
         <div id="viewport-strip" class="viewport-strip hidden" aria-hidden="true"></div>
@@ -309,13 +305,11 @@
         </section>
       </aside>
 
-      <!-- ============ LAB — outliner (bodies / scan / room) ============ -->
+      <!-- ============ LAB — outliner (bodies) ============ -->
       <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker desk-space">Bench</span>
-          <strong class="lab-pane-title desk-space">Model / Bodies / Scan</strong>
-          <span class="lab-pane-kicker house-space">House</span>
-          <strong class="lab-pane-title house-space">Room photos / 3D rebuild</strong>
+          <strong class="lab-pane-title desk-space">Model / Bodies</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <button type="button" class="primary bench-upload-cta desk-space" data-go-interface="upload">Upload IKEA instructions →</button>
@@ -384,97 +378,6 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
-          <details class="lab-folder scan-object desk-space" id="scan-object-panel">
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
-              Scan object
-            </summary>
-            <div class="lab-folder-body">
-              <p class="hint lab-hint">Use a plain backdrop. Photos, a walk-around video, or a video URL all work. Scale is local: known object, vanishing line, or tap two points = 1 m.</p>
-              <div class="scan-views">
-                <label class="field" for="scan-front">
-                  <span>Front photo</span>
-                  <input id="scan-front" type="file" accept="image/*" />
-                  <canvas id="scan-front-preview" width="0" height="0" aria-label="Front binary silhouette"></canvas>
-                </label>
-                <label class="field" for="scan-side">
-                  <span>Side photo</span>
-                  <input id="scan-side" type="file" accept="image/*" />
-                  <canvas id="scan-side-preview" width="0" height="0" aria-label="Side binary silhouette"></canvas>
-                </label>
-                <label class="field" for="scan-top">
-                  <span>Top photo</span>
-                  <input id="scan-top" type="file" accept="image/*" />
-                  <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
-                </label>
-              </div>
-              <label class="field file-field" for="scan-video">
-                <span>Video or extra frames</span>
-                <input id="scan-video" type="file" accept="video/*,image/*" multiple />
-              </label>
-              <div class="scan-camera">
-                <video id="scan-camera-preview" class="hidden" autoplay muted playsinline aria-label="Live object scan camera"></video>
-                <div class="row wrap">
-                  <button type="button" id="scan-camera-toggle" class="quiet" aria-pressed="false">Open camera</button>
-                  <button type="button" id="scan-camera-capture" class="quiet" disabled>Capture 3 views</button>
-                </div>
-                <span id="scan-camera-status" class="hint" aria-live="polite">Camera off</span>
-              </div>
-              <div class="scan-phone" id="scan-phone">
-                <button type="button" id="scan-phone-link" class="quiet">Send from phone</button>
-                <div id="scan-phone-card" class="scan-phone-card hidden">
-                  <p class="hint lab-hint">Same Wi‑Fi as this computer. Scan the QR or open the local link and record up to 30s walking the room. Lab pulls frames into room occupancy, cuts the old table footprint, and auto-fits the current table.</p>
-                  <div id="scan-phone-qr" class="scan-phone-qr" aria-hidden="true"></div>
-                  <a id="scan-phone-url" class="scan-phone-url" href="#" target="_blank" rel="noopener">Waiting for a LAN address…</a>
-                  <p class="hint lab-hint" id="scan-phone-status">Waiting for a 30s phone clip…</p>
-                </div>
-              </div>
-              <div class="scan-url-row">
-                <label class="field" for="scan-video-url">
-                  <span>Video URL</span>
-                  <input id="scan-video-url" type="url" inputmode="url" placeholder="http://192.168.1.20/clip.mp4" />
-                </label>
-                <button type="button" id="scan-load-video" class="quiet">Pull frames</button>
-              </div>
-              <p class="hint lab-hint">Walk-arounds can be a local file, a same-Wi-Fi URL, or <strong>Send from phone</strong>. Leave the URL empty to pull the last POST to <code>/api/scan/video</code>.</p>
-              <div class="scan-scale" id="scan-scale-box" data-scale-kind="circumference">
-                <label class="field" for="scan-scale-kind">
-                  <span>Scale from</span>
-                  <select id="scan-scale-kind">
-                    <option value="circumference">Circumference</option>
-                    <option value="length">Known longest length</option>
-                    <option value="known">Known object</option>
-                    <option value="vanishing">Vanishing / horizon</option>
-                    <option value="taps">Tap two points = 1 m</option>
-                  </select>
-                </label>
-                <label class="field" for="scan-scale-mm" data-scale-field="length">
-                  <span>Scale (mm)</span>
-                  <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
-                </label>
-                <label class="field" for="scan-known-object" data-scale-field="known">
-                  <span>Known object</span>
-                  <select id="scan-known-object">
-                    <option value="credit-card">Credit card (85.6 mm)</option>
-                    <option value="a4">A4 paper (210 mm)</option>
-                    <option value="side-table">Side table (550 mm)</option>
-                    <option value="door">Door height (2032 mm)</option>
-                  </select>
-                </label>
-              </div>
-              <canvas id="scan-scale-frame" width="0" height="0" aria-label="Tap two points that are 1 m apart"></canvas>
-              <p class="hint lab-hint" id="scan-scale-hint">Circumference or a known length sets millimetres. Vanishing uses the wall/floor horizon. Tap two points on the frame that are 1 m apart.</p>
-              <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
-              <div class="row wrap scan-after">
-                <button type="button" id="scan-place-room" class="quiet">Place in the room</button>
-                <button type="button" id="scan-bake-plan" class="quiet">Bake IKEAlive plan</button>
-              </div>
-              <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
-                Three silhouettes become a local binary visual hull, then a real triangle mesh.
-                Place it in the 3D room to test position, or bake a custom IKEAlive step plan.
-              </div>
-            </div>
-          </details>
           <!-- Wiring hooks stay hidden. Catalog cards, shop labels, and electronics dumps stay off the Lab. -->
           <div class="hidden" aria-hidden="true">
             <input id="cost" type="number" min="0" step="1" />
@@ -484,72 +387,6 @@
               <div id="catalog"></div>
             </div>
           </div>
-          <details class="lab-folder house-space" id="lab-room" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
-              This room
-            </summary>
-            <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">
-                Upload room photos, or Lab → Scan → <strong>Send from phone</strong> for a ~30s walk. Frames stay on this machine.
-              </p>
-              <label class="field file-field" for="room-photo">
-                <span>Room photo</span>
-                <input id="room-photo" type="file" accept="image/*" />
-              </label>
-              <label class="field file-field" for="room-photos">
-                <span>More room photos (3D rebuild)</span>
-                <input id="room-photos" type="file" accept="image/*" multiple />
-              </label>
-              <label class="field" for="room-scale-kind">
-                <span>Scale from</span>
-                <select id="room-scale-kind">
-                  <option value="measure">Width / depth</option>
-                  <option value="vanishing">Vanishing / horizon</option>
-                  <option value="known">Known object (tap its ends)</option>
-                  <option value="taps">Tap two points = 1 m</option>
-                </select>
-              </label>
-              <label class="field" for="room-known-object" data-room-scale="known">
-                <span>Known object</span>
-                <select id="room-known-object">
-                  <option value="side-table">Side table (550 mm)</option>
-                  <option value="door">Door height (2032 mm)</option>
-                  <option value="credit-card">Credit card (85.6 mm)</option>
-                  <option value="a4">A4 paper (210 mm)</option>
-                </select>
-              </label>
-              <p class="hint lab-hint" id="room-scale-hint">Width and depth set metres. Otherwise the vanishing line, a known object, or two taps = 1 m on the photo.</p>
-              <div class="row wrap lab-dims">
-                <label class="field" for="room-w">
-                  <span>Width (m)</span>
-                  <input id="room-w" type="number" step="0.1" value="3.2" />
-                </label>
-                <label class="field" for="room-d">
-                  <span>Depth (m)</span>
-                  <input id="room-d" type="number" step="0.1" value="3.8" />
-                </label>
-              </div>
-              <label class="field" for="room-budget">
-                <span>Budget ($)</span>
-                <input id="room-budget" type="number" value="40" />
-              </label>
-              <button id="adapt-btn" class="primary house-go">Put a table in there</button>
-              <div class="row wrap house-extra">
-                <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
-                <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
-              </div>
-              <p class="hint" id="room-orbit-hint">Drag the table gizmo to move · drag empty space to orbit · WASD to walk · Space to frame</p>
-              <p class="hint scene-refit-status" id="scene-refit-status" aria-live="polite">Place a table to create a binary room footprint.</p>
-              <div id="design-issues" class="design-issues" aria-live="polite">
-                <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
-              </div>
-              <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish &amp; find ways researches how to make the final table.</p>
-              <div id="adapt-out" class="copy house-notes"></div>
-              <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
-            </div>
-          </details>
         </div>
         <div
           class="lab-split"

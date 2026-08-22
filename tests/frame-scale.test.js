@@ -169,7 +169,6 @@ test("scale and scan reconstruction stay local — no paid depth model", () => {
   const files = [
     "client/src/frame-scale.js",
     "client/src/video-frames.js",
-    "client/src/scan-reconstruct.js",
     "server/lib/scan-video.js",
   ];
   for (const file of files) {

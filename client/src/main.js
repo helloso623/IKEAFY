@@ -2,12 +2,8 @@ import { api } from "./api.js";
 import { bindAiDock, buildSceneContext, captureViewThumb, renderCommandHistory } from "./ai-dock.js";
 import { catalogNeedle, parseBudget } from "./omnibox.js";
 import { sceneContext } from "./scene-context.js";
-import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
-import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
-import { knownObject } from "./frame-scale.js";
-import { assignScanViews, fetchScanInbox, filesFromPostedFrames, filesToPostedFrames, grabLiveFrames, grabVideoFrames, scanVideoProxyUrl } from "./video-frames.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
@@ -23,7 +19,6 @@ let project = { pieces: [], cables: [], tapes: [], chrome: null, netlist: null, 
 let selectedIds = [];
 let costBarrier = "";
 let studio = null;
-let house = null;
 let aiDock = null;
 // KiCad bench: half-drawn wire and the net lit up from the netlist panel.
 let pendingPort = null;
@@ -120,65 +115,9 @@ async function addPartToBench(partId, pose = { x: 0.25, y: 0.28, z: 0.1 }) {
     showPart(part, piece);
   }
   hud(`Added ${part?.name || partId}.`);
-  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   return piece;
 }
 
-house = initHouse({
-  api,
-  hud,
-  onPhoto() {
-    // Fresh photos mean a fresh 3D room — jump straight into it.
-    if (isLab()) setLabSpace("house");
-  },
-  onPlan() {
-    if (isLab()) setLabSpace("house");
-  },
-  onScene() {
-    setMode("lab");
-    setLabSpace("house");
-  },
-  getSelectedPart: () => selectedPiece()?.part || null,
-  // The 3D house places catalog pieces by their footprints and scanned/AI
-  // bodies by the real triangle meshes already visible on the bench.
-  getPieces: () => {
-    const catalogPieces = project.pieces.map((piece) => {
-      const part = partsById[piece.partId];
-      return {
-        id: piece.id,
-        name: part?.name || piece.partId,
-        dimsMm: part?.dimsMm,
-        color: part?.color,
-        shape: part?.shape,
-        x: piece.x,
-        y: piece.y,
-        z: piece.z,
-        rx: piece.rx,
-        ry: piece.ry,
-        rz: piece.rz,
-        sx: piece.sx,
-        sy: piece.sy,
-        sz: piece.sz,
-      };
-    });
-    const scanned = (shop.getReconstructed?.() || []).map(({ piece, part, positions }) => ({
-      id: piece.id,
-      name: part?.name || (piece.generated ? "AI mesh" : "Scanned object"),
-      dimsMm: part?.dimsMm,
-      color: piece.color,
-      shape: piece.generated ? "mesh" : "scan",
-      positions,
-      w: (Number(part?.dimsMm?.x) || 1) / 1000,
-      d: (Number(part?.dimsMm?.y) || 1) / 1000,
-      h: (Number(part?.dimsMm?.z) || 1) / 1000,
-      x: Number(piece.x) || 0,
-      y: Number(piece.y) || 0,
-      z: Number(piece.z) || 0,
-    }));
-    return [...catalogPieces, ...scanned];
-  },
-  onAdd: (partId) => addPartToBench(partId),
-});
 applyChrome(project.chrome);
 showEmptyInspect();
 syncDeleteButton();
@@ -206,7 +145,6 @@ async function refreshProject() {
   void refreshCurrentDiy();
   syncMaterialPanel();
   aiDock?.refreshScene();
-  if (house?.hasScene?.()) house.rebuildHouse3d?.();
 }
 
 function renderBenchPieces() {
@@ -214,7 +152,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask AI.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Sketch, or ask AI.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -378,11 +316,6 @@ function currentScene() {
     partName: picked?.part?.name || "",
     pieceCount: pieces.length,
     pieces,
-    room: {
-      widthM: Number($("room-w")?.value),
-      depthM: Number($("room-d")?.value),
-      budget: Number($("room-budget")?.value),
-    },
     costBarrier: $("cost")?.value || costBarrier,
   });
 }
@@ -478,8 +411,7 @@ function restoreConversation() {
 }
 
 function currentLabSpace() {
-  const space = $("app")?.dataset.lab;
-  return space === "house" ? space : "desk";
+  return "desk";
 }
 
 function scenePieces() {
@@ -532,16 +464,6 @@ function labScenePayload() {
   };
 }
 
-function openScanPanel() {
-  setMode("lab");
-  setLabSpace("desk");
-  const panel = $("scan-object-panel");
-  if (panel) {
-    panel.open = true;
-    panel.scrollIntoView({ block: "nearest" });
-  }
-}
-
 const commandHistory = storedList(COMMAND_HISTORY_KEY)
   .filter((entry) => entry && entry.command)
   .slice(0, 24);
@@ -591,8 +513,6 @@ async function applyShopActions(actions) {
         snap: shop.getSnap(),
       });
       if (result?.piece) shop.applyPose(result.piece);
-    } else if (action.type === "scan") {
-      openScanPanel();
     } else if (action.type === "label") {
       if (action.applied) continue;
       const id = action.id || added.find((p) => p.partId === action.partId)?.id;
@@ -601,14 +521,6 @@ async function applyShopActions(actions) {
       if (action.applied) continue;
       const ids = action.pieceIds?.length ? action.pieceIds : added.map((p) => p.id).filter(Boolean);
       if (ids.length) await api.isolate(ids, action.label || "board");
-    } else if (action.type === "room" && action.room) {
-      setMode("lab");
-      setLabSpace("house");
-      house?.createRoom?.(action.room);
-    } else if (action.type === "adaptation" && action.plan) {
-      setMode("lab");
-      setLabSpace("house");
-      house?.applyPlan(action.plan);
     } else if (action.type === "firmware") {
       continue;
     } else if (action.type === "studio") {
@@ -649,10 +561,6 @@ async function askShopOnce(message) {
       costBarrier: $("cost")?.value || parseBudget(text) || scene.costBarrier || costBarrier,
       step: scene.step || studio?.state?.run?.cursor,
       partId: scene.partId || shop.getSelected()?.part?.id || extra.scene.selected?.partId,
-      room: scene.room || {
-        widthM: Number($("room-w")?.value) || undefined,
-        depthM: Number($("room-d")?.value) || undefined,
-      },
       scene: extra.scene,
       photoName: extra.photoName,
       history: priorHistory,
@@ -673,12 +581,6 @@ async function askShopOnce(message) {
     });
     await applyShopActions(reply.actions);
     await refreshProject();
-    if (
-      house?.hasScene?.() &&
-      (reply.actions || []).some((action) => action?.type === "add" || action?.type === "mesh" || action?.type === "room")
-    ) {
-      house.rebuildHouse3d?.();
-    }
 
     aiDock?.refreshScene();
     recordCommand(text, reply.text || "Done.");
@@ -901,7 +803,6 @@ shop.onPoseCommit((pose) => {
 });
 
 shop.onSculpt?.(({ mode, name }) => {
-  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   hud(`Sculpted ${name} (${mode}). It stays this shape on the bench.`);
 });
 
@@ -939,7 +840,6 @@ async function commitPose(pose) {
 
   if (shop.updateReconstructedPose?.(pose)) {
     renderBenchPieces();
-    if (house?.hasScene?.()) house.rebuildHouse3d?.();
     void refreshCurrentDiy();
     hud(pose.generated ? "Placed AI mesh locally." : "Placed scanned mesh locally.");
     return;
@@ -955,7 +855,6 @@ async function commitPose(pose) {
   project.edit = result.edit || project.edit;
   if (result.piece) shop.applyPose(result.piece);
   syncEditButtons();
-  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   void refreshCurrentDiy();
   hud("Placed.");
 }
@@ -1201,38 +1100,30 @@ function isLab() {
   return $("app")?.dataset.mode === "lab";
 }
 
-function labHud(space) {
-  if (space === "house") return "House — the room photos rebuilt in 3D. Drag to orbit, scroll to zoom.";
+function labHud() {
   return project.pieces.length
-
-    ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask AI, or measure the room below.";
-
+    ? "Bench — pick a piece to move, rotate, or edit."
+    : "Bench — sketch a piece, or ask AI to add one.";
 }
 
 function setLabSpace(space) {
-  if (space !== "house") space = "desk";
+  space = "desk";
   const app = $("app");
   if (!app) return;
   app.dataset.lab = space;
   app.classList.toggle("lab-desk", space === "desk");
-  app.classList.toggle("lab-house", space === "house");
   for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
     btn.classList.toggle("on", btn.dataset.lab === space);
   }
-  const room = $("lab-room");
-  if (room && space === "house") room.open = true;
-  house?.setSpace(space);
-  if (isLab()) hud(labHud(space));
+  if (isLab()) hud(labHud());
   shop.resize();
 
   if (isLab()) ikealiveLog("lab", "space", space);
   aiDock?.refreshScene();
-
 }
 
 function setMode(mode) {
-  if (mode === "lab" || mode === "house" || mode === "bench" || mode === "desk") {
+  if (mode === "lab" || mode === "bench" || mode === "desk") {
     mode = "lab";
   } else {
     mode = "ikeafy";
@@ -1240,7 +1131,7 @@ function setMode(mode) {
   const app = $("app");
   const inLab = mode === "lab";
   app.dataset.mode = mode;
-  app.classList.remove("mode-bench", "mode-ikeafy", "mode-house", "mode-lab");
+  app.classList.remove("mode-bench", "mode-ikeafy", "mode-lab");
   app.classList.add(`mode-${mode}`);
   app.classList.toggle("lab-open", inLab);
   for (const btn of document.querySelectorAll("#modes button")) {
@@ -1261,8 +1152,6 @@ function setMode(mode) {
     applyChrome(project.chrome);
     setLabSpace(app.dataset.lab || "desk");
   } else {
-    house?.setSpace("desk");
-    stopScanCamera();
     aiDock?.close?.();
   }
   shop.resize();
@@ -1286,476 +1175,6 @@ for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
     setLabSpace(btn.dataset.lab);
   });
 }
-
-let scanSequence = 0;
-let scanTaps = [];
-let scanTapImage = null;
-let scanInputFrames = {};
-let scanCameraStream = null;
-let scanCameraStart = null;
-
-function setFileInput(input, file) {
-  if (!input || !file || typeof DataTransfer !== "function") return;
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  input.files = transfer.files;
-}
-
-function setScanViews(views = {}) {
-  scanInputFrames = { ...scanInputFrames, ...views };
-  for (const view of ["front", "side", "top"]) {
-    if (views[view]) setFileInput($(`scan-${view}`), views[view]);
-  }
-}
-
-function setScanCameraStatus(message) {
-  const status = $("scan-camera-status");
-  if (status) status.textContent = message;
-  const toggle = $("scan-camera-toggle");
-  if (toggle) {
-    toggle.textContent = scanCameraStream ? "Close camera" : "Open camera";
-    toggle.setAttribute("aria-pressed", String(Boolean(scanCameraStream)));
-  }
-  const capture = $("scan-camera-capture");
-  if (capture) capture.disabled = !scanCameraStream;
-}
-
-function stopScanCamera() {
-  for (const track of scanCameraStream?.getTracks?.() || []) track.stop();
-  scanCameraStream = null;
-  scanCameraStart = null;
-  const preview = $("scan-camera-preview");
-  if (preview) {
-    preview.pause();
-    preview.srcObject = null;
-    preview.classList.add("hidden");
-  }
-  setScanCameraStatus("Camera off");
-}
-
-async function startScanCamera() {
-  if (scanCameraStream || scanCameraStart) return scanCameraStream || scanCameraStart;
-  const preview = $("scan-camera-preview");
-  if (!preview || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Camera access is unavailable in this browser.");
-  }
-  setScanCameraStatus("Opening camera…");
-  scanCameraStart = navigator.mediaDevices
-    .getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-    })
-    .then(async (stream) => {
-      scanCameraStream = stream;
-      preview.srcObject = stream;
-      preview.classList.remove("hidden");
-      await preview.play();
-      setScanCameraStatus("Camera live · frame the front, then move around the object");
-      return stream;
-    })
-    .finally(() => {
-      scanCameraStart = null;
-    });
-  return scanCameraStart;
-}
-
-async function captureScanCamera() {
-  const output = $("scan-reconstruct-out");
-  const capture = $("scan-camera-capture");
-  if (!scanCameraStream) await startScanCamera();
-  if (capture) capture.disabled = true;
-  setScanCameraStatus("Capturing front / side / top · move around the object…");
-  try {
-    const grabbed = await grabLiveFrames($("scan-camera-preview"), { count: 3, intervalMs: 1400 });
-    setScanViews(grabbed.views);
-    if (grabbed.views.front) await showScanTapSource(grabbed.views.front);
-    const message = "Camera captured 3 views. Reconstruct to turn them into a mesh.";
-    if (output) output.textContent = message;
-    setScanCameraStatus(message);
-    hud(message);
-  } finally {
-    if (capture) capture.disabled = !scanCameraStream;
-  }
-}
-
-function scanScaleKind() {
-  return $("scan-scale-kind")?.value || "circumference";
-}
-
-function syncScanScaleUi() {
-  const kind = scanScaleKind();
-  $("scan-scale-box")?.setAttribute("data-scale-kind", kind);
-  const hint = $("scan-scale-hint");
-  const canvas = $("scan-scale-frame");
-  const tapping = kind === "taps" || kind === "known";
-  if (canvas) canvas.classList.toggle("is-live", tapping && canvas.width > 0);
-  if (!hint) return;
-  if (kind === "taps") {
-    hint.textContent =
-      scanTaps.length < 2
-        ? "Tap two points on the frame that are 1 m apart."
-        : `1 m across ${Math.round(Math.hypot(scanTaps[1].x - scanTaps[0].x, scanTaps[1].y - scanTaps[0].y))} px. Reconstruct when the three views are ready.`;
-  } else if (kind === "known") {
-    const spec = knownObject($("scan-known-object")?.value) || knownObject("credit-card");
-    hint.textContent = `The silhouette is a ${spec.name} (${Math.round(spec.wMm)} mm). Or tap its ends on the frame.`;
-  } else if (kind === "vanishing") {
-    hint.textContent = "The wall/floor vanishing line and a 1.5 m eye-level camera size the object. No paid depth model.";
-  } else if (kind === "length") {
-    hint.textContent = "Type the object's longest millimetre length.";
-  } else {
-    hint.textContent = "Type the circumference in millimetres, or switch to tap / known object / vanishing.";
-  }
-}
-
-function drawScanTapFrame() {
-  const canvas = $("scan-scale-frame");
-  if (!canvas || !scanTapImage) return;
-  const width = scanTapImage.videoWidth || scanTapImage.naturalWidth || scanTapImage.width;
-  const height = scanTapImage.videoHeight || scanTapImage.naturalHeight || scanTapImage.height;
-  if (!width || !height) return;
-  const scale = Math.min(1, 480 / Math.max(width, height));
-  canvas.width = Math.max(16, Math.round(width * scale));
-  canvas.height = Math.max(16, Math.round(height * scale));
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(scanTapImage, 0, 0, canvas.width, canvas.height);
-  if (scanTaps.length) {
-    ctx.strokeStyle = "#7ac7b7";
-    ctx.fillStyle = "#7ac7b7";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (const point of scanTaps) ctx.lineTo(point.x, point.y);
-    if (scanTaps.length > 1) ctx.stroke();
-    for (const point of scanTaps) {
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  canvas.classList.add("is-live");
-  syncScanScaleUi();
-}
-
-async function showScanTapSource(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = url;
-  });
-  URL.revokeObjectURL(url);
-  scanTapImage = img;
-  drawScanTapFrame();
-}
-
-async function rememberScanFrames(files) {
-  try {
-    const frames = await filesToPostedFrames(files);
-    if (frames.length) await api.scanVideoPost({ frames });
-  } catch {
-    // Inbox is optional — local frames still land on the Scan panel.
-  }
-}
-
-async function applyPostedScanFrames(frames) {
-  const files = filesFromPostedFrames(frames);
-  if (!files.length) throw new Error("No stills in that POST.");
-  const views = assignScanViews(files);
-  setScanViews(views);
-  if (views.front) await showScanTapSource(views.front);
-  const message = `Loaded ${files.length} posted frame${files.length === 1 ? "" : "s"} into front, side and top.`;
-  const output = $("scan-reconstruct-out");
-  if (output) output.textContent = message;
-  hud(message);
-  ikealiveLog("scan", "posted frames", { count: files.length });
-}
-
-async function pullScanInbox() {
-  const output = $("scan-reconstruct-out");
-  if (output) output.textContent = "Pulling the last POST to /api/scan/video…";
-  hud("Pulling posted scan video or frames…");
-  const inbox = await fetchScanInbox("");
-  if (inbox.kind === "frames") {
-    await applyPostedScanFrames(inbox.frames);
-    return;
-  }
-  if (!inbox.blob) throw new Error("No posted scan yet.");
-  const url = URL.createObjectURL(inbox.blob);
-  try {
-    await pullScanVideo(url);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function pullScanVideo(source) {
-  const output = $("scan-reconstruct-out");
-  if (output) output.textContent = "Pulling stills from the video locally…";
-  hud("Pulling scan frames from the video…");
-  const grabbed = await grabVideoFrames(source, { count: 3 });
-  const views = grabbed.views;
-  setScanViews(views);
-  if (views.front) await showScanTapSource(views.front);
-  await rememberScanFrames(grabbed.files);
-  const message = `Pulled ${grabbed.files.length} frames for front, side and top. Scale is still local — tap 1 m, a known object, or vanishing.`;
-  if (output) output.textContent = message;
-  hud(message);
-  ikealiveLog("scan", "video frames", { count: grabbed.files.length });
-}
-
-$("scan-scale-kind")?.addEventListener("change", syncScanScaleUi);
-$("scan-known-object")?.addEventListener("change", syncScanScaleUi);
-$("scan-camera-toggle")?.addEventListener("click", async () => {
-  if (scanCameraStream) {
-    stopScanCamera();
-    return;
-  }
-  try {
-    await startScanCamera();
-  } catch (err) {
-    const message = err?.message || "Could not open the camera.";
-    setScanCameraStatus(message);
-    hud(message);
-  }
-});
-$("scan-camera-capture")?.addEventListener("click", async () => {
-  try {
-    await captureScanCamera();
-  } catch (err) {
-    const message = err?.message || "Could not capture camera frames.";
-    setScanCameraStatus(message);
-    hud(message);
-  }
-});
-$("scan-scale-frame")?.addEventListener("click", (ev) => {
-  const kind = scanScaleKind();
-  if (kind !== "taps" && kind !== "known") return;
-  const canvas = $("scan-scale-frame");
-  if (!canvas?.width) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width;
-  const y = ((ev.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height;
-  scanTaps = [...scanTaps, { x, y }].slice(-2);
-  drawScanTapFrame();
-});
-$("scan-front")?.addEventListener("change", () => {
-  scanInputFrames.front = $("scan-front")?.files?.[0] || null;
-  showScanTapSource(scanInputFrames.front);
-});
-$("scan-side")?.addEventListener("change", () => {
-  scanInputFrames.side = $("scan-side")?.files?.[0] || null;
-});
-$("scan-top")?.addEventListener("change", () => {
-  scanInputFrames.top = $("scan-top")?.files?.[0] || null;
-});
-$("scan-video")?.addEventListener("change", async () => {
-  const files = [...($("scan-video")?.files || [])];
-  if (!files.length) return;
-  const video = files.find((file) => file.type.startsWith("video/"));
-  const images = files.filter((file) => file.type.startsWith("image/"));
-  try {
-    if (video) {
-      const url = URL.createObjectURL(video);
-      try {
-        await pullScanVideo(url);
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    } else if (images.length) {
-      setScanViews({ front: images[0], side: images[1] || images[0], top: images[2] || images[0] });
-      await showScanTapSource(images[0]);
-      hud(`Loaded ${images.length} still${images.length === 1 ? "" : "s"} into front / side / top.`);
-    }
-  } catch (err) {
-    const message = err?.message || "Could not read those frames.";
-    const output = $("scan-reconstruct-out");
-    if (output) output.textContent = message;
-    hud(message);
-  }
-});
-$("scan-load-video")?.addEventListener("click", async () => {
-  const raw = $("scan-video-url")?.value?.trim();
-  try {
-    if (!raw) {
-      await pullScanInbox();
-      return;
-    }
-    await pullScanVideo(scanVideoProxyUrl(raw, ""));
-  } catch (err) {
-    const message = err?.message || "Could not pull frames from that URL.";
-    const output = $("scan-reconstruct-out");
-    if (output) output.textContent = message;
-    hud(message);
-  }
-});
-
-syncScanScaleUi();
-
-$("scan-btn")?.addEventListener("click", () => {
-  setMode("lab");
-  setLabSpace("desk");
-  const panel = $("scan-object-panel");
-  if (panel) {
-    panel.open = true;
-    panel.scrollIntoView({ block: "nearest" });
-  }
-  hud("Scan — photos, a video, or Send from phone for a ~30s room walk.");
-});
-
-$("scan-reconstruct")?.addEventListener("click", async () => {
-  const button = $("scan-reconstruct");
-  const output = $("scan-reconstruct-out");
-  const files = {
-    front: $("scan-front")?.files?.[0] || scanInputFrames.front,
-    side: $("scan-side")?.files?.[0] || scanInputFrames.side,
-    top: $("scan-top")?.files?.[0] || scanInputFrames.top,
-  };
-  if (!files.front || !files.side || !files.top) {
-    const message = "Choose front, side and top photos first.";
-    if (output) output.textContent = message;
-    hud(message);
-    return;
-  }
-  button.disabled = true;
-  if (output) output.textContent = "Segmenting silhouettes and carving a binary visual hull…";
-  hud("Reconstructing locally from three silhouettes…");
-  try {
-    // Let the busy label paint before the CPU-only voxel pass starts.
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    const result = await reconstructFromFiles(files, {
-      scaleMm: Number($("scan-scale-mm")?.value),
-      scaleKind: scanScaleKind(),
-      knownId: $("scan-known-object")?.value,
-      taps: scanTaps,
-      tapMetres: scanScaleKind() === "known" ? (knownObject($("scan-known-object")?.value)?.wMm || 550) / 1000 : 1,
-      frameSize: $("scan-scale-frame")?.width
-        ? { width: $("scan-scale-frame").width, height: $("scan-scale-frame").height }
-        : undefined,
-      resolution: 28,
-    });
-    for (const viewName of ["front", "side", "top"]) {
-      drawSilhouettePreview($(`scan-${viewName}-preview`), result.masks[viewName]);
-    }
-    scanSequence += 1;
-    let id = `scan-mesh-${scanSequence}`;
-    const used = new Set(shop.getReconstructed?.().map((entry) => entry.piece.id) || []);
-    while (used.has(id)) id = `scan-mesh-${++scanSequence}`;
-    const added = shop.addReconstructedMesh({
-      id,
-      name: `Scanned object ${scanSequence}`,
-      positions: result.positions,
-      dimensionsMm: result.dimensionsMm,
-      voxelCount: result.voxelCount,
-      triangleCount: result.triangleCount,
-    });
-    selectedIds = [id];
-    renderBenchPieces();
-    showPart(added.part, added.piece);
-    shop.frameSelected?.();
-    const dims = result.dimensionsMm;
-    const method = result.scale?.method || scanScaleKind();
-    const summary =
-      `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
-      `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
-      `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm · scale ${method}.`;
-    if (output) output.textContent = `${summary} Place it in the room to test position, or bake a custom IKEAlive plan.`;
-    hud("Scanned mesh is on the bench — place it in the room or bake an IKEAlive plan.");
-    if (house?.hasScene?.() || house?.hasPhoto?.()) house.rebuildHouse3d?.();
-  } catch (err) {
-    const message = err?.message || "Could not reconstruct those photos.";
-    if (output) output.textContent = message;
-    hud(message);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-$("back-ikealive")?.addEventListener("click", (ev) => {
-  ev.preventDefault();
-  setMode("ikeafy");
-});
-
-function latestScan() {
-  const all = shop.getReconstructed?.() || [];
-  return all.find((entry) => entry.piece.id === selectedIds[0]) || all.at(-1) || null;
-}
-
-$("scan-place-room")?.addEventListener("click", () => {
-  const scan = latestScan();
-  if (!scan) {
-    hud("Scan an object first, then place it in the room.");
-    return;
-  }
-  setMode("lab");
-  setLabSpace("house");
-  const room = house?.rebuildHouse3d?.() || house?.showScene?.();
-  house?.showScene?.();
-  hud(
-    room
-      ? `Placed ${scan.part?.name || "the scan"} in the 3D room — drag to orbit, WASD to walk.`
-      : "Open House after a room photo, then place the scan.",
-  );
-});
-
-$("scan-bake-plan")?.addEventListener("click", async () => {
-  const scan = latestScan();
-  if (!scan) {
-    hud("Scan an object first, then bake an IKEAlive plan.");
-    return;
-  }
-  hud("Baking a custom IKEAlive step plan…");
-  try {
-    const guide = await api.scanPlan({
-      name: scan.part?.name || "Scanned object",
-      dimsMm: scan.part?.dimsMm,
-    });
-    setMode("ikeafy");
-    const view = await studio?.startFromGuide?.(guide.raw, { label: guide.title });
-    hud(
-      view?.ok === false
-        ? view.reason || "Could not start the custom plan."
-        : `Custom IKEAlive plan for ${guide.title} — ${guide.steps?.length || 0} steps.`,
-    );
-  } catch (err) {
-    hud(err?.message || "Could not bake that IKEAlive plan.");
-  }
-});
-
-$("scene-bake-plan")?.addEventListener("click", async () => {
-  const snapshot = house?.snapshot?.();
-  if (!snapshot?.model || !snapshot?.room) {
-    hud("Place the current table in a 3D room before scanning the model + scene.");
-    return;
-  }
-  const button = $("scene-bake-plan");
-  button.disabled = true;
-  hud("Scanning the current model, room fit, binary footprint, and design checks…");
-  try {
-    const raw = house.planSource();
-    const parsed = await api.parseGuide(
-      raw,
-      "Keep the baked dimensions, placement, binary-footprint removal, and generated design checks.",
-      { scene: snapshot },
-    );
-    if (!parsed?.steps?.length) throw new Error("The baked model + scene did not produce steps.");
-    setMode("ikeafy");
-    window.setIkealiveInterface?.("watch");
-    const view = await studio?.startFromGuide?.(raw, {
-      label: `${snapshot.model.name || "Current table"} model + room scan`,
-      instructions: "Use the baked current model and room scene; do not substitute an older table revision.",
-    });
-    hud(
-      view?.ok === false
-        ? view.reason || "Could not start the model + scene plan."
-        : `Model + scene baked into IKEAlive — ${parsed.steps.length} parsed to-do steps.`,
-    );
-  } catch (error) {
-    hud(error?.message || "Could not bake the current model + scene.");
-  } finally {
-    button.disabled = false;
-  }
-});
 
 $("chat-form")?.addEventListener("submit", async (ev) => {
   ev.preventDefault();

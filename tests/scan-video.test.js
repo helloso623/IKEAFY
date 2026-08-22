@@ -74,57 +74,21 @@ test("phone room video is a 30s LAN inbox", () => {
   }
 });
 
-test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", () => {
+test("the API proxies scan video and stores it for a later pull", () => {
   const server = read("server/index.js");
-  const html = read("client/index.html");
   const phone = read("server/phone-upload.html");
-  const main = read("client/src/main.js");
-  const house = read("client/src/house.js");
-  const readme = read("README.md");
   const vite = read("client/vite.config.js");
   assert.match(server, /\/api\/scan\/video/);
   assert.match(server, /\/phone-upload/);
   assert.match(vite, /\/phone-upload/);
   assert.match(server, /parseVideoUrl/);
   assert.match(server, /isAllowedOrigin/);
-  assert.match(html, /id="scan-video"/);
-  assert.match(html, /id="scan-video-url"/);
-  assert.match(html, /id="scan-camera-preview"/);
-  assert.match(html, /id="scan-camera-capture"/);
-  assert.match(html, /Send from phone/);
-  assert.match(html, /id="scan-phone-link"/);
-  assert.match(html, /id="scan-phone-url"/);
-  assert.match(html, /id="scan-phone-qr"/);
-  assert.doesNotMatch(html, /data-lab="ar"/);
-  assert.match(html, /id="scan-scale-frame"/);
-  assert.match(html, /Tap two points/);
-  assert.match(html, /id="room-scale-kind"/);
-  assert.match(html, /\/api\/scan\/video/);
   assert.match(phone, /30s/);
   assert.match(phone, /\/api\/scan\/video/);
   assert.match(phone, /MAX_MS = 30_000/);
   assert.match(phone, /capture="environment"/);
   assert.match(phone, /occupancy.*auto-fit/i);
-  assert.match(main, /grabVideoFrames/);
-  assert.match(main, /grabLiveFrames/);
-  assert.match(main, /getUserMedia/);
-  assert.match(main, /addReconstructedMesh/);
-  assert.match(main, /resolveScanScale|scaleKind/);
-  assert.match(house, /resolveRoomScale/);
-  assert.match(house, /room-scale-kind/);
-  assert.match(house, /applyRoomFrames/);
-  assert.match(house, /scan-phone-url/);
-  assert.match(readme, /Phone upload \(LAN\)/);
-  assert.match(readme, /Send from phone/);
-  assert.match(readme, /phone-upload/);
-  assert.match(readme, /\/api\/scan\/video/);
-  assert.match(readme, /occupancy.*auto-fit/i);
-  assert.match(readme, /ways to make (?:that|the) final table/i);
-  assert.match(html, /occupancy cut and auto-fit into an IKEAlive plan/i);
-
   assert.match(server, /app\.post\("\/api\/scan\/video"/);
-  assert.match(main, /pullScanInbox/);
-  assert.match(main, /scanVideoPost/);
 });
 
 test("POST stores video bytes and frames for a later GET inbox pull", () => {
@@ -148,28 +112,6 @@ test("POST stores video bytes and frames for a later GET inbox pull", () => {
   assert.equal(video.kind, "video");
   assert.equal(inboxGetPayload().kind, "video");
   assert.equal(inboxGetPayload().buffer.toString(), "ftypisom");
-});
-
-test("the phone QR encodes a LAN phone-upload URL", async () => {
-  const { qrMatrix, qrSvg } = await import("../client/src/qr.js");
-  const url = "http://192.168.1.20:5173/phone-upload";
-  const matrix = qrMatrix(url);
-  assert.ok(matrix.length >= 25 && matrix.length === matrix[0].length);
-  const finder = (row, col) => {
-    for (let y = 0; y < 7; y += 1) {
-      for (let x = 0; x < 7; x += 1) {
-        const on = x === 0 || x === 6 || y === 0 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
-        if (matrix[row + y][col + x] !== (on ? 1 : 0)) return false;
-      }
-    }
-    return true;
-  };
-  assert.equal(finder(0, 0), true);
-  assert.equal(finder(0, matrix.length - 7), true);
-  assert.equal(finder(matrix.length - 7, 0), true);
-  const svg = qrSvg(url);
-  assert.match(svg, /<svg/);
-  assert.match(svg, /fill="#111"/);
 });
 
 test("multipart scan posts split into a video part and image frames", () => {

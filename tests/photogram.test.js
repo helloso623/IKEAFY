@@ -192,47 +192,8 @@ test("scanned and bench furniture is placed from millimetre dims, clamped in-roo
   assert.ok(huge.x <= huge.w / 2 + 0.02 + room.widthM, "an oversized piece still clamps near the room");
 });
 
-test("the room panel takes many photos and the stage has a 3D scene canvas", () => {
-  const html = read("client/index.html");
-  assert.match(html, /<input id="room-photos"[^>]*multiple/);
-  assert.doesNotMatch(html, /data-lab="ar"/);
-  assert.match(html, /id="scan-camera-preview"[^>]*autoplay[^>]*playsinline/);
-  assert.match(html, /id="scan-camera-capture"/);
-  assert.match(html, /id="room-scene"/);
-  assert.match(html, /id="house-view-btn"/);
-  assert.match(html, /id="scan-phone-url"/);
-  assert.match(html, /id="room-photo"/, "the single room photo input stays");
-  const css = read("client/src/styles.css");
-  assert.match(css, /#app\.mode-lab\[data-lab="house"\] #room-scene/, "the same scene shows in House");
-  assert.doesNotMatch(css, /data-lab="ar"/);
-});
-
-test("house.js regenerates the house as a textured 3D scene", () => {
-  const house = read("client/src/house.js");
-  assert.match(house, /from "\.\/photogram\.js"/);
-  assert.match(house, /WebGLRenderer/);
-  assert.match(house, /OrbitControls/);
-  assert.match(house, /rebuildHouse3d/);
-  assert.match(house, /PlaneGeometry/, "the floor is a textured plane");
-  assert.match(house, /wallBoxes/, "walls come from the vanishing-line heuristic");
-  assert.match(house, /CanvasTexture/, "surfaces are textured from the photos");
-  assert.match(house, /room-photos/);
-  assert.match(house, /applyRoomFrames/, "the 30s phone clip becomes room frames");
-  assert.match(house, /scan-phone-url/);
-  assert.match(house, /api\.adapt/, "adapt still works");
-  assert.match(house, /api\.scan/, "the catalog scan still works");
-  assert.match(house, /scanFits\(\)/, "the room scan keeps its trigger");
-  assert.match(house, /makeGenericSideTable/, "the 3D table is a neutral editable placeholder, not a gray box");
-  assert.match(house, /frameRoomCamera/, "the camera frames the room");
-  assert.match(house, /KeyW/, "WASD walks around the room");
-  assert.match(house, /overlayFootprintPx/, "the AR overlay scales the table to room metres");
-  assert.match(house, /resolveRoomScale/, "room metres come from measurements, vanishing, known object, or two taps");
-  assert.match(house, /room-scale-kind/);
-});
-
-test("the bench hands its pieces — including scanned meshes — to the house", () => {
+test("the bench still exposes scanned meshes for other features", () => {
   const main = read("client/src/main.js");
-  assert.match(main, /getPieces/);
   assert.match(main, /getReconstructed/);
   const workshop = read("client/src/workshop.js");
   assert.match(workshop, /getReconstructed:[\s\S]{0,260}positions/, "reconstructions expose their triangles");

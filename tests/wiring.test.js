@@ -17,7 +17,6 @@ const read = (file) => readFileSync(path.join(root, file), "utf8");
 const html = read("client/index.html");
 const main = read("client/src/main.js");
 const studio = read("client/src/studio.js");
-const house = read("client/src/house.js");
 const lab = read("client/src/lab.js");
 const apiSource = read("client/src/api.js");
 
@@ -43,11 +42,6 @@ test("every id the studio reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `studio.js looks for ids that index.html does not define: ${missing}`);
 });
 
-test("every id house.js reaches for exists in the markup", () => {
-  const missing = [...idsUsedIn(house)].filter((id) => !markupIds.has(id));
-  assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
-});
-
 test("every id lab-layout.js reaches for exists in the markup", () => {
   const layout = read("client/src/lab-layout.js");
   const missing = [...idsUsedIn(layout)].filter((id) => !markupIds.has(id));
@@ -66,7 +60,7 @@ test("main.js and the studio do not both own the same control", () => {
 test("every api call the client makes is exported by the api client", () => {
   const exported = new Set([...apiSource.matchAll(/^\s{2}([\w]+):/gm)].map((m) => m[1]));
   const used = new Set(
-    [...`${main}\n${studio}\n${house}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
+    [...`${main}\n${studio}`.matchAll(/\bapi\.([\w]+)\(/g)].map((m) => m[1]),
   );
   const missing = [...used].filter((name) => !exported.has(name));
   assert.deepEqual(missing, [], `client calls api methods that do not exist: ${missing}`);
@@ -352,62 +346,22 @@ test("dead simulation controls stay out of the Lab", () => {
   assert.doesNotMatch(lab, /Run sim|data-sim|simRun/);
 });
 
-test("House is a live Lab form: photos, plan, cheaper fits, overlay", () => {
-  for (const id of ["room-photo", "room-photos", "room-w", "room-d", "room-budget", "adapt-btn", "adapt-out", "ar-photo", "room-scene", "scan-btn", "scan-out", "scan-phone-url", "scan-phone-link"]) {
-    assert.ok(markupIds.has(id), `House markup is missing #${id}`);
-  }
-  assert.match(main, /initHouse/);
-  assert.match(main, /back-ikealive/);
-  assert.match(html, /id="lab-room"/);
-  assert.equal(/id="house-drawer"/.test(html), false, "House is not a far drawer");
-  assert.match(house, /api\.adapt/);
-  assert.match(house, /api\.scan/);
-  assert.match(house, /you could end up with this/);
-  assert.match(house, /Add to bench/);
-  assert.match(house, /CHEAPER FITS/);
-  assert.match(house, /drawImage/);
-  assert.match(house, /drawPiece|fillRect/);
-  assert.match(apiSource, /^\s{2}adapt:/m);
-  assert.match(apiSource, /^\s{2}scan:/m);
-  assert.match(apiSource, /^\s{2}scanPlan:/m);
-  assert.match(html, /id="scan-place-room"/);
-  assert.match(html, /id="scan-bake-plan"/);
-  assert.match(html, /id="room-orbit-hint"/);
-  assert.match(main, /scan-place-room/);
-  assert.match(main, /scan-bake-plan/);
-  assert.match(main, /startFromGuide/);
-  assert.match(studio, /startFromGuide/);
-  const startFromGuide = studio.slice(studio.indexOf("async function startFromGuide"), studio.indexOf("async function startOfficial"));
-  assert.match(startFromGuide, /afterGuideReady/);
-  assert.doesNotMatch(startFromGuide, /await bootReel\(/);
-  assert.match(house, /makeGenericSideTable/);
-  assert.match(house, /KeyW/);
-  assert.match(house, /maxPolarAngle = Math.PI \/ 2/);
-  assert.doesNotMatch(html, /id="sim-toggle"/);
-  assert.doesNotMatch(html, /id="reset-sim"/);
-  assert.doesNotMatch(html, /id="print-btn"/);
-});
-
-test("Lab spaces are Bench and House; camera/video live under Scan", () => {
+test("Lab spaces are Bench only; House and Scan were removed", () => {
   const spacesAt = html.indexOf('id="lab-spaces"');
   assert.ok(spacesAt > 0, "Lab space switcher must exist");
   const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
   assert.match(spaces, /data-lab="desk"/);
   assert.match(spaces, />Bench</);
-  assert.match(spaces, /data-lab="house"/);
+  assert.doesNotMatch(spaces, /data-lab="house"/);
   assert.doesNotMatch(spaces, /data-lab="ar"/);
-  assert.match(spaces, /id="scan-btn"/);
-  assert.ok(spaces.indexOf('data-lab="house"') < spaces.indexOf('id="scan-btn"'), "Scan sits after House");
-  assert.match(html, /id="scan-camera-preview"/);
-  assert.match(html, /id="scan-video"/);
+  assert.doesNotMatch(spaces, /id="scan-btn"/);
+  assert.doesNotMatch(html, /id="ar-photo"/);
+  assert.doesNotMatch(html, /id="room-scene"/);
+  assert.doesNotMatch(html, /id="scan-object-panel"/);
+  assert.doesNotMatch(html, /id="lab-room"/);
   assert.match(html, /id="view"/);
-  assert.match(html, /id="ar-photo"/);
   assert.match(html, /id="catalog-well"/);
   assert.match(html, /id="delete-piece"/);
-  const left = html.slice(html.indexOf("lab-browser"), html.indexOf("lab-viewport"));
-  assert.match(left, /id="room-photo"/);
-  assert.match(left, /id="room-w"/);
-  assert.match(left, /id="adapt-btn"/);
   assert.match(main, /setLabSpace/);
   assert.match(main, /data-lab/);
   assert.match(main, /dataset\.mode === "lab" && isLab\(\)/);
@@ -455,7 +409,6 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /api\.isolate\(/);
   assert.match(main, /shop\.setCamera/);
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
-  assert.match(main, /action\.type === "scan"/);
   assert.match(main, /action\.type === "move"/);
   assert.match(main, /buildSceneContext|labScenePayload/);
   assert.match(main, /photoName/);
