@@ -1027,6 +1027,22 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 
 #electronics-only h2 { font-size: 1.1rem; margin: 0.9rem 0 0.4rem; }
 
+.edit-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.15rem;
+}
+.edit-bar button.on,
+#edit-bar button[aria-pressed="true"] {
+  border-color: var(--ink);
+}
+#app.mode-lab .edit-bar button.on,
+#app.mode-lab #edit-bar button[aria-pressed="true"] {
+  border-color: var(--lab-line);
+  background: var(--lab-raised);
+}
+
 /* ------------------------------------------------------- House: simple form */
 
 .house-plate {
@@ -1620,12 +1636,23 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   gap: 0.2rem;
 }
 
+.lab-view-tools {
+  pointer-events: auto;
+}
+
 .lab-tool {
   padding: 0.18rem 0.45rem;
   border: 1px solid transparent;
   border-radius: var(--lab-radius);
   color: var(--lab-soft);
   font-weight: 500;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lab-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .lab-tool.on {
@@ -1721,4 +1748,66 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 @media (max-width: 1100px) {
   .lab-viewport { display: none !important; }
   .lab-filter { grid-template-columns: 1fr; }
+}
+
+/* -------------------------------------------- Lab: Viewport / Sim strip
+   A Blender-ish bar floating over #view: frame + shading on the left,
+   modifiers-lite in the middle, the stacked behavior sim on the right.
+   Lives in its own #viewport-strip node so sibling toolbars stay untouched. */
+.viewport-strip {
+  position: absolute;
+  top: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  max-width: min(94%, 64rem);
+  padding: 0.35rem 0.65rem;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.viewport-strip.hidden { display: none; }
+.viewport-strip .vs-group { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.viewport-strip .vs-sep { width: 1px; height: 1.15rem; background: var(--line-strong); }
+.viewport-strip button { padding: 0.22rem 0.68rem; font-size: 0.78rem; }
+.viewport-strip .vs-seg {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.viewport-strip .vs-seg button { border: 0; border-radius: 0; }
+.viewport-strip .chip {
+  background: var(--paper-deep);
+  border-color: transparent;
+  color: var(--soft);
+}
+.viewport-strip .chip.on { background: var(--ink); color: var(--card); }
+
+.vs-out {
+  position: absolute;
+  top: 3.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  max-width: min(92%, 46rem);
+  padding: 0.5rem 0.85rem;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: 400 0.78rem/1.5 var(--mono);
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.vs-out:empty, .vs-out.hidden { display: none; }
+
+@media (max-width: 1100px) {
+  .viewport-strip { top: 0.5rem; border-radius: var(--radius-sm); }
+  .vs-out { top: 5.4rem; }
 }

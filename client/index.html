@@ -302,14 +302,15 @@
 
       <div class="lab-viewport" aria-hidden="true">
         <div class="lab-view-bar">
-          <div class="lab-view-tools">
-            <span class="lab-tool on">Select</span>
-            <span class="lab-tool">Orbit</span>
-            <span class="lab-tool">Pan</span>
-            <span class="lab-tool">Zoom</span>
+          <div class="lab-view-tools" id="edit-tools">
+            <button type="button" class="lab-tool on" data-edit="translate">Move</button>
+            <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
+            <button type="button" class="lab-tool" data-edit="scale">Scale</button>
             <span class="lab-tool-rule"></span>
-            <span class="lab-tool">Measure</span>
-            <span class="lab-tool">Section</span>
+            <button type="button" class="lab-tool on" data-snap aria-pressed="true">Snap</button>
+            <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
+            <button type="button" class="lab-tool" data-undo disabled>Undo</button>
+            <button type="button" class="lab-tool" data-redo disabled>Redo</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>
@@ -332,7 +333,7 @@
         <div class="lab-status">
           <span>Ready</span>
           <span>Grid 10 mm</span>
-          <span>Snap</span>
+          <span id="snap-flag">Snap on</span>
           <span>Units mm</span>
         </div>
       </div>
@@ -351,8 +352,22 @@
                 <span class="lab-param-key">Selection</span>
                 <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
               </div>
-              <div class="row lab-actions">
-                <button id="delete-piece" disabled>Delete piece</button>
+              <div id="edit-bar" class="edit-bar">
+                <div class="row wrap">
+                  <button type="button" id="edit-move" data-edit="translate" class="on">Move</button>
+                  <button type="button" id="edit-rotate" data-edit="rotate">Rotate</button>
+                  <button type="button" id="edit-scale" data-edit="scale">Scale</button>
+                  <button type="button" id="edit-snap" aria-pressed="true">Snap</button>
+                </div>
+                <div class="row wrap lab-actions">
+                  <button type="button" id="duplicate-piece" disabled>Duplicate</button>
+                  <button type="button" id="delete-piece" disabled>Delete piece</button>
+                </div>
+                <div class="row wrap">
+                  <button type="button" id="undo-edit" disabled>Undo</button>
+                  <button type="button" id="redo-edit" disabled>Redo</button>
+                </div>
+                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
               </div>
             </div>
           </details>

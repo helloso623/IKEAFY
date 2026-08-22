@@ -40,12 +40,60 @@ function selectedPieceId() {
 }
 
 function syncDeleteButton() {
-  const btn = $("delete-piece");
-  if (!btn) return;
+  syncEditButtons();
+}
+
+function poseHint(piece) {
+  if (!piece) return "Click a piece to move it. G move, R rotate, S scale.";
+  const mm = (n) => Math.round((Number(n) || 0) * 1000);
+  const deg = (n) => Math.round(((Number(n) || 0) * 180) / Math.PI);
+  return `${mm(piece.x)} × ${mm(piece.z)} mm · ${deg(piece.ry)}° · ×${Number(piece.sx || 1).toFixed(1)}`;
+}
+
+function syncEditButtons() {
   const available = Boolean(selectedPieceId());
-  btn.disabled = !available;
-  btn.classList.toggle("refuses", !available);
-  btn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
+  const edit = project.edit || {};
+  const deleteBtn = $("delete-piece");
+  if (deleteBtn) {
+    deleteBtn.disabled = !available;
+    deleteBtn.classList.toggle("refuses", !available);
+    deleteBtn.title = available ? "Delete this piece" : "Pick a piece, then Delete.";
+  }
+  const dup = $("duplicate-piece");
+  if (dup) {
+    dup.disabled = !available;
+    dup.title = available ? "Duplicate this piece" : "Pick a piece, then Duplicate.";
+  }
+  const undoBtn = $("undo-edit");
+  if (undoBtn) undoBtn.disabled = !edit.canUndo;
+  const redoBtn = $("redo-edit");
+  if (redoBtn) redoBtn.disabled = !edit.canRedo;
+  for (const btn of document.querySelectorAll("[data-undo]")) btn.disabled = !edit.canUndo;
+  for (const btn of document.querySelectorAll("[data-redo]")) btn.disabled = !edit.canRedo;
+  for (const btn of document.querySelectorAll("[data-duplicate]")) btn.disabled = !available;
+  const pose = $("edit-pose");
+  if (pose) {
+    const picked = selectedPiece();
+    pose.textContent = available
+      ? `${poseHint(picked?.piece || shop.getSelectedPose())}. Delete / Ctrl+D / Ctrl+Z.`
+      : "Click a piece to move it. G move, R rotate, S scale.";
+  }
+  const mode = shop.getMode?.() || "translate";
+  for (const btn of document.querySelectorAll("[data-edit]")) {
+    btn.classList.toggle("on", btn.dataset.edit === mode);
+  }
+  const snapOn = shop.getSnap?.() !== false;
+  const snapBtn = $("edit-snap");
+  if (snapBtn) {
+    snapBtn.classList.toggle("on", snapOn);
+    snapBtn.setAttribute("aria-pressed", snapOn ? "true" : "false");
+  }
+  for (const btn of document.querySelectorAll("[data-snap]")) {
+    btn.classList.toggle("on", snapOn);
+    btn.setAttribute("aria-pressed", snapOn ? "true" : "false");
+  }
+  const flag = $("snap-flag");
+  if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
 }
 
 function money(n) {
@@ -101,7 +149,8 @@ async function refreshProject() {
   const lostSelection = selectedIds.length > 0 && still.length === 0;
   selectedIds = still;
   if (lostSelection) showEmptyInspect();
-  syncDeleteButton();
+  else if (selectedIds[0]) shop.select(selectedIds[0]);
+  syncEditButtons();
   $("cables").innerHTML = project.cables
     .map(
       (c) =>
@@ -119,11 +168,13 @@ function renderBenchPieces() {
     list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
     return;
   }
+  const current = selectedPieceId();
   list.innerHTML = project.pieces
     .map((piece) => {
       const part = partsById[piece.partId];
       const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
-      return `<div class="item" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      const on = piece.id === current ? " on" : "";
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
     })
     .join("");
 }
@@ -287,6 +338,7 @@ $("catalog").addEventListener("click", async (ev) => {
   const part = partsById[id];
   if (piece && part) {
     selectedIds = [piece.id];
+    shop.select(piece.id);
     showPart(part, piece);
   }
   hud(`Added ${part?.name || id}.`);
@@ -302,10 +354,11 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
   const id = ev.target.closest("[data-piece]")?.dataset.piece;
   if (id) {
     selectedIds = [id];
+    shop.select(id);
     const piece = project.pieces.find((p) => p.id === id);
     const part = partsById[piece?.partId];
     if (part) showPart(part, piece);
-    else syncDeleteButton();
+    else syncEditButtons();
   }
 });
 
@@ -380,9 +433,9 @@ function showPart(part, piece) {
     const plugs = (part.ports || []).map((x) => x.id);
     if (plugs.length) lines.push(`Plugs: ${plugs.join(", ")}`);
   }
-  lines.push("Delete takes this off the bench.");
+  lines.push("G move · R rotate · S scale · Ctrl+D duplicate · Ctrl+Z undo.");
   inspect(lines.join("\n"));
-  syncDeleteButton();
+  syncEditButtons();
   syncFunctionStrip();
 }
 
@@ -390,11 +443,17 @@ shop.onSelect((data) => {
   if (!data?.piece) {
     selectedIds = [];
     showEmptyInspect();
-    syncDeleteButton();
+    syncEditButtons();
+    renderBenchPieces();
     return;
   }
   selectedIds = [data.piece.id];
   showPart(data.part, data.piece);
+  renderBenchPieces();
+});
+
+shop.onPoseCommit((pose) => {
+  commitPose(pose);
 });
 
 $("lab-btns").addEventListener("click", async (ev) => {
@@ -543,6 +602,64 @@ $("flash-btn").addEventListener("click", async () => {
   playLedFrames(run);
 });
 
+async function commitPose(pose) {
+  if (!pose?.id) return;
+  const result = await api.move({ ...pose, snap: shop.getSnap() });
+  if (result?.ok === false) {
+    hud(result.error || "Could not move that piece.");
+    return;
+  }
+  const piece = project.pieces.find((p) => p.id === pose.id);
+  if (piece && result.piece) Object.assign(piece, result.piece);
+  project.edit = result.edit || project.edit;
+  if (result.piece) shop.applyPose(result.piece);
+  syncEditButtons();
+  hud("Placed.");
+}
+
+function setEditMode(mode) {
+  shop.setMode(mode);
+  syncEditButtons();
+  hud(mode === "rotate" ? "Rotate the piece." : mode === "scale" ? "Scale the piece." : "Move the piece.");
+}
+
+function setSnap(on) {
+  shop.setSnap(on);
+  syncEditButtons();
+  hud(on ? "Snap to 10 mm / 15°." : "Snap off.");
+}
+
+async function duplicateSelected() {
+  const id = selectedPieceId();
+  if (!id) return hud("Pick a piece, then Duplicate.");
+  const result = await api.duplicate(id);
+  if (result?.ok === false) return hud(result.error || "Could not duplicate that piece.");
+  await refreshProject();
+  if (result.piece?.id) {
+    selectedIds = [result.piece.id];
+    shop.select(result.piece.id);
+    const part = partsById[result.piece.partId];
+    if (part) showPart(part, result.piece);
+  }
+  hud(`Duplicated ${partsById[result.piece?.partId]?.name || "that piece"}.`);
+}
+
+async function undoLastEdit() {
+  const result = await api.undo();
+  if (result?.ok === false) return hud(result.error || "Nothing to undo.");
+  selectedIds = result.selection ? [result.selection] : selectedIds;
+  await refreshProject();
+  hud("Undid the last edit.");
+}
+
+async function redoLastEdit() {
+  const result = await api.redo();
+  if (result?.ok === false) return hud(result.error || "Nothing to redo.");
+  selectedIds = result.selection ? [result.selection] : selectedIds;
+  await refreshProject();
+  hud("Redid the last edit.");
+}
+
 async function removePiece(id) {
   if (!id) return;
   const result = await api.remove(id);
@@ -562,6 +679,23 @@ $("delete-piece").addEventListener("click", () => {
   const id = selectedPieceId();
   if (!id) return hud("Pick a piece, then Delete.");
   removePiece(id);
+});
+
+$("duplicate-piece")?.addEventListener("click", () => duplicateSelected());
+$("undo-edit")?.addEventListener("click", () => undoLastEdit());
+$("redo-edit")?.addEventListener("click", () => redoLastEdit());
+$("edit-snap")?.addEventListener("click", () => setSnap(!shop.getSnap()));
+$("edit-bar")?.addEventListener("click", (ev) => {
+  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
+  if (mode) setEditMode(mode);
+});
+$("edit-tools")?.addEventListener("click", (ev) => {
+  const mode = ev.target.closest("[data-edit]")?.dataset.edit;
+  if (mode) setEditMode(mode);
+  if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
+  if (ev.target.closest("[data-duplicate]")) duplicateSelected();
+  if (ev.target.closest("[data-undo]")) undoLastEdit();
+  if (ev.target.closest("[data-redo]")) redoLastEdit();
 });
 
 function setMode(mode) {
@@ -619,9 +753,28 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
-  if (ev.key === "g") shop.setMode("translate");
-  if (ev.key === "r") shop.setMode("rotate");
-  if (ev.key === "s" && ev.shiftKey) shop.setMode("scale");
+  const key = ev.key.toLowerCase();
+  if ((ev.ctrlKey || ev.metaKey) && key === "z") {
+    ev.preventDefault();
+    if (ev.shiftKey) redoLastEdit();
+    else undoLastEdit();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && key === "y") {
+    ev.preventDefault();
+    redoLastEdit();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && key === "d") {
+    ev.preventDefault();
+    duplicateSelected();
+    return;
+  }
+  if (key === "g") setEditMode("translate");
+  if (key === "r") setEditMode("rotate");
+  if (key === "s") setEditMode("scale");
+  if (key === "n") setSnap(!shop.getSnap());
+  if (key === "f") shop.frameSelected?.();
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     const id = selectedPieceId();
