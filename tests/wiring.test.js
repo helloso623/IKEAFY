@@ -134,6 +134,10 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.equal(existsSync(path.join(root, "src/app")), false, "src/app is the old Next store");
   assert.equal(existsSync(path.join(root, "next.config.mjs")), false);
   assert.equal(existsSync(path.join(root, "tsconfig.json")), false);
+  assert.equal(existsSync(path.join(root, ".next")), false, ".next is leftover Next build output");
+  assert.equal(existsSync(path.join(root, "next-env.d.ts")), false);
+  assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
+
 });
 
 test("empty inspect is quiet — no ports, no Arduino", () => {
