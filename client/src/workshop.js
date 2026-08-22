@@ -42,6 +42,86 @@ function grayWoodMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) 
   return tex;
 }
 
+/* --------------------------------------------------------- furniture grain
+   Original printed-grain generator in the spirit of foil-on-particleboard
+   flat-pack: long wavy streaks, faint cathedral arcs, and short birch
+   flecks over a white base so the material color supplies the tint. The
+   pattern is procedural and ours — inspired by the look, copied from
+   nothing. Canvases are cached by recipe; textures stay per-material so
+   each part can own its repeat. */
+
+const grainCanvasCache = new Map();
+
+function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true } = {}) {
+  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}`;
+  const cached = grainCanvasCache.get(key);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  let s = (seed * 7919 + 104729) % 233280;
+  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 46; i += 1) {
+    const x = rand() * size;
+    const drift = (rand() - 0.5) * size * 0.14;
+    ctx.strokeStyle = `rgba(112, 88, 56, ${(contrast * (0.3 + rand() * 0.7)).toFixed(4)})`;
+    ctx.lineWidth = 0.6 + rand() * 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, -8);
+    ctx.bezierCurveTo(x + drift * 0.4, size * 0.33, x - drift * 0.6, size * 0.66, x + drift, size + 8);
+    ctx.stroke();
+  }
+  if (arcs) {
+    for (let i = 0; i < 5; i += 1) {
+      ctx.strokeStyle = `rgba(104, 82, 52, ${(contrast * 0.5).toFixed(4)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(rand() * size, rand() * size, 8 + rand() * 22, 60 + rand() * 160, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  if (flecks) {
+    for (let i = 0; i < 130; i += 1) {
+      ctx.fillStyle = `rgba(96, 74, 46, ${(contrast * (0.35 + rand() * 0.65)).toFixed(4)})`;
+      ctx.fillRect(rand() * size, rand() * size, 1 + rand() * 1.4, 2 + rand() * 7);
+    }
+  }
+  grainCanvasCache.set(key, canvas);
+  return canvas;
+}
+
+function grainTexture(recipe, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(grainCanvas(recipe));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
+
+// Grain scale reads physical: one canvas tile spans roughly 280 mm.
+function grainRepeat(mm) {
+  return THREE.MathUtils.clamp((Number(mm) || 280) / 280, 1, 4);
+}
+
+function seedFrom(part) {
+  let n = 3;
+  for (const ch of String(part?.id || "x")) n = (n * 31 + ch.charCodeAt(0)) % 997;
+  return n + 1;
+}
+
+/* Shared hardware finishes. Every mesh that uses these is flagged keepColor,
+   so piece tints never touch the shared instances. */
+const zincMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.34, metalness: 0.82 });
+const glideMat = new THREE.MeshStandardMaterial({ color: 0x2e2a26, roughness: 0.88, metalness: 0.02 });
+const insertRingMat = new THREE.MeshStandardMaterial({ color: 0x8f9499, roughness: 0.38, metalness: 0.72 });
+const insertHoleMat = new THREE.MeshStandardMaterial({ color: 0x241d14, roughness: 0.92, metalness: 0 });
+const footPlasticMat = new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.8, metalness: 0.04 });
+
 function pcbMap(hex = "#1b4d8c") {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -174,25 +254,53 @@ function stdMat(opts) {
   });
 }
 
+/* Foil laminate: printed grain under a thin melamine sheen. White foil keeps
+   the grain to a whisper; birch foil shows streaks and flecks. */
+function foilMaterial(part, hex, kind) {
+  const color = new THREE.Color(hex);
+  if (kind === "white") color.lerp(new THREE.Color(0xffffff), 0.55);
+  else color.lerp(new THREE.Color(0xfaf4e6), 0.2);
+  const map = grainTexture(
+    { contrast: kind === "white" ? 0.035 : 0.085, seed: seedFrom(part), flecks: kind !== "white" },
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  return new THREE.MeshPhysicalMaterial({
+    color,
+    map,
+    roughness: 0.55,
+    metalness: 0.02,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.55,
+  });
+}
+
+function openWoodMaterial(part, hex) {
+  const map = grainTexture(
+    { contrast: 0.17, seed: seedFrom(part), flecks: true, arcs: true },
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  return stdMat({ color: new THREE.Color(hex), map, roughness: 0.74, metalness: 0 });
+}
+
 function materialFor(part, piece) {
   const hex = part.color || piece.color || PALE;
-  const color = new THREE.Color(hex);
   const texture = part.texture || piece.texture;
-  const foil = texture === "birch-foil" || texture === "white-foil";
-  if (foil) color.lerp(new THREE.Color(0xf4f4f4), 0.62);
+  if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
+  if (texture === "white-foil") return foilMaterial(part, hex, "white");
+  if (texture === "oak-open") return openWoodMaterial(part, hex);
+  if (texture === "powder-coat")
+    return stdMat({ color: new THREE.Color(hex), roughness: 0.42, metalness: 0.35 });
+  const color = new THREE.Color(hex);
   const metal = texture === "metal" || part.material === "steel";
   const pcb = /^pcb-/.test(texture || "");
   const mat = stdMat({
     color,
-    roughness: metal ? 0.28 : foil ? 0.58 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
-    metalness: metal ? 0.72 : foil ? 0.03 : pcb ? 0.12 : 0.05,
+    roughness: metal ? 0.28 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
+    metalness: metal ? 0.72 : pcb ? 0.12 : 0.05,
     emissive: part.firmwareRole === "led" ? new THREE.Color(0x2a2a2a) : 0x000000,
   });
-  if (foil) {
-    const map = grayWoodMap({ planks: 8, seed: part.id.length + 3 });
-    map.repeat.set(2, 1);
-    mat.map = map;
-  }
   if (pcb) mat.map = pcbMap(hex);
   return mat;
 }
@@ -215,41 +323,131 @@ function add(parent, geo, mat, x = 0, y = 0, z = 0, keepColor = false) {
   return mesh;
 }
 
-function makeSlab(w, h, d, mat) {
+/* Flat-pack tabletop: a rounded-edge board wrapped in edge band, foil skins
+   laminated on the faces, and zinc screw-insert sockets on the underside. */
+function makeSlab(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
-  const bevel = Math.min(0.005, h * 0.22, w * 0.012);
-  const edge = mat.clone();
-  edge.color = mat.color.clone().multiplyScalar(0.86);
-  add(g, new THREE.BoxGeometry(w - bevel * 2, h * 0.72, d - bevel * 2), edge, 0, -h * 0.04, 0);
-  add(g, new THREE.BoxGeometry(w, Math.max(h * 0.26, bevel), d), mat, 0, h * 0.32, 0);
-  add(g, new THREE.BoxGeometry(w - bevel, h * 0.12, d - bevel), edge, 0, -h * 0.4, 0);
+  const r = Math.max(0.0015, Math.min(0.0045, h * 0.28, w * 0.02, d * 0.02));
+  const band = mat.clone();
+  band.color = mat.color.clone().multiplyScalar(0.93);
+  band.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.08);
+  if (mat.map) {
+    // Edge-band grain runs along the board edge, not through the thickness.
+    const bandMap = mat.map.clone();
+    bandMap.center.set(0.5, 0.5);
+    bandMap.rotation = Math.PI / 2;
+    bandMap.needsUpdate = true;
+    band.map = bandMap;
+  }
+  const core = add(g, new RoundedBoxGeometry(w, h, d, 3, r), band);
+  core.userData.tintMul = 0.93;
+  const skinT = Math.max(0.0006, Math.min(0.0012, h * 0.08));
+  const lift = 0.0004;
+  add(g, new THREE.BoxGeometry(w - r * 2, skinT, d - r * 2), mat, 0, h / 2 - skinT / 2 + lift, 0);
+  const under = add(
+    g,
+    new THREE.BoxGeometry(w - r * 2, skinT, d - r * 2),
+    band.clone(),
+    0,
+    -h / 2 + skinT / 2 - lift,
+    0,
+  );
+  under.userData.tintMul = 0.93;
+  for (const [ix, iz] of opts.inserts || []) {
+    add(g, new THREE.CylinderGeometry(0.0055, 0.0055, 0.0014, 18), insertRingMat, ix, -h / 2 - lift, iz, true);
+    add(g, new THREE.CylinderGeometry(0.0028, 0.0028, 0.002, 12), insertHoleMat, ix, -h / 2 - lift - 0.0003, iz, true);
+  }
+  return g;
+}
+
+/* Chunky flat-pack leg: a square post with softly rounded vertical edges,
+   an end-grain cap, a plastic glide pad underneath, and the double-ended
+   screw stud waiting on top. */
+function makeWoodLeg(w, h, d, mat) {
+  const g = new THREE.Group();
+  const padH = Math.max(0.002, Math.min(0.004, h * 0.02));
+  const r = Math.min(w, d) * 0.14;
+  if (mat.map) {
+    // Grain runs the length of the leg, one tile across its narrow faces.
+    const legMap = mat.map.clone();
+    legMap.repeat.set(1, 1);
+    legMap.needsUpdate = true;
+    mat.map = legMap;
+  }
+  add(g, new RoundedBoxGeometry(w, h - padH, d, 2, r), mat, 0, padH / 2, 0);
+  const cap = mat.clone();
+  cap.color = mat.color.clone().multiplyScalar(0.9);
+  const capMesh = add(g, new THREE.BoxGeometry(w * 0.88, 0.001, d * 0.88), cap, 0, h / 2 + 0.0002, 0);
+  capMesh.userData.tintMul = 0.9;
+  add(g, new THREE.BoxGeometry(w * 0.72, padH, d * 0.72), glideMat, 0, -h / 2 + padH / 2, 0, true);
+  add(g, new THREE.CylinderGeometry(0.0032, 0.0032, 0.016, 12), zincMat, 0, h / 2 + 0.005, 0, true);
+  return g;
+}
+
+/* Round steel leg: powder-coated tube, zinc mounting plate with four screw
+   dimples up top, and an adjustable plastic foot at the floor. */
+function makeSteelLeg(w, h, d, mat) {
+  const g = new THREE.Group();
+  const r = Math.max(w, d) / 2;
+  const footH = Math.max(0.008, Math.min(0.02, h * 0.03));
+  const plateT = 0.004;
+  const tubeH = h - footH - plateT;
+  add(g, new THREE.CylinderGeometry(r * 0.92, r * 0.92, tubeH, 24), mat, 0, (footH - plateT) / 2, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.96, r * 0.92, 0.008, 24), mat.clone(), 0, h / 2 - plateT - 0.004, 0);
+  const plateR = Math.min(0.045, r * 2.2);
+  add(g, new THREE.CylinderGeometry(plateR, plateR, plateT, 28), zincMat, 0, h / 2 - plateT / 2, 0, true);
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
+    add(
+      g,
+      new THREE.CylinderGeometry(0.002, 0.002, 0.0012, 10),
+      insertHoleMat,
+      sx * plateR * 0.62,
+      h / 2 + 0.0002,
+      sz * plateR * 0.62,
+      true,
+    );
+  }
+  add(
+    g,
+    new THREE.CylinderGeometry(r * 1.02, r * 1.1, footH - 0.002, 24),
+    footPlasticMat,
+    0,
+    -h / 2 + footH / 2 + 0.001,
+    0,
+    true,
+  );
+  add(g, new THREE.CylinderGeometry(r * 1.06, r * 1.06, 0.002, 24), glideMat, 0, -h / 2 + 0.001, 0, true);
   return g;
 }
 
 function makePost(w, h, d, mat, steel = false) {
-  const g = new THREE.Group();
-  const edge = mat.clone();
-  edge.color = mat.color.clone().multiplyScalar(0.9);
-  add(g, new THREE.BoxGeometry(w, h * 0.96, d), mat, 0, -h * 0.005, 0);
-  add(g, new THREE.BoxGeometry(w * 1.04, h * 0.018, d * 1.04), edge, 0, -h * 0.485, 0);
-  const cap = steel
-    ? new THREE.CylinderGeometry(w * 0.42, w * 0.42, h * 0.03, 16)
-    : new THREE.BoxGeometry(w * 0.55, h * 0.03, d * 0.55);
-  const capMat = steel
-    ? stdMat({ color: 0x6a6a6a, roughness: 0.3, metalness: 0.7 })
-    : stdMat({ color: 0xb8b8b8, roughness: 0.35, metalness: 0.45 });
-  add(g, cap, capMat, 0, h * 0.485, 0, true);
-  return g;
+  return steel ? makeSteelLeg(w, h, d, mat) : makeWoodLeg(w, h, d, mat);
+}
+
+// Flat-pack legs land flush with the top's corners, a couple mm of reveal.
+function legCenterInset(topW, legW) {
+  return Math.min(Math.max(legW / 2 + 0.002, 0.012), topW * 0.2);
+}
+
+function insertsFromPorts(part) {
+  return (part.ports || [])
+    .filter((port) => /insert/.test(port.kind || "") && Array.isArray(port.xyz))
+    .map((port) => [port.xyz[0] * MM, port.xyz[1] * MM]);
 }
 
 function makeTable(part, mat) {
   const w = part.dimsMm.x * MM;
   const d = part.dimsMm.y * MM;
   const h = part.dimsMm.z * MM;
-  const topH = Math.min(0.036, h * 0.08);
+  const topH = Math.min(0.04, Math.max(0.024, h * 0.08));
   const legW = Math.min(0.05, w * 0.09);
   const legH = h - topH;
-  const inset = Math.min(0.05, w * 0.09);
+  const inset = legCenterInset(w, legW);
   const g = new THREE.Group();
   const top = makeSlab(w, topH, d, mat);
   top.position.y = h / 2 - topH / 2;
@@ -497,8 +695,14 @@ function makeScrew(part, mat) {
   const r = Math.min(part.dimsMm.x, part.dimsMm.y) * MM * 0.28;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r * 0.82, h, 14), mat);
-  add(g, new THREE.CylinderGeometry(r * 1.7, r * 1.55, Math.max(0.002, h * 0.28), 6), mat, 0, h * 0.42, 0);
+  add(g, new THREE.CylinderGeometry(r, r, h * 0.92, 16), mat, 0, h * 0.04, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.98, r * 0.55, h * 0.08, 16), mat, 0, -h * 0.46, 0);
+  for (let i = 0; i < 5; i += 1) {
+    const ring = add(g, new THREE.TorusGeometry(r * 1.02, r * 0.09, 6, 18), mat, 0, -h * 0.34 + i * h * 0.16, 0);
+    ring.rotation.x = Math.PI / 2;
+  }
+  add(g, new THREE.CylinderGeometry(r * 1.8, r * 1.8, h * 0.2, 20), mat, 0, h * 0.6, 0);
+  add(g, new THREE.CylinderGeometry(r * 0.85, r * 0.85, h * 0.06, 6), insertHoleMat, 0, h * 0.7, 0, true);
   return g;
 }
 
@@ -506,7 +710,10 @@ function makeDowel(part, mat) {
   const r = Math.min(part.dimsMm.x, part.dimsMm.y) * MM * 0.5;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r, h, 16), mat);
+  const cham = Math.min(r * 0.4, h * 0.05);
+  add(g, new THREE.CylinderGeometry(r, r, h - cham * 2, 20), mat);
+  add(g, new THREE.CylinderGeometry(r * 0.72, r, cham, 20), mat, 0, h / 2 - cham / 2, 0);
+  add(g, new THREE.CylinderGeometry(r, r * 0.72, cham, 20), mat, 0, -h / 2 + cham / 2, 0);
   return g;
 }
 
@@ -614,7 +821,10 @@ function makeBox(part, mat) {
 
 function bodyFor(shape, part, mat) {
   if (shape === "table") return makeTable(part, mat);
-  if (shape === "slab") return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat);
+  if (shape === "slab")
+    return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, {
+      inserts: insertsFromPorts(part),
+    });
   if (shape === "post")
     return makePost(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, part.material === "steel");
   if (shape === "board") return makeBoard(part, mat);
@@ -645,7 +855,10 @@ function hitsWalk(obj) {
 function tintIfNeeded(root, piece) {
   if (!piece.color) return;
   root.traverse((child) => {
-    if (child.material?.color && !child.userData.keepColor) child.material.color.set(piece.color);
+    if (!child.material?.color || child.userData.keepColor) return;
+    child.material.color.set(piece.color);
+    // Edge bands and end-grain caps keep their relative shading under a tint.
+    if (child.userData.tintMul) child.material.color.multiplyScalar(child.userData.tintMul);
   });
 }
 
@@ -1575,7 +1788,8 @@ export function createWorkshop(canvas) {
     if (legToTop) {
       const tw = boxB.max.x - boxB.min.x;
       const td = boxB.max.z - boxB.min.z;
-      const inset = Math.min(0.05, tw * 0.09);
+      const legW = Math.max(boxA.max.x - boxA.min.x, boxA.max.z - boxA.min.z);
+      const inset = legCenterInset(tw, legW);
       const sx = cA.x >= cB.x ? 1 : -1;
       const sz = cA.z >= cB.z ? 1 : -1;
       let y = boxB.min.y - hA / 2;
@@ -1589,7 +1803,8 @@ export function createWorkshop(canvas) {
     } else if (topToLeg) {
       const tw = boxA.max.x - boxA.min.x;
       const td = boxA.max.z - boxA.min.z;
-      const inset = Math.min(0.05, tw * 0.09);
+      const legW = Math.max(boxB.max.x - boxB.min.x, boxB.max.z - boxB.min.z);
+      const inset = legCenterInset(tw, legW);
       const sx = cB.x >= cA.x ? 1 : -1;
       const sz = cB.z >= cA.z ? 1 : -1;
       target = {
@@ -1802,7 +2017,6 @@ export function createWorkshop(canvas) {
         .slice(0, 4)
         .filter((leg) => leg.dist < Math.max(tw, td) * 1.35 + 0.35);
       if (nearby.length < 4) continue;
-      const inset = Math.min(0.05, tw * 0.09);
       const slots = [
         [-1, -1],
         [1, -1],
@@ -1813,6 +2027,7 @@ export function createWorkshop(canvas) {
         leg.used = true;
         const src = legs.find((row) => row.piece.id === leg.piece.id);
         if (src) src.used = true;
+        const inset = legCenterInset(tw, Math.max(leg.part.dimsMm.x, leg.part.dimsMm.y) * MM);
         const [sx, sz] = slots[i] || slots[0];
         const world = new THREE.Vector3(
           top.mesh.position.x + sx * (tw / 2 - inset),
