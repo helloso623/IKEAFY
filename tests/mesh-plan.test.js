@@ -24,6 +24,7 @@ test("described builds route to meshes while explicit catalog drops stay catalog
   assert.equal(isMeshBuildAsk("add zip ties"), false);
   assert.equal(isMeshBuildAsk("put four legs"), true);
   assert.equal(isMeshBuildAsk("find a cheap table"), false);
+  assert.equal(isMeshBuildAsk("run a rain and heat test"), false);
   assert.equal(isMeshBuildAsk("make the selected mesh taller"), false);
 });
 

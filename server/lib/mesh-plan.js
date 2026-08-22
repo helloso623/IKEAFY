@@ -15,7 +15,7 @@ const EDIT_EXISTING =
 const MODEL_NOUN =
   /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner)\b/i;
 const NON_GENERATION_COMMAND =
-  /^(?:what|why|how|where|when|which|who|can|could|should|would|do|does|did|is|are|show|tell|explain|help|move|rotate|scale|label|isolate|select|delete|remove|undo|redo|next|back|play|scan|reconstruct)\b/i;
+  /^(?:what|why|how|where|when|which|who|can|could|should|would|do|does|did|is|are|show|tell|explain|help|run|test|simulate|analy[sz]e|calculate|move|rotate|scale|label|isolate|select|delete|remove|undo|redo|next|back|play|scan|reconstruct)\b/i;
 const CONVERSATION_ONLY = /^(?:hi|hello|hey|thanks|thank you|cheers|good (?:morning|afternoon|evening))\b/i;
 const GUIDE_CONTEXT = /\b(?:step\s+\d+|stuck|manual|guide|assembly|assemble|tool required)\b/i;
 const SPAWN_FOLLOW_UP =
