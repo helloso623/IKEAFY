@@ -413,48 +413,138 @@ button.refuses { border-style: dashed; opacity: 0.75; }
   display: none;
 }
 
+/* ================= IKEAFY STUDIO — the film desk =================
+   Studio mode is its own product surface, not the workshop with the panels
+   swapped out: a birch desk, one large plate in the middle of it, the printed
+   sheet laid on the left and the service paperwork on the right. The two side
+   columns are areas of the desk rather than rails — no panel fill, no border,
+   generous padding — so the paper inside them reads as paper.
+
+   Two prefixes are used on purpose. Layout, the desk and the plate use
+   :is(#app.mode-ikeafy, …) and are meant to win. The colour fallbacks use
+   :where(…) instead, which contributes no specificity: they exist only to stop
+   the dark-workshop defaults bleeding onto paper, and each panel's own styling
+   further down this file must stay free to override them. */
+
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) {
-  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(300px, 380px);
-  grid-template-rows: 56px 1fr;
+  grid-template-columns:
+    minmax(258px, 300px)
+    minmax(0, 1fr)
+    minmax(330px, 384px);
+  grid-template-rows: 56px minmax(0, 1fr);
   grid-template-areas:
     "top top top"
     "studio-in studio-film studio-side";
   background:
-    linear-gradient(180deg, #d8c7a4 0%, #cbb892 100%);
+    radial-gradient(135% 75% at 50% -12%, #fdf6e6 0%, #fdf6e600 58%),
+    repeating-linear-gradient(90deg, #7a623417 0 1px, #7a623400 1px 9px),
+    repeating-linear-gradient(90deg, #ffffff2b 0 2px, #ffffff00 2px 27px),
+    linear-gradient(180deg, #e9dcbf 0%, #e0cfab 55%, #d5c39c 100%);
 }
 
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in {
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side, [data-pane="ikeafy"]) {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  overflow: auto;
-  padding: 1.3rem 1.25rem 1.5rem;
+  gap: 1.05rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--ink);
-  background:
-    radial-gradient(circle at 18% 12%, #fff8e8 0, transparent 42%),
-    linear-gradient(180deg, var(--birch) 0%, var(--birch-deep) 100%);
-  border-right: 1px solid #c9b48a;
+  background: none;
+  border: 0;
 }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in h2,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .hint {
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in {
+  grid-area: studio-in;
+  padding: 1.55rem 1.1rem 1.9rem 1.55rem;
+}
+
+/* Nothing inside a column keeps its own scroller: the sheet grows and the
+   column carries it, so there is one scrollbar per side instead of three. */
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side) :is(.list, .steps-panel, .well) {
+  flex: 0 0 auto;
+  max-height: none;
+  overflow: visible;
+}
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #steps {
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  max-height: none;
+  overflow: visible;
+}
+
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side) :is(h2, .copy, .item, label) {
   color: var(--ink);
 }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .hint { color: #5d5240; }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .item {
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side) :is(.hint, .item small) {
+  color: #5d5240;
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side) .item {
   background: #fffaf0;
-  color: var(--ink);
 }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .item small { color: #6b5d48; }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .lock-banner {
-  background: #ffffff80;
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  :is(.studio-in, .studio-side) :is(input, textarea, select) {
   color: var(--ink);
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in input,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in textarea,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in select {
   background: #fffaf0;
-  color: var(--ink);
   border-color: #c9b48a;
+}
+
+/* The step lock reads as a plaque screwed to the sheet, not a status strip. */
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .lock-banner {
+  position: relative;
+  margin: 0 0 0.85rem;
+  padding: 0.62rem 0.8rem 0.6rem;
+  color: #4a3f2c;
+  background:
+    linear-gradient(180deg, #fffdf7 0%, #f4ead4 100%);
+  border: 1px solid #c1a878;
+  border-left: 4px solid var(--ikea-blue);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 #d8c7a4,
+    0 1px 2px #54452c1f;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .lock-banner:empty {
+  display: none;
+}
+/* Official sheet: same padlock the locked step rows carry, stamped in yellow. */
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-in .lock-banner.locked {
+  padding-left: 2.2rem;
+  border-left-color: var(--yellow);
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  .studio-in .lock-banner.locked::before {
+  content: "";
+  position: absolute;
+  left: 0.85rem;
+  top: 0.86rem;
+  width: 0.62rem;
+  height: 0.48rem;
+  background: var(--yellow);
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  .studio-in .lock-banner.locked::after {
+  content: "";
+  position: absolute;
+  left: 0.96rem;
+  top: 0.6rem;
+  width: 0.38rem;
+  height: 0.3rem;
+  border: 1.5px solid currentColor;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
 }
 
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .rail.left,
@@ -473,127 +563,122 @@ button.refuses { border-style: dashed; opacity: 0.75; }
   display: none !important;
 }
 
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side,
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on))
+  [data-pane="ikeafy"]:not(.studio-in) {
+  grid-area: studio-side;
+  padding: 1.55rem 1.55rem 1.9rem 1.1rem;
+}
+
+/* The middle is bare desk. The plate is the only thing standing on it, so the
+   3D bench goes away entirely rather than ghosting through the birch. */
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .stage,
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-film {
   grid-area: studio-film;
-  background:
-    linear-gradient(#00000010, #00000028),
-    repeating-linear-gradient(90deg, #cbb48a 0 28px, #c4ad80 28px 56px);
+  background: none;
 }
-
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #view {
-  opacity: 0.14;
-  filter: grayscale(0.55) brightness(0.72);
-  pointer-events: none;
+  display: none;
 }
 
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"],
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side {
-  grid-area: studio-side;
+/* The plate: one big sheet of birch paper, centred, yellow head rule on top. */
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film {
+  inset: 2.1rem 2.2rem 2.7rem;
+  max-width: 74rem;
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
   min-height: 0;
-  overflow: auto;
-  padding: 1.35rem 1.4rem 1.5rem;
+  padding: 1.55rem 1.7rem 1.4rem;
   color: var(--ink);
   background:
-    radial-gradient(circle at 80% 0%, #fff6e6 0, transparent 36%),
-    linear-gradient(180deg, var(--birch) 0%, #ead8b4 100%);
-  border-left: 6px solid var(--yellow);
-}
-
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] h2,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side h2 {
-  color: var(--ink);
-  margin-top: 0.45rem;
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] h2:first-child {
-  margin-top: 0;
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] .copy,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side .copy {
-  color: #3d3528;
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] .item,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side .item {
-  background: #fffaf0;
-  color: var(--ink);
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] .item small,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side .item small {
-  color: #6b5d48;
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) [data-pane="ikeafy"] input,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .studio-side input {
-  background: #fffaf0;
-  color: var(--ink);
-  border-color: #c9b48a;
-}
-
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #steps {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: none;
-  overflow-y: auto;
-}
-
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film {
-  inset: 1.4rem 1.6rem 2.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  min-height: 0;
-  padding: 1.15rem 1.25rem 1.05rem;
-  color: var(--ink);
-  background:
-    radial-gradient(circle at 12% 8%, #fffaf0 0, transparent 38%),
-    linear-gradient(180deg, #f7edd8 0%, var(--birch) 48%, var(--birch-deep) 100%);
-  border: 4px solid var(--yellow);
-  box-shadow: 0 22px 56px #00000040, inset 0 0 0 1px #fff6;
-  overflow: auto;
-}
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #step-detail {
-  color: #3d3528;
-  border-top: 1px solid #c9b48a;
-  padding-top: 0.5rem;
-  max-height: 30%;
-  overflow: auto;
+    radial-gradient(120% 65% at 12% 0%, #fffdf6 0%, #fffdf600 55%),
+    linear-gradient(180deg, #fdf8ea 0%, #f8f0dc 52%, #f2e7ce 100%);
+  border: 1px solid #c1a878;
+  border-top: 6px solid var(--yellow);
+  box-shadow:
+    inset 0 1px 0 #fffffff2,
+    0 4px 10px #3b2b1220,
+    0 28px 64px #3b2b123d;
+  overflow: hidden;
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film canvas,
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #film-frame {
   flex: 1 1 auto;
   width: 100%;
   height: auto;
-  min-height: 280px;
+  min-height: 12rem;
   max-height: none;
-  background:
-    linear-gradient(#00000008, #00000010),
-    #ead9b4;
-  border: 1px solid #c9b48a;
+  background: #fbf6ea;
+  border: 1px solid #cdb890;
+  box-shadow: inset 0 0 0 1px #ffffffcc;
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #film-caption {
+  flex: 0 0 auto;
+  margin: 0.2rem 0 0;
+  color: var(--ink);
   font-family: var(--serif);
-  font-size: 1.45rem;
+  font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.25;
-  color: var(--ink);
-  margin: 0.15rem 0 0.35rem;
+  text-wrap: balance;
+}
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film .confirm {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  background: #fffdf7;
+  border: 1px dashed #c1a878;
+  font-size: 0.82rem;
+}
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film .confirm input {
+  accent-color: var(--ikea-blue);
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film .row {
-  margin: 0.15rem 0 0;
-  gap: 0.6rem;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  margin: 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid #d8c7a4;
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film button {
-  background: var(--ink);
+  padding: 0.52rem 0.95rem;
   color: var(--paper);
+  background: var(--ink);
   border-color: var(--ink);
-  padding: 0.5rem 0.85rem;
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film button.primary {
-  background: var(--yellow);
   color: var(--ink);
+  background: var(--yellow);
   border-color: #e6c400;
+}
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #step-detail {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 26%;
+  padding-top: 0.75rem;
+  overflow-y: auto;
+  color: #4a3f2c;
+  border-top: 1px solid #d8c7a4;
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film :is(.hint, .copy) {
+  color: #5d5240;
+}
+:where(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film .hint:empty {
+  display: none;
+}
+
+/* The running commentary belongs on the desk, engraved, not floating in yellow. */
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #hud {
+  left: 2.35rem;
+  bottom: 0.8rem;
+  max-width: 70ch;
+  color: #5c4d33;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 #ffffffa6;
 }
 
 #app.mode-bench,
