@@ -466,7 +466,7 @@ async function boot() {
   setMode("ikeafy");
   hud(
     health.video?.live
-      ? "Studio ready — search a product or drop a guide. Step films render through Veed Fabric on fal.ai."
+      ? "Studio ready — search a product or drop a guide. Step films render through Seedance 2.5 on fal.ai."
       : "Studio ready — search an IKEA product or drop a guide. Films play as a local storyboard.",
   );
 }

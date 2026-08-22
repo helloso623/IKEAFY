@@ -123,7 +123,10 @@
         <div id="hud"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
-            <canvas id="film-frame" aria-label="Step tutorial film"></canvas>
+            <div class="film-shot">
+              <canvas id="film-frame" aria-label="Step tutorial film"></canvas>
+              <video id="film-video" class="hidden" controls playsinline></video>
+            </div>
             <canvas id="step-scheme" aria-label="3D scheme for this step"></canvas>
           </div>
           <p id="film-caption"></p>

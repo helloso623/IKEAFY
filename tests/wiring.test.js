@@ -87,6 +87,17 @@ test("the studio starts on input, then progress, then instruction/material resul
   assert.match(html, /id="tab-material"/);
   assert.match(html, /id="step-scheme"/);
   assert.match(html, /id="see-guide"/);
+  assert.match(html, /id="film-video"/);
+});
+
+test("custom studio input is sent as-is — PDFs and photos, no invented unpack guide", () => {
+  assert.equal(
+    /Unpack the pieces in the photos/.test(studio),
+    false,
+    "studio.js must not invent a placeholder guide when the user drops a file",
+  );
+  assert.match(studio, /images/, "dropped photos need to travel with runStart");
+  assert.match(studio, /pagesFromPdf|isPdfFile/, "PDFs must be read into plates, not just a filename chip");
 });
 
 test("electronics stays a bench feature of the main Ikeafy app", () => {
