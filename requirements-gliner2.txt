@@ -2,3 +2,5 @@
 # Pioneer cloud API (PIONEER_API_KEY → GLiNER2.from_api) is preferred.
 # The [local] extra keeps optional offline from_pretrained available.
 gliner2[local]
+# Keep CA roots current for HTTPS to api.fastino.ai (do not disable TLS verify).
+certifi
