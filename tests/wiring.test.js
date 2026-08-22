@@ -206,7 +206,10 @@ test("3D instructions load a Tripo H3.1 GLB on the workshop without a catalog LA
   assert.match(index, /engine: "workshop"/);
   assert.match(index, /tripo3d\/h3\.1\/text-to-3d/);
   assert.doesNotMatch(index, /3D engine instructions are not implemented yet/);
-  assert.match(scene, /https:\/\/queue\.fal\.run\/tripo3d\/h3\.1\/text-to-3d/);
+  assert.match(scene, /MODEL_ROOT = "https:\/\/queue\.fal\.run\/tripo3d\/h3\.1"/);
+  assert.match(scene, /QUEUE = `\$\{MODEL_ROOT\}\/text-to-3d`/);
+  assert.match(scene, /\$\{MODEL_ROOT\}\/requests\/\$\{requestId\}\/status/);
+  assert.doesNotMatch(scene, /\/text-to-3d\/requests\//);
   assert.match(scene, /ikealiveLog\("3d", "model"/);
   assert.match(scene, /ikealiveLog\("3d", "submit"/);
   assert.match(scene, /ikealiveLog\("3d", "poll"/);

@@ -6,10 +6,11 @@ export { hasFal };
 
 export const MODEL = "tripo3d/h3.1/text-to-3d";
 export const PARTNER = "Tripo H3.1";
-export const QUEUE = "https://queue.fal.run/tripo3d/h3.1/text-to-3d";
+/** Submit lives under /text-to-3d; status/result use the app root (same pattern as Seedance). */
+const MODEL_ROOT = "https://queue.fal.run/tripo3d/h3.1";
+export const QUEUE = `${MODEL_ROOT}/text-to-3d`;
 export const FAL_SCENE_REQUIRED =
   "Set FAL_KEY for Tripo H3.1 instruction meshes. 3D mode loads a live GLB in the workshop, not a catalog LACK table.";
-const MODEL_ROOT = QUEUE;
 export const FAL_SCENE_POLL_MS = 2000;
 /** Tripo H3.1 often spends a few minutes in queue; 10 minutes covers slow jobs. */
 export const DEFAULT_FAL_SCENE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -21,6 +22,7 @@ export function falSceneTimeoutMs(env = process.env) {
 }
 
 function queuePollUrls(requestId) {
+  // Never poll under the submit path — fal returns HTTP 405 Method Not Allowed there.
   return {
     statusUrl: `${MODEL_ROOT}/requests/${requestId}/status`,
     resultUrl: `${MODEL_ROOT}/requests/${requestId}`,
@@ -100,6 +102,7 @@ async function falQueue(
 
   const requestId = ticket.request_id;
   if (!requestId) throw new Error("fal submit returned no request_id");
+  // Submit path vs status/result: poll app-root /requests/$ID only (endpoint-scoped URLs 405).
   const { statusUrl, resultUrl } = queuePollUrls(requestId);
   ikealiveLog("3d", "queued", { requestId, statusUrl, resultUrl, timeoutMs });
 
@@ -107,10 +110,11 @@ async function falQueue(
   const deadline = started + timeoutMs;
   let polls = 0;
   let lastState = "unknown";
+  const pollHeaders = { Authorization: headers.Authorization };
   while (now() < deadline) {
     polls += 1;
     const elapsedMs = now() - started;
-    const statusRes = await fetchFn(statusUrl, { headers });
+    const statusRes = await fetchFn(statusUrl, { method: "GET", headers: pollHeaders });
     if (!statusRes.ok) {
       ikealiveWarn("3d", "poll failed", { requestId, status: statusRes.status, polls, elapsedMs });
       throw new Error(`fal status ${statusRes.status}`);
@@ -126,7 +130,7 @@ async function falQueue(
       queuePosition: status.queue_position ?? null,
     });
     if (state === "COMPLETED") {
-      const done = await fetchFn(resultUrl, { headers });
+      const done = await fetchFn(resultUrl, { method: "GET", headers: pollHeaders });
       if (!done.ok) {
         ikealiveWarn("3d", "result failed", { requestId, status: done.status, elapsedMs });
         throw new Error(`fal result ${done.status}`);

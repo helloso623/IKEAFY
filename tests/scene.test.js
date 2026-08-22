@@ -119,8 +119,14 @@ test("Tripo H3.1 queue uses the step prompt and returns the GLB url", async () =
     assert.equal("duration" in payload, false);
     assert.equal("resolution" in payload, false);
 
-    assert.equal(calls[1].url, "https://queue.fal.run/tripo3d/h3.1/text-to-3d/requests/mesh-1/status");
-    assert.equal(calls[2].url, "https://queue.fal.run/tripo3d/h3.1/text-to-3d/requests/mesh-1");
+    assert.equal(calls[1].url, "https://queue.fal.run/tripo3d/h3.1/requests/mesh-1/status");
+    assert.equal(calls[1].method, "GET");
+    assert.equal(calls[2].url, "https://queue.fal.run/tripo3d/h3.1/requests/mesh-1");
+    assert.equal(calls[2].method, "GET");
+    assert.equal(
+      calls.some((call) => call.url.includes("/text-to-3d/requests/")),
+      false,
+    );
     assert.equal(
       calls.some((call) => call.url.includes("seedance") || call.url.includes("nano-banana")),
       false,
@@ -148,7 +154,15 @@ test("Tripo H3.1 keeps polling IN_QUEUE and IN_PROGRESS on /requests/$ID", async
   const fetchFn = async (url, init = {}) => {
     calls.push({ url: String(url), method: init.method || "GET" });
     if (init.method === "POST") {
-      return { ok: true, json: async () => ({ request_id: "mesh-2" }) };
+      return {
+        ok: true,
+        json: async () => ({
+          request_id: "mesh-2",
+          // fal may advertise endpoint-scoped URLs; those 405 — poll the app root instead.
+          status_url: "https://queue.fal.run/tripo3d/h3.1/text-to-3d/requests/mesh-2/status",
+          response_url: "https://queue.fal.run/tripo3d/h3.1/text-to-3d/requests/mesh-2",
+        }),
+      };
     }
     if (String(url).includes("/status")) {
       return { ok: true, json: async () => ({ status: states.shift(), queue_position: 1 }) };
@@ -170,7 +184,11 @@ test("Tripo H3.1 keeps polling IN_QUEUE and IN_PROGRESS on /requests/$ID", async
       calls.filter((call) => call.url.endsWith("/requests/mesh-2/status")).length,
       3,
     );
-    assert.equal(calls.at(-1).url, "https://queue.fal.run/tripo3d/h3.1/text-to-3d/requests/mesh-2");
+    assert.equal(calls.at(-1).url, "https://queue.fal.run/tripo3d/h3.1/requests/mesh-2");
+    assert.equal(
+      calls.some((call) => call.url.includes("/text-to-3d/requests/")),
+      false,
+    );
   } finally {
     restoreEnv("FAL_KEY", previous);
   }
