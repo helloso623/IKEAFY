@@ -13,6 +13,14 @@ npm run dev
 - App: `http://localhost:5173`
 - API: `http://localhost:8787`
 
+Desktop (full workshop in an Electron window — IKEAlive upload/watch, Lab Bench, House):
+
+```bash
+npm run electron
+```
+
+`npm run electron` and `npm run dev:electron` start the same Express + Vite stack as `npm run dev`, then open it in a desktop window. Keep using `npm run dev` if you want the browser instead. After `npm run build`, `electron .` (without `ELECTRON_DEV`) starts Express itself and loads the built client from `http://127.0.0.1:8787`.
+
 `.env` stays out of git. Do not commit keys. `FAL_KEY` is optional (Veed step films); without it the studio uses a local storyboard.
 
 ## Folders
