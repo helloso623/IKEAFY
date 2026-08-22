@@ -269,11 +269,12 @@
         </section>
       </aside>
 
-      <!-- ============ LAB — left browser (bodies / scan / room) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Browser">
+      <!-- ============ LAB — outliner (bodies / scan / room) ============ -->
+      <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Browser</span>
+          <span class="lab-pane-kicker">Outliner</span>
           <strong class="lab-pane-title">Bodies / Scan / Room</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <div class="pane bench-nav lab-tree">
           <details class="lab-folder lab-outliner" open>
@@ -285,6 +286,60 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
+          <details class="lab-folder scan-object" id="scan-object-panel">
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
+              Scan object
+            </summary>
+            <div class="lab-folder-body">
+              <p class="hint lab-hint">Use a plain backdrop. Keep the object upright and fill each frame.</p>
+              <div class="scan-views">
+                <label class="field" for="scan-front">
+                  <span>Front photo</span>
+                  <input id="scan-front" type="file" accept="image/*" />
+                  <canvas id="scan-front-preview" width="0" height="0" aria-label="Front binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-side">
+                  <span>Side photo</span>
+                  <input id="scan-side" type="file" accept="image/*" />
+                  <canvas id="scan-side-preview" width="0" height="0" aria-label="Side binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-top">
+                  <span>Top photo</span>
+                  <input id="scan-top" type="file" accept="image/*" />
+                  <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
+                </label>
+              </div>
+              <div class="scan-scale">
+                <label class="field" for="scan-scale-kind">
+                  <span>Scale from</span>
+                  <select id="scan-scale-kind">
+                    <option value="circumference">Circumference</option>
+                    <option value="length">Known longest length</option>
+                  </select>
+                </label>
+                <label class="field" for="scan-scale-mm">
+                  <span>Scale (mm)</span>
+                  <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
+                </label>
+              </div>
+              <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
+              <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
+                Three silhouettes become a local binary visual hull, then a real triangle mesh.
+              </div>
+            </div>
+          </details>
+          <!-- Wiring hooks stay hidden. Lab adds via scan, AI, sketch, or an explicit electronics search. -->
+          <div class="hidden" aria-hidden="true">
+            <span>Catalog</span>
+            <label><input id="show-electronics" type="checkbox" /> Show electronics</label>
+            <input id="cost" type="number" min="0" step="1" />
+            <input id="search" type="search" />
+            <p id="catalog-hint"><span id="catalog-count">0</span></p>
+            <div id="catalog-well">
+              <div id="catalog"></div>
+            </div>
+          </div>
           <details class="lab-folder" id="lab-room" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
@@ -333,6 +388,9 @@
         <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
         <div class="lab-view-bar">
           <div class="lab-view-tools" id="edit-tools">
+            <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
+            <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
+            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" data-edit="translate">Move</button>
             <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
             <button type="button" class="lab-tool" data-edit="scale">Scale</button>
@@ -373,10 +431,11 @@
       </div>
 
       <!-- ============ LAB — right inspector (parameters / functions) ============ -->
-      <aside class="rail right lab-inspector hidden" data-pane="lab" aria-label="Inspector">
+      <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
           <strong class="lab-pane-title">Parameters · Functions</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
