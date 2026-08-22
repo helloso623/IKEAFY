@@ -32,7 +32,7 @@ Partner hooks (Veed Fabric 1.0 via fal, Pioneer/GLiNER 2, Tavily) are named in `
 
 ## The supporting tabs
 
-- **Bench** — drop furniture and electronics, rescale, retexture, move, rotate (`G` / `R` / `Shift+S`). The catalog is a scrollable shelf — keep scrolling to add more pieces — with a cost barrier and a **Delete** button for mistakes. Cables mate or refuse (JST / header / screw; loose / zip / raceway). The lab runs strength, pressure, wave, flow, aero, speed+force, heat/cold, and rain tests; tape changes hold and IP; **Reset** after a run. Electronics controls (isolate a cluster as a named board, label functions) live in their own corner of the inspect panel, and a Nano sketch can be flashed to blink the LED. Printable bodies become ASCII STL jobs.
+- **Bench** — drop furniture (and electronics only when you pick them), rescale, retexture, move, rotate (`G` / `R` / `Shift+S`). The catalog is a scrollable shelf of hardware samples — keep scrolling to add more pieces — with a budget filter and a **Delete** button for mistakes. Extra lab tests, tape, and cables stay tucked away until you open them. Electronics controls appear only when something on the bench actually has ports.
 - **House** — photo + room measurements + budget → adaptation plan that places the piece and lists cheaper stand-ins. Overlay is the same render as the bench.
 
 ## Ten agents
