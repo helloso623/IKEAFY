@@ -25,7 +25,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     officialSource: first("#official-source"),
     customSource: first("#custom-source"),
     product: first("#official-product"),
-    guide: first("#guide-in"),
     notes: first("#guide-notes"),
     parse: first("#parse-guide"),
     clear: first("#clear-custom-session"),
@@ -106,7 +105,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.submitting = Boolean(on);
     if (el.parse) {
       el.parse.disabled = state.submitting;
-      el.parse.textContent = state.submitting ? "Building…" : "Build the reel";
+      el.parse.textContent = state.submitting ? "Getting…" : "Get the Reel";
     }
   }
 
@@ -374,12 +373,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("official");
       announce("Opening the official sheet…");
+      console.log("[ikealive:parse]", "official start", { article: el.product?.value || "304.499.08" });
       const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
       setInterface("watch");
       announce("Rendering Seedance 2.5…");
+      console.log("[ikealive:parse]", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
       await bootReel();
       return view;
     } catch (error) {
@@ -394,41 +395,49 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("custom");
       const file = el.pdf?.files?.[0] || null;
-      const pasted = (el.guide?.value || "").trim();
       let images = [];
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
+        console.log("[ikealive:parse]", "rasterize", { name: file.name, type: file.type, bytes: file.size });
         if (!isPdfFile(file)) {
           return fail(new Error("Drop a PDF — IKEA manuals are drawings, not plain text."));
         }
         try {
           const plates = await pagesFromPdf(file);
           images = plates.images || [];
+          console.log("[ikealive:parse]", "plates", {
+            name: file.name,
+            pageCount: plates.pageCount,
+            usedPages: plates.usedPages,
+            imageCount: images.length,
+          });
         } catch (error) {
+          console.warn("[ikealive:parse]", "rasterize failed", error?.message || error);
           return fail(new Error(error?.message || "Could not read that PDF as plates."));
         }
         if (!images.length) {
           return fail(new Error("That PDF has no readable plates."));
         }
       }
-      if (!pasted && !images.length) {
-        announce("Drop a PDF or paste a guide first.");
+      if (!images.length) {
+        announce("Drop a PDF first.");
         return null;
       }
-      announce(images.length ? "Reading the plates with vision…" : "Parsing the pasted guide…");
+      announce("Reading the plates with vision…");
+      console.log("[ikealive:parse]", "assembly start", { plates: images.length, notes: Boolean(el.notes?.value) });
       const view = await api.runStart({
         mode: "custom",
-        guide: pasted,
         instructions: el.notes?.value || "",
         images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(pasted);
+      saveCustom();
       await renderReviews();
       setInterface("watch");
       announce("Rendering Seedance 2.5…");
+      console.log("[ikealive:parse]", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
       await bootReel();
       if (state.reel.some((clip) => clip.videoUrl)) {
         announce("Reel ready. Watch the first step.");
@@ -441,12 +450,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  function saveCustom(raw) {
+  function saveCustom() {
     if (state.mode !== "custom") return;
     try {
       localStorage.setItem(
         CUSTOM_SESSION_KEY,
-        JSON.stringify({ raw: raw ?? el.guide?.value ?? "", notes: el.notes?.value || "" }),
+        JSON.stringify({ notes: el.notes?.value || "" }),
       );
     } catch {
       // Storage is unavailable in private windows; the session just will not persist.
@@ -456,8 +465,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function restoreCustom() {
     try {
       const saved = JSON.parse(localStorage.getItem(CUSTOM_SESSION_KEY) || "null");
-      if (!saved?.raw) return false;
-      if (el.guide) el.guide.value = saved.raw;
+      if (!saved) return false;
       if (el.notes) el.notes.value = saved.notes || "";
       return true;
     } catch {
@@ -475,7 +483,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.reel = [];
     state.clipIndex = 0;
     state.frameIndex = 0;
-    if (el.guide) el.guide.value = "";
     if (el.notes) el.notes.value = "";
     for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
@@ -827,7 +834,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const result = await api.renderVideo({
       runId: state.run.id,
       stepNumber: clip.number,
-      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
     });
     clip.videoUrl = result.videoUrl || null;
     clip.provider = result.provider || clip.provider;
@@ -1219,7 +1225,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Drop a PDF or paste a guide, then build the reel.");
+    announce("Drop a PDF, then get the reel.");
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);

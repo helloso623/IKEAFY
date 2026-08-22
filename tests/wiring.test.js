@@ -74,15 +74,22 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(side, /Assembly inventory|IKEAlive watch|part ID/i);
 });
 
-test("the css does not hide the custom guide inputs while the studio is open", () => {
+test("the css does not hide the custom notes while the studio is open", () => {
   const css = read("client/src/styles.css");
-  const guideHidden = /#guide-in[^{]*\{[^}]*display:\s*none/.test(css.replace(/\s+/g, " "));
-  assert.equal(guideHidden, false, "a blanket display:none on #guide-in kills the custom guide");
+  const notesHidden = /#guide-notes[^{]*\{[^}]*display:\s*none/.test(css.replace(/\s+/g, " "));
+  assert.equal(notesHidden, false, "a blanket display:none on #guide-notes kills the notes field");
+  assert.equal(/id="guide-in"/.test(html), false, "pasted-guide textarea is not the PDF-plate path");
 });
 
 test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="pdf-upload"/);
   assert.match(html, /id="upload-form"/);
+  assert.match(html, /Get the Reel/);
+  assert.match(html, /New manual/);
+  assert.match(html, /process-icon/);
+  assert.doesNotMatch(html, /Build the reel/);
+  assert.doesNotMatch(html, /New build/);
+  assert.doesNotMatch(html, /Or paste the guide/);
   assert.match(html, /id="upload-progress"/);
   assert.match(html, /id="film-video"/);
   assert.match(html, /id="film-status"/);
@@ -94,6 +101,7 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="ikea-chat-form"/);
   assert.equal(/<details class="studio-chat">/.test(html), false);
   assert.match(studio, /bootReel|parseCustom/);
+  assert.match(studio, /Get the Reel/);
   assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
   assert.match(studio, /FAL_KEY/);
   assert.match(studio, /renderVideo/);
@@ -121,7 +129,7 @@ test("electronics stays off the Lab header and inspect", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
+  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
   assert.match(html, /id="lab-spaces"/);
@@ -170,11 +178,12 @@ test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
   assert.match(apiSource, /^\s{2}scan:/m);
 });
 
-test("Lab spaces are Desk, House, AR, then Scan", () => {
+test("Lab spaces are Bench, House, AR, then Scan", () => {
   const spacesAt = html.indexOf('id="lab-spaces"');
   assert.ok(spacesAt > 0, "Lab space switcher must exist");
   const spaces = html.slice(spacesAt, html.indexOf("</nav>", spacesAt));
   assert.match(spaces, /data-lab="desk"/);
+  assert.match(spaces, />Bench</);
   assert.match(spaces, /data-lab="house"/);
   assert.match(spaces, /data-lab="ar"/);
   assert.match(spaces, /id="scan-btn"/);
@@ -189,8 +198,12 @@ test("Lab spaces are Desk, House, AR, then Scan", () => {
   assert.match(left, /id="adapt-btn"/);
   assert.match(main, /setLabSpace/);
   assert.match(main, /data-lab/);
+  assert.match(main, /dataset\.mode === "lab" && isLab\(\)/);
+  assert.match(main, /\[ikealive:lab\]/);
   const css = read("client/src/styles.css");
   assert.match(css, /data-lab="ar"/);
+  assert.match(css, /#app\.mode-lab \.modes \[data-mode="ikeafy"\]/);
+  assert.match(css.replace(/\s+/g, " "), /\.upload-actions button[^}]*flex: 1 1 0/);
   assert.doesNotMatch(css, /\.house-drawer/);
 });
 

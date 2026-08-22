@@ -671,8 +671,8 @@ function labHud(space) {
   if (space === "ar") return "AR — the room camera. Drop a photo or place a table.";
   if (space === "house") return "House sits with the bench. Measure the room, then open AR for the overlay.";
   return project.pieces.length
-    ? "Desk — pick a piece on the bench, or fit it in the room."
-    : "Desk — add a piece from the shelf, or measure the room below.";
+    ? "Bench — pick a piece, or fit it in the room."
+    : "Bench — add a piece from the shelf, or measure the room below.";
 }
 
 function setLabSpace(space) {
@@ -691,6 +691,7 @@ function setLabSpace(space) {
   house?.setActive(space === "ar");
   if (isLab()) hud(labHud(space));
   shop.resize();
+  if (isLab()) console.log("[ikealive:lab]", "space", space);
 }
 
 function setMode(mode) {
@@ -726,10 +727,17 @@ function setMode(mode) {
     house?.setActive(false);
   }
   shop.resize();
+  console.log("[ikealive:lab]", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });
 }
 
 for (const btn of document.querySelectorAll("#modes button")) {
-  btn.addEventListener("click", () => setMode(btn.dataset.mode));
+  btn.addEventListener("click", () => {
+    if (btn.dataset.mode === "lab" && isLab()) {
+      setMode("ikeafy");
+      return;
+    }
+    setMode(btn.dataset.mode);
+  });
 }
 
 for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {

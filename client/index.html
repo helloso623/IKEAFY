@@ -34,7 +34,7 @@
           <button data-mode="lab">Lab</button>
         </nav>
         <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
-          <button type="button" data-lab="desk" class="on">Desk</button>
+          <button type="button" data-lab="desk" class="on">Bench</button>
           <button type="button" data-lab="house">House</button>
           <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
@@ -50,7 +50,7 @@
           <button type="button" id="omnibox-ask">Ask</button>
         </form>
         <div class="top-actions">
-          <button type="button" class="quiet watch-only" data-go-interface="upload">New build</button>
+          <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
           <label class="toggle bench-only hidden">
             <input type="checkbox" id="sim-toggle" />
             Simulate
@@ -79,23 +79,58 @@
             </label>
 
             <div id="custom-source" class="custom-parse">
-              <label class="picker-label" for="guide-in">Or paste the guide</label>
-              <textarea id="guide-in" rows="5" placeholder="1. Unpack the table top…"></textarea>
-              <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
+              <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
+              <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
             </div>
 
             <div class="row upload-actions">
-              <button type="submit" id="parse-guide" class="primary">Build the reel</button>
+              <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
               <button type="button" id="clear-custom-session" class="quiet">Clear</button>
             </div>
             <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
           </form>
 
           <ul class="upload-process">
-            <li><strong>Upload</strong> the IKEA instructions PDF, or paste a guide</li>
-            <li><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</li>
-            <li><strong>Watch</strong> the steps, one film at a time</li>
-            <li><strong>Help</strong> is on the right: inventory, troubles, identify, small parts, and chat</li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <path d="M16 9v10M11 14l5 5 5-5M10 23h12" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span><strong>Upload</strong> the IKEA instructions PDF</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.7" />
+                  <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.7" />
+                  <circle cx="16" cy="16" r="2.4" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Watch</strong> the steps, one film at a time</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.7" stroke-linecap="round" />
+                  <circle cx="13.2" cy="14" r="1.4" fill="#111" />
+                  <circle cx="18.8" cy="14" r="1.4" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Help</strong> is on the right: inventory, troubles, identify, small parts, and chat</span>
+            </li>
           </ul>
 
           <details id="official-source" class="official-picker upload-official">
