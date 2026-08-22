@@ -30,13 +30,22 @@ export function isPrivateLanHost(host) {
   return false;
 }
 
-/** Browser origin that may talk to this API (localhost or RFC1918 LAN only). */
+/** A MagicDNS HTTPS host issued inside a Tailscale tailnet. */
+export function isTailscaleHost(host) {
+  const name = String(host || "")
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  return name.endsWith(".ts.net");
+}
+
+/** Browser origin that may talk to this API (localhost, LAN, or Tailscale). */
 export function isAllowedOrigin(origin) {
   if (!origin || origin === "null" || origin === "file://") return true;
   try {
     const parsed = new URL(origin);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    return isPrivateLanHost(parsed.hostname);
+    return isPrivateLanHost(parsed.hostname) || isTailscaleHost(parsed.hostname);
   } catch {
     return false;
   }
@@ -90,18 +99,24 @@ export function advertisedPhoneLink(req, extra = {}) {
     hostname = "";
   }
   const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
-  const requestUrl =
+  const tailscaleUrl =
+    isTailscaleHost(hostname) && advertisedHost
+      ? `https://${advertisedHost}/phone-upload`
+      : null;
+  const requestLanUrl =
     isPrivateLanHost(hostname) && advertisedHost
       ? `${forwardedProto === "https" ? "https" : "http"}://${advertisedHost}/phone-upload`
       : null;
-  const lanUrl = requestUrl || pack.url;
-  const urls = [...new Set([lanUrl, ...pack.urls, pack.apiUrl].filter(Boolean))];
+  const lanUrl = requestLanUrl || pack.url;
+  const url = tailscaleUrl || requestLanUrl || lanUrl;
+  const urls = [...new Set([url, tailscaleUrl, lanUrl, ...pack.urls, pack.apiUrl].filter(Boolean))];
   return {
     ok: true,
     ...pack,
-    url: lanUrl,
+    url,
     urls,
     lanUrl,
+    tailscaleUrl,
     maxSeconds: ROOM_VIDEO_MAX_SECONDS,
   };
 }
