@@ -6,6 +6,7 @@ import {
   missingTools,
   neededTools,
   ownedTools,
+  isOfficialIkeaPdfUrl,
   pickManualPdfHit,
   findIkeaManual,
   searchBuildWayOffers,
@@ -139,24 +140,37 @@ test("shoppingListAsync fills live retailers when Tavily is keyed", async () => 
   }
 });
 
-test("pickManualPdfHit prefers an IKEA assembly PDF", () => {
+test("pickManualPdfHit accepts only an official IKEA PDF", () => {
   const hit = pickManualPdfHit([
     { title: "BILLY bookcase", url: "https://www.ikea.com/gb/en/p/billy-bookcase/" },
+    { title: "BILLY manual mirror", url: "https://manuals.example/billy.pdf" },
     { title: "BILLY assembly instructions", url: "https://www.ikea.com/gb/en/assembly_instructions/billy.pdf" },
-  ]);
+  ], "BILLY bookcase");
   assert.match(hit.url, /\.pdf$/);
+  assert.equal(isOfficialIkeaPdfUrl(hit.url), true);
+  assert.equal(isOfficialIkeaPdfUrl("https://manuals.example/billy.pdf"), false);
+  assert.equal(isOfficialIkeaPdfUrl("https://www.ikea.com/gb/en/customer-service/assembly-instructions"), false);
 });
 
-test("findIkeaManual uses a catalog stand-in without a Tavily key", async () => {
+test("findIkeaManual returns a visible official-catalog fallback without a Tavily key", async () => {
   const previous = process.env.TAVILY_API_KEY;
   delete process.env.TAVILY_API_KEY;
+  let fetchCalls = 0;
   try {
-    const found = await findIkeaManual("lack table");
+    const found = await findIkeaManual("lack table", {
+      fetchFn: async () => {
+        fetchCalls += 1;
+        throw new Error("fetch should not run without a key");
+      },
+    });
     assert.equal(found.ok, false);
     assert.equal(found.partner, "tavily-standin");
     assert.equal(found.pdfBase64, null);
     assert.ok(found.catalog.some((row) => row.id === "lack-table"));
-    assert.match(found.reason, /TAVILY_API_KEY/);
+    assert.match(found.reason, /not configured/i);
+    assert.match(found.reason, /official catalog/i);
+    assert.match(found.manualSearchUrl, /^https:\/\/www\.ikea\.com\/us\/en\/search\//);
+    assert.equal(fetchCalls, 0);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;
@@ -170,6 +184,11 @@ test("findIkeaManual fetches the PDF Tavily returned, not a side scrape", async 
   const fetchFn = async (url, init = {}) => {
     calls.push({ url: String(url), method: init.method || "GET" });
     if (String(url).includes("api.tavily.com")) {
+      assert.equal(init.headers.Authorization, "Bearer tvly-test");
+      assert.equal(init.headers["Content-Type"], "application/json");
+      const body = JSON.parse(init.body);
+      assert.deepEqual(body.include_domains, ["ikea.com"]);
+      assert.match(body.query, /assembly_instructions/);
       return {
         ok: true,
         json: async () => ({
@@ -198,6 +217,69 @@ test("findIkeaManual fetches the PDF Tavily returned, not a side scrape", async 
     assert.equal(calls[0].method, "POST");
     assert.match(calls[0].url, /api\.tavily\.com\/search/);
     assert.equal(calls[1].url, found.pdfUrl);
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("findIkeaManual reports Tavily HTTP errors and keeps the manual-search fallback", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "tvly-test";
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    return {
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      text: async () => JSON.stringify({ detail: { error: "temporarily unavailable" } }),
+    };
+  };
+  try {
+    const found = await findIkeaManual("BILLY bookcase", {
+      fetchFn,
+      retries: 1,
+      sleepFn: async () => {},
+    });
+    assert.equal(calls, 2);
+    assert.equal(found.ok, false);
+    assert.equal(found.httpStatus, 503);
+    assert.match(found.reason, /HTTP 503/);
+    assert.match(found.reason, /temporarily unavailable/);
+    assert.match(found.manualSearchUrl, /ikea\.com/);
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("findIkeaManual reports the cause of thrown network errors after bounded retries", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "tvly-test";
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    const cause = Object.assign(new Error("getaddrinfo ENOTFOUND api.tavily.com"), {
+      code: "ENOTFOUND",
+      syscall: "getaddrinfo",
+      hostname: "api.tavily.com",
+    });
+    throw new TypeError("fetch failed", { cause });
+  };
+  try {
+    const found = await findIkeaManual("BILLY bookcase", {
+      fetchFn,
+      retries: 1,
+      sleepFn: async () => {},
+    });
+    assert.equal(calls, 2);
+    assert.equal(found.ok, false);
+    assert.equal(found.errorCause, "dns");
+    assert.match(found.reason, /DNS lookup failed/);
+    assert.match(found.reason, /ENOTFOUND/);
+    assert.match(found.reason, /2 attempts/);
+    assert.match(found.manualSearchUrl, /ikea\.com/);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;
