@@ -1106,7 +1106,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.chatInput.value = "";
     addChatLine("you", message);
     try {
-      const reply = await api.chat(message, { step: state.run?.cursor, mode: state.mode });
+      const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
       addChatLine(reply?.agent?.name || "shop", reply?.text || "");
       return reply;
     } catch (error) {
@@ -1156,12 +1156,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
     backStep,
     skipStep,
     openStep,
+    togglePlay,
+    jumpToStep: openStep,
     stuckOnStep,
-    colorizePlate,
     attachBroken,
     requestFittings,
     clearCustomSession,
-    replay: playCurrent,
+    replay: bootReel,
     destroy() {
       state.destroyed = true;
       stopPlayback();
