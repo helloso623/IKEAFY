@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -365,10 +364,12 @@ function add(parent, geo, mat, x = 0, y = 0, z = 0, keepColor = false) {
 }
 
 /* ------------------------------------------------------ Tabletop profiles
-   Tops are swept from a real board profile instead of a box: a rounded-
-   rectangle plan (LINNMON's soft ~18 mm corners, LACK's tight ~5 mm, raw
-   lumber nearly crisp) extruded through an eased edge bevel. Face skins are
-   cut from the same plan so nothing overhangs the corner radius. */
+   Tops and legs are swept from a real board profile instead of a box: a
+   rounded-rectangle plan (LINNMON's soft ~18 mm corners, LACK's tight ~5 mm,
+   raw lumber nearly crisp) extruded through an eased edge bevel. The extrude
+   splits caps from side walls, so the printed foil face and the edge band
+   are two materials on one seamless board — no laminated-on skins, no
+   ledges, nothing overhanging the corner radius. */
 
 function roundedRectShape(w, d, r) {
   const hw = w / 2;
@@ -407,16 +408,41 @@ function slabGeometry(w, h, d, cornerR) {
   return geo;
 }
 
-/** Thin laminate sheet cut to the same rounded plan. */
-function facePlateGeometry(w, d, cornerR, t) {
-  const geo = new THREE.ExtrudeGeometry(roundedRectShape(w, d, cornerR), {
-    depth: t,
-    bevelEnabled: false,
-    curveSegments: 12,
-  });
-  geo.rotateX(-Math.PI / 2);
-  geo.translate(0, -t / 2, 0);
-  return geo;
+/* Extrude UVs land in shape-space metres, so foil maps swap the 0..1 box
+   mapping for a physical scale — one grain tile ≈ 280 mm — and each part
+   can shift its grain so four legs never repeat the same streaks. The map
+   is cloned per part; the bump map rides the same clone. */
+const GRAIN_TILES_PER_M = 1 / 0.28;
+
+function perMeterFoil(mat, shift = 0) {
+  if (!mat.map) return mat;
+  const tex = mat.map.clone();
+  tex.repeat.set(GRAIN_TILES_PER_M, GRAIN_TILES_PER_M);
+  tex.offset.set((shift * 0.37) % 1, (shift * 0.19) % 1);
+  tex.needsUpdate = true;
+  if (mat.bumpMap === mat.map) mat.bumpMap = tex;
+  mat.map = tex;
+  return mat;
+}
+
+/* Edge band: the same foil a step darker and flatter, grain turned to run
+   along the edge instead of through the thickness — the strip IKEA irons
+   over every board edge. Carries its shading ratio for piece tints. */
+function bandMaterial(mat) {
+  const band = mat.clone();
+  band.color = mat.color.clone().multiplyScalar(0.93);
+  band.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.08);
+  if (band.clearcoat !== undefined) band.clearcoat = (band.clearcoat ?? 0) * 0.6;
+  if (mat.map) {
+    const bandMap = mat.map.clone();
+    bandMap.center.set(0.5, 0.5);
+    bandMap.rotation = Math.PI / 2;
+    bandMap.needsUpdate = true;
+    band.map = bandMap;
+    if (band.bumpMap) band.bumpMap = bandMap;
+  }
+  band.userData.tintMul = 0.93;
+  return band;
 }
 
 let stickerTexCache = null;
@@ -445,38 +471,22 @@ function stickerTexture() {
   return tex;
 }
 
-/* Flat-pack tabletop: profile-swept board wrapped in edge band, foil skins
-   laminated on the faces, zinc screw-insert sockets on the underside, and
-   the article sticker every flat pack ships with. Raw lumber (opts.lumber)
-   skips the flat-pack dressing and keeps near-crisp corners. */
+/* Flat-pack tabletop: one profile-swept board. The caps take the printed
+   foil face, the walls take the edge band, zinc screw-insert sockets sit on
+   the underside, and the article sticker every flat pack ships with rides
+   near one corner. Raw lumber (opts.lumber) skips the flat-pack dressing
+   and keeps near-crisp corners. */
 function makeSlab(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
   const lumber = Boolean(opts.lumber);
   const cornerR = opts.cornerR ?? (lumber ? 0.0018 : w >= 0.8 ? 0.018 : 0.005);
-  const lift = 0.0004;
   if (lumber) {
     add(g, slabGeometry(w, h, d, cornerR), mat);
     return g;
   }
-  const band = mat.clone();
-  band.color = mat.color.clone().multiplyScalar(0.93);
-  band.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.08);
-  if (mat.map) {
-    // Edge-band grain runs along the board edge, not through the thickness.
-    const bandMap = mat.map.clone();
-    bandMap.center.set(0.5, 0.5);
-    bandMap.rotation = Math.PI / 2;
-    bandMap.needsUpdate = true;
-    band.map = bandMap;
-  }
-  const core = add(g, slabGeometry(w, h, d, cornerR), band);
-  core.userData.tintMul = 0.93;
-  const skinT = Math.max(0.0006, Math.min(0.0012, h * 0.08));
-  const skinInset = Math.min(0.0035, h * 0.24) * 2;
-  const skinGeo = facePlateGeometry(w - skinInset, d - skinInset, Math.max(cornerR - skinInset / 2, 0.0006), skinT);
-  add(g, skinGeo, mat, 0, h / 2 - skinT / 2 + lift, 0);
-  const under = add(g, skinGeo.clone(), band.clone(), 0, -h / 2 + skinT / 2 - lift, 0);
-  under.userData.tintMul = 0.93;
+  const lift = 0.0004;
+  perMeterFoil(mat, opts.grainShift || 0);
+  add(g, slabGeometry(w, h, d, cornerR), [mat, bandMaterial(mat)]);
   for (const [ix, iz] of opts.inserts || []) {
     add(g, new THREE.CylinderGeometry(0.0055, 0.0055, 0.0014, 18), insertRingMat, ix, -h / 2 - lift, iz, true);
     add(g, new THREE.CylinderGeometry(0.0028, 0.0028, 0.002, 12), insertHoleMat, ix, -h / 2 - lift - 0.0003, iz, true);
@@ -496,26 +506,23 @@ function makeSlab(w, h, d, mat, opts = {}) {
   return g;
 }
 
-/* Chunky flat-pack leg: a square post with crisply eased vertical edges
-   (a couple of millimetres, like a wrapped particleboard leg — not a soft
-   blob), an end-grain cap, a round plastic glide underneath, and the
-   double-ended screw stud waiting on top. */
-function makeWoodLeg(w, h, d, mat) {
+/* Chunky flat-pack leg: the same board profile stood on end — vertical
+   edges eased a couple of millimetres and plan corners matched to the
+   tabletop, so a flush joint reads as one continuous wrapped surface. The
+   side walls carry foil grain running the length, the caps read as wrapped
+   end grain, a round plastic glide sits under the foot, and the
+   double-ended screw stud waits on top (skipped when the leg ships
+   pre-assembled under a table). */
+function makeWoodLeg(w, h, d, mat, opts = {}) {
   const g = new THREE.Group();
   const padH = Math.max(0.002, Math.min(0.004, h * 0.02));
-  const r = Math.min(0.003, Math.min(w, d) * 0.09);
-  if (mat.map) {
-    // Grain runs the length of the leg, one tile across its narrow faces.
-    const legMap = mat.map.clone();
-    legMap.repeat.set(1, 1);
-    legMap.needsUpdate = true;
-    mat.map = legMap;
-  }
-  add(g, new RoundedBoxGeometry(w, h - padH, d, 2, r), mat, 0, padH / 2, 0);
+  const cornerR = opts.cornerR ?? Math.min(0.003, Math.min(w, d) * 0.09);
+  perMeterFoil(mat, opts.grainShift || 0);
   const cap = mat.clone();
   cap.color = mat.color.clone().multiplyScalar(0.9);
-  const capMesh = add(g, new THREE.BoxGeometry(w * 0.92, 0.001, d * 0.92), cap, 0, h / 2 + 0.0002, 0);
-  capMesh.userData.tintMul = 0.9;
+  cap.roughness = Math.min(1, (mat.roughness ?? 0.6) + 0.1);
+  cap.userData.tintMul = 0.9;
+  add(g, slabGeometry(w, h - padH, d, cornerR), [cap, mat], 0, padH / 2, 0);
   add(
     g,
     new THREE.CylinderGeometry(Math.min(w, d) * 0.3, Math.min(w, d) * 0.34, padH, 18),
@@ -525,7 +532,7 @@ function makeWoodLeg(w, h, d, mat) {
     0,
     true,
   );
-  add(g, new THREE.CylinderGeometry(0.0032, 0.0032, 0.016, 12), zincMat, 0, h / 2 + 0.005, 0, true);
+  if (opts.stud !== false) add(g, new THREE.CylinderGeometry(0.0032, 0.0032, 0.016, 12), zincMat, 0, h / 2 + 0.005, 0, true);
   return g;
 }
 
@@ -541,7 +548,7 @@ function makeSteelLeg(w, h, d, mat) {
   add(g, new THREE.CylinderGeometry(r * 0.92, r * 0.92, tubeH, 24), mat, 0, (footH - plateT) / 2, 0);
   add(g, new THREE.CylinderGeometry(r * 0.96, r * 0.92, 0.008, 24), mat.clone(), 0, h / 2 - plateT - 0.004, 0);
   const plateW = Math.min(0.058, r * 3);
-  add(g, new RoundedBoxGeometry(plateW, plateT, plateW, 2, plateT * 0.4), zincMat, 0, h / 2 - plateT / 2, 0, true);
+  add(g, slabGeometry(plateW, plateT, plateW, 0.006), zincMat, 0, h / 2 - plateT / 2, 0, true);
   add(g, new THREE.CylinderGeometry(r * 0.5, r * 0.5, plateT * 0.5, 16), zincMat, 0, h / 2 + plateT * 0.2, 0, true);
   for (const [sx, sz] of [
     [-1, -1],
@@ -576,9 +583,10 @@ function makePost(w, h, d, mat, steel = false) {
   return steel ? makeSteelLeg(w, h, d, mat) : makeWoodLeg(w, h, d, mat);
 }
 
-// Flat-pack legs land flush with the top's corners, a couple mm of reveal.
+// The LACK signature: outer leg faces sit dead flush with the top's edge
+// band — zero reveal. Clamped so undersized tops still keep legs inboard.
 function legCenterInset(topW, legW) {
-  return Math.min(Math.max(legW / 2 + 0.002, 0.012), topW * 0.2);
+  return Math.min(legW / 2, topW * 0.2);
 }
 
 function insertsFromPorts(part) {
@@ -587,14 +595,19 @@ function insertsFromPorts(part) {
     .map((port) => [port.xyz[0] * MM, port.xyz[1] * MM]);
 }
 
+/* The assembled side table, LACK proportions: a chunky ~50 mm top over four
+   square legs screwed dead flush into the corners. Corner radii match
+   between top and legs so each corner reads as one continuous wrapped
+   surface, and every leg shifts its grain so the foil never repeats. */
 function makeTable(part, mat) {
   const w = part.dimsMm.x * MM;
   const d = part.dimsMm.y * MM;
   const h = part.dimsMm.z * MM;
-  const topH = Math.min(0.04, Math.max(0.024, h * 0.08));
-  const legW = Math.min(0.05, w * 0.09);
+  const topH = THREE.MathUtils.clamp(h * 0.11, 0.026, 0.05);
+  const legW = Math.min(0.05, w * 0.09, d * 0.09);
   const legH = h - topH;
-  const inset = legCenterInset(w, legW);
+  const cornerR = Math.min(0.005, legW * 0.11);
+  const inset = legCenterInset(Math.min(w, d), legW);
   const g = new THREE.Group();
   const slots = [
     [-1, -1],
@@ -603,14 +616,18 @@ function makeTable(part, mat) {
     [1, 1],
   ].map(([sx, sz]) => [sx * (w / 2 - inset), sz * (d / 2 - inset)]);
   // The top carries its insert sockets right where the legs screw in.
-  const top = makeSlab(w, topH, d, mat, { inserts: slots });
+  const top = makeSlab(w, topH, d, mat, { inserts: slots, cornerR });
   top.position.y = h / 2 - topH / 2;
   g.add(top);
-  for (const [x, z] of slots) {
-    const leg = makePost(legW, legH, legW, mat.clone());
+  slots.forEach(([x, z], i) => {
+    const leg = makeWoodLeg(legW, legH, legW, addFoilGrain(mat.clone()), {
+      cornerR,
+      stud: false,
+      grainShift: i + 1,
+    });
     leg.position.set(x, -h / 2 + legH / 2, z);
     g.add(leg);
-  }
+  });
   return g;
 }
 
@@ -1005,10 +1022,15 @@ function hitsWalk(obj) {
 function tintIfNeeded(root, piece) {
   if (!piece.color) return;
   root.traverse((child) => {
-    if (!child.material?.color || child.userData.keepColor) return;
-    child.material.color.set(piece.color);
-    // Edge bands and end-grain caps keep their relative shading under a tint.
-    if (child.userData.tintMul) child.material.color.multiplyScalar(child.userData.tintMul);
+    if (child.userData.keepColor) return;
+    const mats = Array.isArray(child.material) ? child.material : child.material ? [child.material] : [];
+    for (const mat of mats) {
+      if (!mat.color || mat.userData?.keepColor) continue;
+      mat.color.set(piece.color);
+      // Edge bands and end-grain caps keep their relative shading under a tint.
+      const mul = mat.userData?.tintMul ?? child.userData.tintMul;
+      if (mul) mat.color.multiplyScalar(mul);
+    }
   });
 }
 
