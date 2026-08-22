@@ -103,7 +103,11 @@ These spaces customise how existing evidence is inspected and carried into the n
 
 ## Phone upload (Tailscale or LAN)
 
-In Lab → Scan, **Send from phone** shows a selectable URL, **Copy** button, and QR code. When the app is opened through Tailscale HTTPS, the primary phone link is `https://<machine>.<tailnet>.ts.net/phone-upload`. The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as a same-Wi-Fi fallback.
+Lab → **Scan** → **Send from phone** shows a selectable URL, **Copy** button, and QR. When the app is opened through Tailscale HTTPS, that secure phone-ready address is primary:
+
+`https://<machine>.<tailnet>.ts.net/phone-upload`
+
+The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as a same-Wi-Fi fallback.
 
 Open either link in the phone browser, then use its single **Record / Send ~30s video** button. The page posts the clip to `/api/scan/video`; `.ts.net`, localhost, and private-LAN browser origins are accepted by the API. Lab extracts frames, rebuilds room occupancy, cuts the old table footprint, and auto-fits the current table. From there, **Finish / Find a way** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
 
