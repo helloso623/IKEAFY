@@ -667,32 +667,274 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    canvas.width = canvas.clientWidth || 720;
-    canvas.height = canvas.clientHeight || 280;
-    const w = canvas.width;
-    const h = canvas.height;
-    // Black-and-white line plate first, catalog colour once colorized.
-    const lift = Number(frame.explode || 0) * 80;
-    ctx.fillStyle = frame.colorized ? "#e9d9b6" : "#f2ecdd";
+    const w = Math.max(320, canvas.clientWidth || 720);
+    const h = Math.max(220, canvas.clientHeight || 280);
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * ratio);
+    canvas.height = Math.round(h * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    const colorized = Boolean(frame.colorized);
+    const ink = "#25231f";
+    const paper = colorized ? "#f2e5ca" : "#f7f5ee";
+    const wall = colorized ? "#ead7b4" : "#efeee8";
+    const floor = colorized ? "#c69b63" : "#dedcd4";
+    const birch = colorized ? "#e7c98f" : "#fbfaf6";
+    const birchEdge = colorized ? "#bd8952" : "#e0ded6";
+    const shadow = colorized ? "rgba(79, 50, 24, .17)" : "rgba(37, 35, 31, .09)";
+    const camera = frame.camera || {};
+    const zoom = Math.max(0.88, Math.min(1.16, Number(camera.zoom) || 1));
+    const azimuth = Math.max(30, Math.min(60, Number(camera.az) || 42));
+    const depthX = 24 + ((azimuth - 30) / 30) * 18;
+    const depthY = 13 + ((Number(camera.el) || 26) / 28) * 8;
+    const explode = Math.max(0, Math.min(0.35, Number(frame.explode) || 0));
+    const caption = text(frame.caption).trim() || "Follow the plate, then confirm the step.";
+
+    const polygon = (points, fill, stroke = ink, lineWidth = 1.5) => {
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (const point of points.slice(1)) ctx.lineTo(point[0], point[1]);
+      ctx.closePath();
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = lineWidth;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      }
+    };
+    const line = (x1, y1, x2, y2, width = 1, stroke = ink) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    const label = (value, x, y) => {
+      ctx.beginPath();
+      ctx.arc(x, y, 11, 0, Math.PI * 2);
+      ctx.fillStyle = "#fffdf7";
+      ctx.fill();
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.fillStyle = ink;
+      ctx.font = "700 10px ui-monospace, SFMono-Regular, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(value, x, y + 0.5);
+    };
+
+    // A single quiet birch workshop anchors every plate, while the object keeps
+    // the same elevated three-quarter projection as the storyboard camera moves.
+    ctx.fillStyle = paper;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "#6b4b2a";
-    ctx.fillRect(0, h - 46, w, 46);
-    ctx.strokeStyle = "#2a251d";
-    ctx.lineWidth = 2;
-    ctx.fillStyle = frame.colorized ? "#f3efe6" : "#fbf7ee";
-    ctx.fillRect(w * 0.32, h * 0.3 - lift, w * 0.36, 20);
-    ctx.strokeRect(w * 0.32, h * 0.3 - lift, w * 0.36, 20);
-    for (let i = 0; i < 4; i += 1) {
-      const x = w * 0.34 + i * (w * 0.1);
-      ctx.fillStyle = frame.colorized ? "#e6d7bc" : "#fbf7ee";
-      ctx.fillRect(x, h * 0.3 + 20, 14, h * 0.34);
-      ctx.strokeRect(x, h * 0.3 + 20, 14, h * 0.34);
+    const horizon = Math.max(105, h * 0.43);
+    ctx.fillStyle = wall;
+    ctx.fillRect(0, 0, w, horizon);
+    ctx.fillStyle = floor;
+    ctx.fillRect(0, horizon, w, h - horizon);
+
+    ctx.save();
+    ctx.globalAlpha = colorized ? 0.32 : 0.19;
+    ctx.strokeStyle = colorized ? "#8b653d" : "#9b9991";
+    ctx.lineWidth = 0.7;
+    for (let y = horizon + 18; y < h; y += 19) line(0, y, w, y, 0.7, ctx.strokeStyle);
+    for (let x = -w; x < w * 2; x += 54) line(w / 2, horizon, x, h, 0.7, ctx.strokeStyle);
+    ctx.restore();
+
+    // Workshop landmarks stay deliberately faint so this reads as a manual,
+    // not a room illustration.
+    ctx.save();
+    ctx.globalAlpha = colorized ? 0.52 : 0.3;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(23, 27, 112, 56);
+    for (let x = 34; x < 129; x += 15) {
+      for (let y = 37; y < 77; y += 13) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.1, 0, Math.PI * 2);
+        ctx.fillStyle = ink;
+        ctx.fill();
+      }
     }
-    ctx.fillStyle = "#1b1914";
-    ctx.font = "20px Newsreader, serif";
-    ctx.fillText(text(frame.caption).slice(0, 74), 22, 34);
+    line(w - 136, horizon - 40, w - 22, horizon - 40, 2, ink);
+    line(w - 126, horizon - 40, w - 126, horizon, 2, ink);
+    line(w - 32, horizon - 40, w - 32, horizon, 2, ink);
+    ctx.restore();
+
+    const cardHeight = Math.min(82, Math.max(66, h * 0.25));
+    const usableBottom = h - cardHeight;
+    const centerX = w * 0.52;
+    const objectY = Math.max(92, usableBottom * 0.34);
+    const topWidth = Math.min(w * 0.4, 300) * zoom;
+    const topDepthX = depthX * zoom;
+    const topDepthY = depthY * zoom;
+    const topLift = explode * Math.min(150, h * 0.48);
+    const topLeft = centerX - topWidth / 2;
+    const topY = objectY - topLift;
+    const topThickness = Math.max(10, 13 * zoom);
+    const legHeight = Math.min(usableBottom * 0.39, 102) * zoom;
+    const legWidth = Math.max(11, 14 * zoom);
+
+    // Contact shadow.
+    ctx.save();
+    ctx.filter = "blur(5px)";
+    ctx.fillStyle = shadow;
+    ctx.beginPath();
+    ctx.ellipse(centerX + 8, objectY + topDepthY + legHeight + 10, topWidth * 0.58, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Four legs are simple outlined cuboids: clear enough to assemble, spare
+    // enough to match IKEA's line-language.
+    const legs = [
+      [topLeft + 12, objectY + topDepthY],
+      [topLeft + topDepthX + 18, objectY + topDepthY * 1.82],
+      [topLeft + topWidth - 18, objectY + topDepthY * 1.82],
+      [topLeft + topWidth + topDepthX - 20, objectY + topDepthY],
+    ];
+    for (const [x, y] of legs) {
+      polygon(
+        [
+          [x, y],
+          [x + legWidth, y],
+          [x + legWidth, y + legHeight],
+          [x, y + legHeight],
+        ],
+        birch,
+      );
+      polygon(
+        [
+          [x + legWidth, y],
+          [x + legWidth + 5, y - 3],
+          [x + legWidth + 5, y + legHeight - 3],
+          [x + legWidth, y + legHeight],
+        ],
+        birchEdge,
+      );
+    }
+
+    // Exploded plates show dashed travel arrows without changing the assembly.
+    if (explode > 0.015) {
+      ctx.save();
+      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.4;
+      for (const x of [topLeft + 28, topLeft + topWidth - 10]) {
+        const arrowTop = topY + topDepthY + topThickness + 6;
+        const arrowBottom = objectY + topDepthY - 5;
+        line(x, arrowTop, x, arrowBottom, 1.4, ink);
+        ctx.setLineDash([]);
+        polygon(
+          [
+            [x - 4, arrowBottom - 6],
+            [x, arrowBottom],
+            [x + 4, arrowBottom - 6],
+          ],
+          ink,
+          null,
+        );
+        ctx.setLineDash([5, 5]);
+      }
+      ctx.restore();
+    }
+
+    // Table top: top, front edge, then right edge preserves one readable
+    // construction order across all camera values.
+    polygon(
+      [
+        [topLeft, topY],
+        [topLeft + topWidth, topY],
+        [topLeft + topWidth + topDepthX, topY + topDepthY],
+        [topLeft + topDepthX, topY + topDepthY],
+      ],
+      birch,
+      ink,
+      1.8,
+    );
+    polygon(
+      [
+        [topLeft + topDepthX, topY + topDepthY],
+        [topLeft + topWidth + topDepthX, topY + topDepthY],
+        [topLeft + topWidth + topDepthX, topY + topDepthY + topThickness],
+        [topLeft + topDepthX, topY + topDepthY + topThickness],
+      ],
+      birchEdge,
+    );
+    polygon(
+      [
+        [topLeft + topWidth, topY],
+        [topLeft + topWidth + topDepthX, topY + topDepthY],
+        [topLeft + topWidth + topDepthX, topY + topDepthY + topThickness],
+        [topLeft + topWidth, topY + topThickness],
+      ],
+      colorized ? "#c7955a" : "#e8e6de",
+    );
+
+    // Small manual callouts identify the repeat parts without crowding the plate.
+    label("1", topLeft + topDepthX * 0.45, topY - 17);
+    line(topLeft + topDepthX * 0.45, topY - 6, topLeft + topDepthX, topY + 4, 1, ink);
+    label("4×", topLeft + topWidth + topDepthX + 30, objectY + topDepthY + legHeight * 0.55);
+    line(
+      topLeft + topWidth + topDepthX + 19,
+      objectY + topDepthY + legHeight * 0.55,
+      topLeft + topWidth + topDepthX - 1,
+      objectY + topDepthY + legHeight * 0.6,
+      1,
+      ink,
+    );
+
+    ctx.fillStyle = ink;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "700 9px ui-monospace, SFMono-Regular, monospace";
+    ctx.fillText(colorized ? "BIRCH WORKSHOP · MATERIAL VIEW" : "BIRCH WORKSHOP · ASSEMBLY VIEW", w - 18, 20);
+
+    // Caption card remains legible at narrow sizes and gives every frame the
+    // same hierarchy: plate number, instruction, then progress.
+    ctx.fillStyle = colorized ? "rgba(255, 252, 243, .96)" : "rgba(255, 255, 252, .96)";
+    ctx.fillRect(0, h - cardHeight, w, cardHeight);
+    line(0, h - cardHeight, w, h - cardHeight, 1.5, ink);
     ctx.fillStyle = "#ffda1a";
-    ctx.fillRect(0, 0, 8, h);
+    ctx.fillRect(0, h - cardHeight, 8, cardHeight);
+
+    const plate = Math.max(1, Number(frame.frame) + 1 || 1);
+    ctx.fillStyle = ink;
+    ctx.textAlign = "left";
+    ctx.font = "700 10px ui-monospace, SFMono-Regular, monospace";
+    ctx.fillText(`PLATE ${String(plate).padStart(2, "0")}`, 22, h - cardHeight + 20);
+
+    const words = caption.split(/\s+/);
+    const lines = [];
+    let current = "";
+    const captionWidth = Math.max(200, w - 145);
+    ctx.font = `600 ${w < 520 ? 15 : 17}px Newsreader, Georgia, serif`;
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (current && ctx.measureText(candidate).width > captionWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+    ctx.fillStyle = ink;
+    ctx.font = `600 ${w < 520 ? 15 : 17}px Newsreader, Georgia, serif`;
+    lines.slice(0, 2).forEach((value, index) => {
+      const clipped = index === 1 && lines.length > 2 ? `${value.replace(/[.,;:]?$/, "")}…` : value;
+      ctx.fillText(clipped, 22, h - cardHeight + 42 + index * 19);
+    });
+
+    ctx.textAlign = "right";
+    ctx.font = "700 9px ui-monospace, SFMono-Regular, monospace";
+    ctx.fillText(colorized ? "CATALOG COLOUR" : "LINE PLATE", w - 18, h - 16);
+    ctx.textAlign = "left";
     drawScheme(state.step);
   }
 

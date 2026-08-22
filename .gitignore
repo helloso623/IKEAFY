@@ -13,16 +13,8 @@ tmp/
 uploads/
 client/public/generated/
 
-# next.js
-/.next/
-/out/
-
 # production
 /build
-
-# data (local SQLite database)
-/data/*.db
-/data/*.db-*
 
 # env / secrets
 .env
