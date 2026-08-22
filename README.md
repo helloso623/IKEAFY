@@ -1,38 +1,33 @@
 <h1 align="center">IKEAlive</h1>
 
-<p align="center"><strong>Make the guide fit the build.</strong></p>
+<p align="center"><strong>Turn the manual you have into the view you need.</strong></p>
 
-<p align="center">Adapt the instructions you have to the room, tools, parts, and questions in front of you.</p>
+<p align="center">Real IKEA instructions in. Step films, instruction stills, and spatial 3D views out—without losing the product, parts, or order of the guide.</p>
 
 <p align="center">
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-1c1c1e?style=flat-square" alt="Node.js 20+" /></a>
   <a href="https://github.com/helloso623/IKEAFY/actions/workflows/test.yml"><img src="https://github.com/helloso623/IKEAFY/actions/workflows/test.yml/badge.svg" alt="Test workflow status" /></a>
 </p>
 
-<br />
+IKEAlive is an adaptation workspace for an assembly that already exists. Start with the IKEA PDF in front of you, find an official PDF by product name with Tavily, or follow the built-in LACK transcription. Add the notes that matter and the tools you already own.
 
-IKEAlive starts with existing evidence. Drop in a real IKEA instructions PDF, open the locked official LACK guide, add your notes and owned tools, or search for an official manual by product name with Tavily. It keeps that source material at the center while adapting the next useful view to your build.
+Then choose how to inspect the next step:
 
-It does not invent an assembly from a blank prompt.
+- **Seedance film** — a playable clip for each tutorial plate.
+- **Nano Banana still** — one focused instruction image at a time.
+- **Tripo 3D** — a mesh you can inspect in the workshop.
 
-## Bring what already exists
+Each renderer receives the same guide step and locked scene context. It changes the view, not the source assembly.
 
-- **A real IKEA PDF** — upload the manual you are actually following.
-- **Official LACK** — use the built-in, article-stamped guide; its sequence stays locked.
-- **Your context** — record what is confusing, what is missing, and which tools you already own.
-- **A product name** — with `TAVILY_API_KEY`, retrieve an official IKEA manual instead of composing one.
+## Follow the plate
 
-From there, choose a useful adaptation: a step film, an instruction still, or a spatial 3D view. The source guide remains the authority; the output changes how you inspect it.
+The official LACK side table flow is transcribed against article `304.499.08`. Its five steps are locked, ordered, and revealed through the server-owned assembly cursor.
 
-| Adaptation | What it preserves |
-| --- | --- |
-| Step film | The selected instruction and its order |
-| Instruction still | The parts, action, and viewpoint for one plate |
-| 3D view | The guide's pieces and current assembly context |
+Custom manuals stay editable. IKEAlive reads PDF text and page images, extracts an ordered guide, and folds in notes and owned tools. Drawing-only plates use the configured vision path. Tavily only searches for an official IKEA PDF; it does not compose a replacement manual.
 
-The AI orb carries the active guide, selected part, notes, owned tools, and command history into the conversation. Ask about the step in front of you rather than starting over.
+Once a guide is active, Watch keeps the current plate beside its inventory, common trouble spots, part identification, and small-parts request. The chat context follows the active guide, selected part, notes, and tools, so questions stay grounded in the build.
 
-## Run
+## Start locally
 
 Requires Node.js 20 or newer.
 
@@ -41,12 +36,15 @@ npm install
 npm run dev
 ```
 
-App [localhost:5173](http://localhost:5173) · API [localhost:8787](http://localhost:8787)
+Open the app at [localhost:5173](http://localhost:5173). The Express API runs at [localhost:8787](http://localhost:8787).
+
+For the desktop shell:
 
 ```bash
 npm run electron
 ```
 
+Both commands start the Vite client and Express API; `npm run electron` also opens the Electron window.
 The Electron command starts the same Vite client and Express API inside the desktop shell.
 
 ## Optional services
@@ -77,39 +75,43 @@ When a table model is ready, **Finish & find ways** researches construction meth
 
 ## Structure
 
-| Path | What lives here |
-| --- | --- |
-| `client/` | Vite, guide ingestion, Watch, Lab Bench/House, and Scan |
-| `electron/` | Desktop shell for the client and API |
-| `server/` | Express routes and service adapters |
-| `guides/` | Existing official building guides |
-| `docs/` | Product and implementation notes |
-| `tests/` | Node tests for guides, agents, rendering inputs, and reconstruction |
+## Connect the optional services
 
-Lab is one workspace with two spaces: **Bench** (3D edit) and **House** (your room photos rebuilt as a real 3D scene). **Scan** opens the object-scan inputs inside the Bench outliner; camera and video are inputs there, not a third Lab mode. Click **Lab** to open it (IKEAlive modes hide); click **Lab** again to return. IKEAlive (upload / watch) stays the default tab.
+Copy `.env.example` to `.env`, add only the services you need, and keep the populated file out of Git.
 
-### Find ways to make the final table
+- `FAL_KEY` enables Seedance 2.5 films, Nano Banana 2 stills, and Tripo H3.1 meshes.
+- `TAVILY_API_KEY` enables official-manual lookup and live tool offers.
+- `OPENAI_API_KEY` enables plate vision for drawing-only PDFs and hosted assistant requests.
+- `OPENAI_MODEL_HARD` and `OPENAI_MODEL_EASY` select the hosted request models.
+- `PORT` sets the API port. `CLIENT_PORT` sets the client port used by Electron.
 
-After modeling or remodeling a table, click **Finish & find ways**. IKEAlive offers routes such as a cut-to-size top with ready-made legs or an all-wood apron frame, then derives the current top, legs, boards, and method-specific cuts by shape and millimetres. It produces a printable ways-and-cut-list PDF and opens a custom IKEAlive watch / plan / todo. Each changed model gets a new saved revision, so prior ways remain available. Tavily is an optional one-query research provider; without it, dimension catalog matches and public search links remain available. Retailer scraping and fastener catalogs are not part of this flow. See [`docs/BUILD-WAYS.md`](docs/BUILD-WAYS.md).
+The app and locked LACK flow run without hosted keys. Features that require a missing key report that requirement instead of presenting a generated fallback as a completed render or search.
 
-House uses single-photo and multi-file uploads, or a ~30s walk sent from a phone. Width and depth set metric scale; otherwise the photo aspect and wall/floor horizon estimate the room, or tap two points on the photo that are 1 m apart (or the ends of a known object). No room image leaves the machine.
+## Move around the evidence
 
----
+**Watch** follows the guide one plate at a time.
 
-Lab → **Scan** accepts aligned front, side, and top photos, the live browser/Electron camera, extra stills, or a walk-around video. Video and camera stills populate the same three-view inputs and reconstruct into a mesh on the Bench. Scale is cheap and local: a known object (credit card, A4, side table, door), the wall/floor vanishing line, or tap two points on a frame that are 1 m apart. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`).
+**Bench** opens existing pieces in a 3D workspace. **House** rebuilds the room from photos and measurements, then checks the current table against the available space.
 
-Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
+**Scan** works from aligned views, the browser or Electron camera, a walk-around video, or a same-Wi-Fi phone upload. It reconstructs a local visual hull, scales it from known evidence, and can bake the fitted model and scene into a custom IKEAlive plan.
 
+**Finish & find ways** begins with the table already modeled. It records a revision, proposes construction routes, derives dimensioned tops, legs, rails, boards, and cuts, prepares a printable PDF, and opens the result as an IKEAlive Watch plan. Tavily can research that saved shape with one search; without it, dimension matches and ordinary public search links remain available.
 
-### Phone upload (LAN)
+These spaces customise how existing evidence is inspected and carried into the next useful assembly workflow. The guide, model, and room stay visible as the source.
 
-Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
+## Phone upload (LAN)
 
-`http://<lan-ip>:5173/phone-upload`
+In Lab → Scan, **Send from phone** shows a QR code and a local `http://<lan-ip>:5173/phone-upload` link. A phone on the same Wi-Fi can record or choose a room walk of up to 30 seconds and post it to `/api/scan/video`.
 
-(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a room walk of up to 30 seconds. The page POSTs the clip to `/api/scan/video`. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Finish & find ways** researches how to make that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
+Lab extracts frames, rebuilds room occupancy, and auto-fits the current table. From there, **Finish & find ways** researches ways to make the final table, while **Scan current model + scene** carries the fit into an IKEAlive plan.
 
+See [Furniture-piece sourcing policy](docs/BUILD-WAYS.md) for the build-route and cut-list boundary.
 
-## Social preview
+## How it is arranged
 
-The repository currently has no committed social-preview image. Add one in the GitHub repository settings when final brand artwork is available; the README intentionally does not reference a placeholder or missing asset.
+1. `client/` ingests PDFs and presents Upload, Watch, Bench, House, and Scan.
+2. `server/` owns guide parsing, assembly order, scene context, and service adapters.
+3. `guides/` holds the existing official source material.
+4. `electron/` runs the same client and API in a desktop shell.
+5. `docs/` records product and sourcing boundaries.
+6. `tests/` protects guide locks, render inputs, service boundaries, room fitting, and reconstruction behavior.
