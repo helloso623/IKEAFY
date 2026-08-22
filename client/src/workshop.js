@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
 import {
@@ -61,8 +62,8 @@ function grayWoodMap({ width = 512, height = 512, planks = 10, seed = 1 } = {}) 
 
 const grainCanvasCache = new Map();
 
-function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true } = {}) {
-  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}`;
+function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arcs = true, blotches = false } = {}) {
+  const key = `${size}:${contrast}:${seed}:${flecks}:${arcs}:${blotches}`;
   const cached = grainCanvasCache.get(key);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
@@ -73,6 +74,34 @@ function grainCanvas({ size = 512, contrast = 0.08, seed = 1, flecks = true, arc
   const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, size, size);
+  if (blotches) {
+    // Solid wood first reads as tone shifting across the board, then as
+    // streaks. Two low-frequency layers put that in before any line work:
+    // broad soft blotches (heartwood/sapwood drift) and wide vertical
+    // early/latewood bands running with the grain.
+    for (let i = 0; i < 7; i += 1) {
+      const cx = rand() * size;
+      const cy = rand() * size;
+      const radius = size * (0.22 + rand() * 0.3);
+      const dark = rand() > 0.42;
+      const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+      const tone = dark ? "96, 72, 44" : "255, 246, 226";
+      grad.addColorStop(0, `rgba(${tone}, ${(contrast * (dark ? 0.55 : 0.85)).toFixed(4)})`);
+      grad.addColorStop(1, `rgba(${tone}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+    }
+    for (let i = 0; i < 9; i += 1) {
+      const x = rand() * size;
+      const w = size * (0.03 + rand() * 0.09);
+      const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
+      grad.addColorStop(0, "rgba(104, 80, 50, 0)");
+      grad.addColorStop(0.5, `rgba(104, 80, 50, ${(contrast * (0.28 + rand() * 0.5)).toFixed(4)})`);
+      grad.addColorStop(1, "rgba(104, 80, 50, 0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - w, 0, w * 2, size);
+    }
+  }
   for (let i = 0; i < 46; i += 1) {
     const x = rand() * size;
     const drift = (rand() - 0.5) * size * 0.14;
@@ -117,6 +146,49 @@ function grainRepeat(mm) {
   return THREE.MathUtils.clamp((Number(mm) || 280) / 280, 1, 4);
 }
 
+/* Brushed-metal streaks: a mostly-white canvas scored by long horizontal
+   lines. Sampled as a roughness map it turns one flat roughness value into
+   fine gloss/dull lanes, and as a bump map it puts the same lanes into the
+   specular normal — the classic brushed look, procedurally, ~50 KB of canvas
+   instead of a texture download. Left in linear space (no colorSpace) since
+   both slots want raw values. */
+const brushedCanvasCache = new Map();
+
+function brushedCanvas(seed = 1, size = 512) {
+  const cached = brushedCanvasCache.get(seed);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  let s = (seed * 6151 + 92821) % 233280;
+  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  ctx.fillStyle = "#e9e9e9";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 640; i += 1) {
+    const y = rand() * size;
+    const bright = rand() > 0.5;
+    const tone = bright ? 255 : Math.round(120 + rand() * 70);
+    ctx.strokeStyle = `rgba(${tone}, ${tone}, ${tone}, ${(0.05 + rand() * 0.16).toFixed(3)})`;
+    ctx.lineWidth = 0.5 + rand();
+    ctx.beginPath();
+    ctx.moveTo(-4, y);
+    ctx.lineTo(size + 4, y + (rand() - 0.5) * 2);
+    ctx.stroke();
+  }
+  brushedCanvasCache.set(seed, canvas);
+  return canvas;
+}
+
+function brushedTexture(seed, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(brushedCanvas(seed));
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
+
 function seedFrom(part) {
   let n = 3;
   for (const ch of String(part?.id || "x")) n = (n * 31 + ch.charCodeAt(0)) % 997;
@@ -149,9 +221,12 @@ function contactShadowMap(size = 256) {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Foil sheen: a hash-noise jitter on roughness, injected into the foil
-// laminate shader. A few ALU ops per fragment, no extra textures, and the
-// constant cache key means every foil part shares one compiled program.
+// Foil sheen: roughness jitter injected into the foil laminate shader. Two
+// scales — an isotropic paper-fleck sparkle plus row-quantized streaks that
+// run with the printed grain, so highlights smear into brushed lines the way
+// melamine over particleboard really does. A few ALU ops per fragment, no
+// extra textures, and the constant cache key means every foil part shares
+// one compiled program.
 function addFoilGrain(mat) {
   mat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -159,11 +234,12 @@ function addFoilGrain(mat) {
       `#include <roughnessmap_fragment>
       #ifdef USE_MAP
       float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
-      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      float ikeaStreak = fract(sin(floor(vMapUv.x * 220.0) * 12.9898) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.06 + (ikeaStreak - 0.5) * 0.1, 0.04, 1.0);
       #endif`,
     );
   };
-  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  mat.customProgramCacheKey = () => "ikealive-foil-grain-v2";
   return mat;
 }
 
@@ -322,16 +398,53 @@ function foilMaterial(part, hex, kind) {
   // one extra sample of a texture already on the GPU — and jitter roughness.
   mat.bumpMap = map;
   mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  // Real anisotropic specular, rotated to stretch highlights along the
+  // printed grain (streaks run down V in the canvas). Reads against the
+  // scene environment, so the sheen slides as the camera orbits.
+  mat.anisotropy = kind === "white" ? 0.2 : 0.35;
+  mat.anisotropyRotation = Math.PI / 2;
   return addFoilGrain(mat);
 }
 
+/* Open-grain solid wood: blotchy tone drift and latewood bands under the
+   streaks, the same canvas reused as bump (pores catch raking light) and as
+   a roughness map (dark latewood reads slightly duller than sanded face).
+   Each part warms or cools a touch by seed so boards never match exactly. */
 function openWoodMaterial(part, hex) {
+  const seed = seedFrom(part);
   const map = grainTexture(
-    { contrast: 0.17, seed: seedFrom(part), flecks: true, arcs: true },
+    { contrast: 0.22, seed, flecks: true, arcs: true, blotches: true },
     grainRepeat(part.dimsMm?.x),
     grainRepeat(part.dimsMm?.y),
   );
-  return stdMat({ color: new THREE.Color(hex), map, roughness: 0.74, metalness: 0 });
+  const color = new THREE.Color(hex);
+  color.offsetHSL(((seed % 13) - 6) * 0.0016, 0, ((seed % 7) - 3) * 0.008);
+  const mat = stdMat({ color, map, roughness: 0.78, metalness: 0 });
+  mat.bumpMap = map;
+  mat.bumpScale = 0.55;
+  mat.roughnessMap = map;
+  return mat;
+}
+
+/* Brushed steel: full metalness against the room environment, streaked
+   roughness and bump so highlights draw out into brush lines, and real
+   anisotropic specular running with the brush direction. */
+function brushedMetalMaterial(part, hex) {
+  const streaks = brushedTexture(
+    seedFrom(part),
+    grainRepeat(part.dimsMm?.x),
+    grainRepeat(part.dimsMm?.y),
+  );
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(hex),
+    metalness: 0.92,
+    roughness: 0.38,
+    roughnessMap: streaks,
+    anisotropy: 0.55,
+  });
+  mat.bumpMap = streaks;
+  mat.bumpScale = 0.05;
+  return mat;
 }
 
 function materialFor(part, piece) {
@@ -342,15 +455,15 @@ function materialFor(part, piece) {
   if (texture === "birch-foil") return foilMaterial(part, hex, "birch");
   if (texture === "white-foil") return foilMaterial(part, hex, "white");
   if (texture === "oak-open") return openWoodMaterial(part, hex);
+  if (texture === "metal" || part.material === "steel") return brushedMetalMaterial(part, hex);
   if (texture === "powder-coat")
     return stdMat({ color: new THREE.Color(hex), roughness: 0.42, metalness: 0.35 });
   const color = new THREE.Color(hex);
-  const metal = texture === "metal" || part.material === "steel";
   const pcb = /^pcb-/.test(texture || "");
   const mat = stdMat({
     color,
-    roughness: metal ? 0.28 : pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
-    metalness: metal ? 0.72 : pcb ? 0.12 : 0.05,
+    roughness: pcb ? 0.42 : texture === "gloss" ? 0.18 : 0.66,
+    metalness: pcb ? 0.12 : 0.05,
     emissive: part.firmwareRole === "led" ? new THREE.Color(0x2a2a2a) : 0x000000,
   });
   if (pcb) mat.map = pcbMap(hex);
@@ -1130,11 +1243,23 @@ export function createWorkshop(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+  // Image-based specular: a prefiltered procedural room (no downloads) so
+  // metals mirror something instead of reading as grey plastic, foil
+  // laminate catches window-shaped sheen, and the roughness slider visibly
+  // travels from mirror to matte. Look mode is untouched — its unlit
+  // MeshBasicMaterial overrides ignore scene.environment by design.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.45;
+  pmrem.dispose();
+
   const orbit = new OrbitControls(camera, canvas);
   orbit.target.set(0, 0.2, 0);
   orbit.enableDamping = true;
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.9);
+  // The environment now carries part of the ambient term, so the hemisphere
+  // light steps back to keep overall exposure where it was.
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.55);
   scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffffff, 1.3);
   key.position.set(2, 3, 1);
@@ -1486,11 +1611,11 @@ export function createWorkshop(canvas) {
   });
   scene.add(transform.getHelper());
 
-  /* ---- Materials panel: per-piece color + roughness, applied live --------
+  /* ---- Materials panel: per-piece color + roughness + metalness, live ----
      Color and texture persist through the project API (the server keeps
-     them on the piece); roughness is a client-side dressing kept in a map
-     so sync() can re-apply it after every rebuild. */
-  const matOverrides = new Map(); // pieceId -> { roughness }
+     them on the piece); roughness and metalness are client-side dressing
+     kept in a map so sync() can re-apply them after every rebuild. */
+  const matOverrides = new Map(); // pieceId -> { roughness, metalness }
 
   function eachTintableMaterial(root, fn) {
     root.traverse((child) => {
@@ -1505,7 +1630,7 @@ export function createWorkshop(canvas) {
     });
   }
 
-  function setPieceMaterial(id, { color, roughness } = {}) {
+  function setPieceMaterial(id, { color, roughness, metalness } = {}) {
     const mesh = meshes.get(id);
     if (!mesh) return false;
     if (roughness != null && Number.isFinite(Number(roughness))) {
@@ -1513,6 +1638,13 @@ export function createWorkshop(canvas) {
       matOverrides.set(id, { ...(matOverrides.get(id) || {}), roughness: value });
       eachTintableMaterial(mesh, (mat) => {
         if (mat.roughness !== undefined) mat.roughness = value;
+      });
+    }
+    if (metalness != null && Number.isFinite(Number(metalness))) {
+      const value = THREE.MathUtils.clamp(Number(metalness), 0, 1);
+      matOverrides.set(id, { ...(matOverrides.get(id) || {}), metalness: value });
+      eachTintableMaterial(mesh, (mat) => {
+        if (mat.metalness !== undefined) mat.metalness = value;
       });
     }
     if (color) {
@@ -1536,24 +1668,26 @@ export function createWorkshop(canvas) {
     const piece = mesh.userData.piece || {};
     const part = mesh.userData.part || {};
     let roughness = matOverrides.get(id)?.roughness;
-    if (roughness == null) {
-      eachTintableMaterial(mesh, (mat) => {
-        if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
-      });
-    }
+    let metalness = matOverrides.get(id)?.metalness;
+    eachTintableMaterial(mesh, (mat) => {
+      if (roughness == null && mat.roughness !== undefined) roughness = mat.roughness;
+      if (metalness == null && mat.metalness !== undefined) metalness = mat.metalness;
+    });
     return {
       color: `#${new THREE.Color(piece.color || part.color || PALE).getHexString()}`,
       texture: piece.texture || part.texture || null,
       roughness: roughness ?? 0.6,
+      metalness: metalness ?? 0.05,
     };
   }
 
   function applyMatOverrides() {
     for (const [id, override] of matOverrides) {
       const mesh = meshes.get(id);
-      if (!mesh || override.roughness == null) continue;
+      if (!mesh) continue;
       eachTintableMaterial(mesh, (mat) => {
-        if (mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.roughness != null && mat.roughness !== undefined) mat.roughness = override.roughness;
+        if (override.metalness != null && mat.metalness !== undefined) mat.metalness = override.metalness;
       });
     }
   }

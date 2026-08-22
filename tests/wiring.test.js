@@ -546,18 +546,25 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
   assert.match(main, /data-sculpt/);
 });
 
-test("finished furniture hunts shaped pieces, prints them, and opens its parsed todo", () => {
+test("finish shows progress, scores a physical way, prints it, and opens its parsed todo", () => {
   assert.match(html, /id="finish-model"/);
-  assert.match(html, /Hunt table pieces/);
-  assert.match(html, /dimension-matched tops, legs, aprons, stretchers, and boards/);
-  assert.match(html, /Piece-plan history/);
-  assert.match(apiSource, /^\s{2}finishProject:/m);
+  assert.match(html, /Finish \/ Find a way/);
+  assert.match(html, /id="finish-progress-bar"/);
+  assert.match(html, /id="finish-progress-text"/);
+  assert.match(html, /visual and dimensional similarity/);
+  assert.match(html, /Ways-to-make history/);
+  assert.match(apiSource, /^\s{2}startFinishProject:/m);
+  assert.match(apiSource, /^\s{2}finishJob:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
-  assert.match(main, /api\.finishProject\(\)/);
+  assert.match(main, /api\.startFinishProject\(model\)/);
+  assert.match(main, /api\.finishJob\(id\)/);
+  assert.match(main, /finishModelSnapshot/);
+  assert.match(main, /Reading the model/);
+  assert.match(main, /closest physical result/);
   assert.match(main, /refreshCurrentDiy/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
-  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines|ways-to-make plan/);
+  assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
@@ -610,6 +617,42 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /data-lab-split="left"/);
   assert.match(html, /data-lab-toggle="right"/);
   assert.match(css, /--lab-left/);
+});
+
+test("materials read real: env specular, wood grain, brushed metal, metalness meter", () => {
+  const workshop = read("client/src/workshop.js");
+
+  // Image-based specular so metalness/roughness visibly travel.
+  assert.match(workshop, /RoomEnvironment/, "procedural room env — no texture downloads");
+  assert.match(workshop, /scene\.environment = pmrem/, "prefiltered env feeds physical materials");
+  assert.match(workshop, /environmentIntensity/);
+
+  // Wood is grain, tone drift, and relief — not a brown fill.
+  assert.match(workshop, /function grainCanvas/);
+  assert.match(workshop, /blotches/, "solid wood gets low-frequency tone variation");
+  assert.match(workshop, /openWoodMaterial/);
+  const wood = workshop.slice(workshop.indexOf("function openWoodMaterial"), workshop.indexOf("function materialFor"));
+  assert.match(wood, /bumpMap/, "grain doubles as height so pores catch raking light");
+  assert.match(wood, /roughnessMap/, "latewood reads duller than the sanded face");
+
+  // Foil laminate: shader-jittered sheen plus real anisotropy along the grain.
+  assert.match(workshop, /roughnessFactor = clamp/, "foil shader hook still jitters roughness");
+  assert.match(workshop, /ikeaStreak/, "sheen streaks run with the printed grain");
+  assert.match(workshop, /anisotropyRotation/);
+
+  // Metal is brushed against the environment, not grey plastic.
+  assert.match(workshop, /function brushedCanvas/);
+  assert.match(workshop, /brushedMetalMaterial/);
+  assert.match(workshop, /anisotropy: 0\.\d+/);
+
+  // The metalness meter exists and reaches the per-piece materials.
+  assert.match(html, /id="mat-metal"/);
+  assert.match(html, /id="mat-metal-out"/);
+  assert.match(main, /mat-metal/);
+  assert.match(main, /applyMaterial\(\{ metalness \}\)/);
+  assert.match(workshop, /metalness: metalness \?\? 0\.05|metalness \?\? 0\.05/, "getPieceMaterial reports metalness");
+  const setter = workshop.slice(workshop.indexOf("function setPieceMaterial"), workshop.indexOf("function getPieceMaterial"));
+  assert.match(setter, /metalness/, "setPieceMaterial applies the meter");
 });
 
 test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {

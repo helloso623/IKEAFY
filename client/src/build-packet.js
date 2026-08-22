@@ -47,8 +47,17 @@ export function buildPacketHtml(packet = {}) {
   const wayRows = ways
     .map(
       (way, index) => `<article class="way">
-        <h3>${index + 1}. ${escapeHtml(way.title)}${way.recommended ? " · recommended" : ""}</h3>
+        <h3>${index + 1}. ${escapeHtml(way.title)} · ${escapeHtml(way.similarity?.score ?? 0)}% similar${way.recommended ? " · closest" : ""}</h3>
         <p>${escapeHtml(way.summary)}</p>
+        ${
+          way.similarity
+            ? `<p><strong>Similarity:</strong> dimensions ${escapeHtml(way.similarity.dimensions)}% · silhouette ${escapeHtml(
+                way.similarity.silhouette,
+              )}% · material ${escapeHtml(way.similarity.material)}% · piece breakdown ${escapeHtml(
+                way.similarity.pieceBreakdown,
+              )}%</p>`
+            : ""
+        }
         ${way.joinery ? `<p><strong>Construction:</strong> ${escapeHtml(way.joinery)}</p>` : ""}
         ${
           (way.additionalPieces || way.additionalCuts)?.length
@@ -110,15 +119,17 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive piece plan · tops, legs, aprons &amp; boards</p>
+  <p class="kicker">IKEAlive build packet · closest way to make this model</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
   <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
-  <h2>Candidate piece routes</h2>
+  <p class="match"><strong>Closest physical result:</strong> ${escapeHtml(bom.similarityScore || 0)}% visual / dimensional similarity.
+    ${escapeHtml(bom.similarity?.reason || "")}</p>
+  <h2>Ways to make the final model</h2>
   ${wayRows}
-  <h2>Pieces for this table</h2>
+  <h2>Geometry-derived pieces and cut list</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -133,7 +144,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the table-piece PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the construction-way PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();

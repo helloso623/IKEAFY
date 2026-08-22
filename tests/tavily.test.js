@@ -79,7 +79,7 @@ test("Tavily search maps IKEA and Amazon hits into shop offers", async () => {
   }
 });
 
-test("piece hunt asks for tops, legs, boards, and lumber instead of fasteners", async () => {
+test("construction search asks for dimensioned ways and excludes fastener catalogs", async () => {
   const previous = process.env.TAVILY_API_KEY;
   process.env.TAVILY_API_KEY = "tvly-test";
   let query = "";
@@ -104,10 +104,40 @@ test("piece hunt asks for tops, legs, boards, and lumber instead of fasteners", 
       },
       { fetchFn },
     );
-    assert.match(query, /furniture pieces for table 900 x 500 x 740 mm/i);
-    assert.match(query, /tabletop legs apron stretcher board lumber/i);
-    assert.match(query, /-screw -bolt -fastener/);
+    assert.match(query, /ways to physically build custom object 900 x 500 x 740 mm/i);
+    assert.match(query, /construction method cut list shaped stock/i);
+    assert.match(query, /-screws -bolts -fasteners -McMaster/);
     assert.equal(offers.length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("construction research includes the analyzed silhouette, support, material, and dimensions", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "tvly-test";
+  let query = "";
+  try {
+    await searchFurniturePieceOffers(
+      {
+        name: "Round dining object",
+        modelDimensionsMm: { x: 900, y: 900, z: 740 },
+        profile: { topShape: "round", supportStyle: "central", materialFamily: "wood" },
+        cutList: [{ qty: 1, name: "circular top", dimensions: "900 × 900 × 28 mm" }],
+        ways: [],
+      },
+      {
+        fetchFn: async (_url, init) => {
+          query = JSON.parse(init.body).query;
+          return { ok: true, json: async () => ({ results: [] }) };
+        },
+      },
+    );
+    assert.match(query, /900 x 900 x 740 mm/);
+    assert.match(query, /round central wood silhouette/);
+    assert.match(query, /circular top 900 × 900 × 28 mm/);
+    assert.match(query, /-McMaster/);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;

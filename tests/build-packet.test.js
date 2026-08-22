@@ -11,6 +11,8 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
       scope: "Furniture pieces matched to this model",
       estimatedTotal: 34.5,
       currency: "USD",
+      similarityScore: 96,
+      similarity: { reason: "rectangular top / four-leg support" },
       ways: [
         {
           title: "Cut top + ready-made legs",
@@ -18,6 +20,7 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
           summary: "Make the current shape from a cut panel and four legs.",
           joinery: "Use the attachment system supplied with the legs.",
           additionalPieces: [],
+          similarity: { score: 96, dimensions: 100, silhouette: 100, material: 80, pieceBreakdown: 100 },
           sources: [{ store: "Build plan", url: "https://example.com/table-plan" }],
         },
       ],
@@ -50,9 +53,11 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
   });
 
   assert.match(html, /Table &lt;one&gt;/);
-  assert.match(html, /Candidate piece routes/);
+  assert.match(html, /Ways to make the final model/);
   assert.match(html, /Cut top \+ ready-made legs/);
-  assert.match(html, /Pieces for this table/);
+  assert.match(html, /96% similar/);
+  assert.match(html, /dimensions 100%.*silhouette 100%/);
+  assert.match(html, /Geometry-derived pieces and cut list/);
   assert.match(html, /birch plywood/);
   assert.match(html, /Live piece matches/);
   assert.match(html, /Cut-to-size table plan/);
