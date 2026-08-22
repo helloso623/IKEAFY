@@ -601,7 +601,7 @@ export function storyboardForStep(guide, stepNumber) {
     `Step ${step.number}: ${step.action}`,
     step.body,
     step.toolRequired ? `Tool: ${step.toolRequired}` : "Hands only",
-    step.warnings[0] ? `Watch: ${step.warnings[0]}` : "Looks good — continue when ready.",
+    step.warnings[0] ? `Watch: ${step.warnings[0]}` : "This plate is done.",
   ];
   return captions.map((caption, i) => ({
     frame: i,
@@ -627,7 +627,7 @@ export function plateKind(guide, step = {}) {
 
 export function makeVideoPlan(guide) {
   return {
-    title: `${guide.title} — IKEAFY film`,
+    title: `${guide.title} — IKEAlive reel`,
     theme: guide.theme,
     partner: { name: "ByteDance Seedance 2.5", status: "optional", fallback: "local canvas storyboard" },
     continuous: true,
