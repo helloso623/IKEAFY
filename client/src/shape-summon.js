@@ -3,6 +3,10 @@ const SHAPES = Object.freeze({
     label: "Cube",
     component: { shape: "box", sizeMm: [400, 400, 400] },
   },
+  box: {
+    label: "Box",
+    component: { shape: "box", sizeMm: [500, 320, 400] },
+  },
   sphere: {
     label: "Sphere",
     component: { shape: "sphere", sizeMm: [400, 400, 400], segments: 40 },
@@ -28,6 +32,10 @@ const SHAPES = Object.freeze({
   plane: {
     label: "Plane",
     component: { shape: "plane", sizeMm: [600, 1, 600] },
+  },
+  prism: {
+    label: "Prism",
+    component: { shape: "prism", sizeMm: [450, 500, 400] },
   },
 });
 

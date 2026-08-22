@@ -618,11 +618,11 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "mesh", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
+  const allowed = new Set(["add", "add_part", "mesh", "generate", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
-    if (action.type === "mesh") {
+    if (action.type === "mesh" || action.type === "generate") {
       const mesh = sanitizeMeshAction(action);
       if (mesh) out.push(mesh);
       continue;

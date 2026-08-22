@@ -711,7 +711,7 @@ test("the shop is a bottom-right editable 3D generator with chat context", () =>
 });
 
 test("shape summon buttons are present and wired directly to editable meshes", () => {
-  for (const shape of ["cube", "sphere", "cylinder", "cone", "torus", "plane"]) {
+  for (const shape of ["cube", "box", "sphere", "cylinder", "cone", "torus", "plane", "prism"]) {
     assert.match(html, new RegExp(`data-summon-shape="${shape}"`));
   }
   assert.match(main, /bindShapeSummonButtons\(document/);
