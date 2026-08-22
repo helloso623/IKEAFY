@@ -6,7 +6,6 @@ import { chat } from "../server/lib/agents.js";
 import {
   isMeshBuildAsk,
   localMeshAction,
-  meshPromptsFromRoom,
 } from "../server/lib/mesh-plan.js";
 import { emptyProject } from "../server/lib/project.js";
 
@@ -23,13 +22,15 @@ function withoutHosted(run) {
   };
 }
 
-test("arbitrary object requests produce editable mesh actions, never catalog prose", withoutHosted(async () => {
+test("any descriptive prompt produces one editable 3D generation action", withoutHosted(async () => {
   const cases = [
     ["chair", "chair"],
     ["make a round dining table with one central leg", "table"],
-    ["spawn a 720 mm tall brass lamp", "lamp"],
+    ["generate a 720 mm tall brass lamp", "lamp"],
     ["create a blue sofa", "sofa"],
-    ["model a moon rover", "object"],
+    ["purple horned monster", "creature"],
+    ["warm room corner", "scene"],
+    ["moon rover", "object"],
   ];
 
   for (const [message, kind] of cases) {
@@ -39,13 +40,16 @@ test("arbitrary object requests produce editable mesh actions, never catalog pro
     assert.equal(meshes.length, 1, `${message} should create one mesh action`);
     assert.equal(meshes[0].mesh.kind, kind);
     assert.ok(meshes[0].mesh.components.length >= 1);
+    assert.equal(reply.actions.some((action) => action.partId), false);
+    assert.equal(reply.actions.some((action) => action.type === "add"), false);
     assert.equal(reply.actions.some((action) => action.type === "catalog"), false);
+    assert.match(reply.text, /^Generated editable 3D:/);
     assert.doesNotMatch(reply.text, /on the shelf|Creative staged|550×550/i);
   }
 }));
 
-test("spawn it resolves the latest user object description", withoutHosted(async () => {
-  const reply = await chat("spawn it", {
+test("generate it resolves the latest user object description", withoutHosted(async () => {
+  const reply = await chat("generate it", {
     project: emptyProject(),
     history: [
       { role: "user", content: "I want a green sofa that is 2100 mm wide" },
@@ -58,19 +62,17 @@ test("spawn it resolves the latest user object description", withoutHosted(async
   assert.equal(action.mesh.components[0].sizeMm[0], 1940);
 }));
 
-test("room requests create real room geometry and every requested object mesh", withoutHosted(async () => {
-  assert.deepEqual(meshPromptsFromRoom("create a room with a round table and a chair"), [
-    "make round table",
-    "make chair",
-  ]);
+test("room requests generate one editable scene mesh with requested objects", withoutHosted(async () => {
   const reply = await chat("create a 5 x 4 m room with a round table and a chair", {
     project: emptyProject(),
   });
-  assert.equal(reply.actions.filter((action) => action.type === "room").length, 1);
-  assert.deepEqual(
-    reply.actions.filter((action) => action.type === "mesh").map((action) => action.mesh.kind),
-    ["table", "chair"],
-  );
+  assert.equal(reply.actions.length, 1);
+  assert.equal(reply.actions[0].type, "mesh");
+  assert.equal(reply.actions[0].mesh.kind, "scene");
+  assert.ok(reply.actions[0].mesh.components.some((body) => body.name === "Floor"));
+  assert.ok(reply.actions[0].mesh.components.some((body) => /Round table · Circular tabletop/.test(body.name)));
+  assert.ok(reply.actions[0].mesh.components.some((body) => /Custom chair · Seat/.test(body.name)));
+  assert.equal(reply.actions[0].partId, undefined);
 }));
 
 test("mesh actions become finite triangle geometry for the Lab editor", () => {
@@ -80,6 +82,8 @@ test("mesh actions become finite triangle geometry for the Lab editor", () => {
     "make a lamp",
     "make a vase",
     "make a moon rover",
+    "purple horned monster",
+    "warm room corner",
   ]) {
     const action = localMeshAction(prompt);
     const built = buildAiMeshGeometry(action.mesh);

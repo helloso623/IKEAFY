@@ -3063,10 +3063,6 @@ body.lab-resizing * {
   border-color: #c7a45a;
   color: #f2e6c9;
 }
-#ai-dock #many-agents-note {
-  margin: 0.35rem 0 0.55rem;
-  font-size: 0.72rem;
-}
 #ai-dock .chat-log {
   height: 11rem;
   background: #1b1f26;

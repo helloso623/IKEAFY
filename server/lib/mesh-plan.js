@@ -1,10 +1,15 @@
 const GENERATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn)\b/i;
 const PLACE_VERB = /\b(add|place|put|drop)\b/i;
 const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn|add|place|put|drop)\b/i;
-const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|room|interior)\b/i;
+const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|photo)\b/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
+const BRANDED_STYLE_ASK = /\b(?:ikea|lack|linnmon|linmon|kallax|billy|malm)[\s-]+(?:like|style|inspired)\b/i;
 const MODEL_NOUN =
-  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture)\b/i;
+  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner)\b/i;
+const NON_GENERATION_COMMAND =
+  /^(?:what|why|how|where|when|which|who|can|could|should|would|do|does|did|is|are|show|tell|explain|help|move|rotate|scale|label|isolate|select|delete|remove|undo|redo|next|back|play|scan|reconstruct)\b/i;
+const CONVERSATION_ONLY = /^(?:hi|hello|hey|thanks|thank you|cheers|good (?:morning|afternoon|evening))\b/i;
+const GUIDE_CONTEXT = /\b(?:step\s+\d+|stuck|manual|guide|assembly|assemble|tool required)\b/i;
 const SPAWN_FOLLOW_UP =
   /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one)\s*[.!]?$/i;
 
@@ -138,15 +143,17 @@ export function sanitizeMeshAction(raw = {}) {
 
 export function isMeshBuildAsk(message) {
   const source = String(message || "").trim();
+  if (!source || CONVERSATION_ONLY.test(source) || NON_GENERATION_COMMAND.test(source)) return false;
+  if (GUIDE_CONTEXT.test(source) || NON_MODEL_ASK.test(source)) return false;
+  if (BRANDED_CATALOG_ASK.test(source) && !BRANDED_STYLE_ASK.test(source)) return false;
+  if (PLACE_VERB.test(source) && !GENERATE_VERB.test(source) && !MODEL_NOUN.test(source)) return false;
   const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
   const createsMesh = GENERATE_VERB.test(source) || (PLACE_VERB.test(source) && MODEL_NOUN.test(source));
-  if (!createsMesh && !directNoun) return false;
-  if (NON_MODEL_ASK.test(source)) return false;
-  if (BRANDED_CATALOG_ASK.test(source) && !GENERATE_VERB.test(source)) return false;
-  return true;
+  const directPrompt = !/[?]$/.test(source) && source.split(/\s+/).length <= 8;
+  return createsMesh || directNoun || directPrompt;
 }
 
-/** Resolve “spawn it” against the recent user description, never assistant prose. */
+/** Resolve a short “generate it” follow-up against recent user prose. */
 export function meshPromptFromContext(message, ctx = {}) {
   const source = String(message || "").trim();
   if (!SPAWN_FOLLOW_UP.test(source)) return source;
@@ -162,9 +169,8 @@ export function meshPromptFromContext(message, ctx = {}) {
 }
 
 /**
- * Pull independently spawnable objects out of a room request. The room itself
- * is handled by the House action; phrases after “with”, “containing”, or
- * “featuring” become editable bench meshes instead of being lost in room copy.
+ * Pull independently generated objects out of a room prompt so the scene mesh
+ * includes each phrase after “with”, “containing”, or “featuring”.
  */
 export function meshPromptsFromRoom(message) {
   const source = String(message || "").trim();
@@ -421,6 +427,70 @@ function cabinetPlan(message) {
   };
 }
 
+function legsPlan(message) {
+  const countWord = String(message || "").match(/\b(\d+|one|two|three|four|five|six|eight)\s+legs?\b/i)?.[1]?.toLowerCase();
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, eight: 8 };
+  const count = Math.max(1, Math.min(12, words[countWord] || Number(countWord) || 4));
+  const height = measurement(message, "(?:height|high|tall)", 700);
+  const width = measurement(message, "(?:width|wide|diameter)", 55);
+  const columns = Math.ceil(Math.sqrt(count));
+  return {
+    name: `${count} generated legs`,
+    kind: "object",
+    components: Array.from({ length: count }, (_, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      return component("box", `Leg ${index + 1}`, [width, height, width], [
+        (column - (columns - 1) / 2) * width * 2.2,
+        height / 2,
+        (row - (Math.ceil(count / columns) - 1) / 2) * width * 2.2,
+      ], { color: "#9b6a3e" });
+    }),
+  };
+}
+
+function creaturePlan(message) {
+  const skin = /\b(green)\b/i.test(message) ? "#66865f" : /\b(red)\b/i.test(message) ? "#9f5149" : "#6f739d";
+  return {
+    name: /\balien\b/i.test(message) ? "Generated alien" : "Generated monster",
+    kind: "creature",
+    components: [
+      component("capsule", "Body", [420, 720, 320], [0, 430, 0], {
+        color: skin,
+        radiusMm: 160,
+        lengthMm: 400,
+      }),
+      component("sphere", "Head", [360, 320, 340], [0, 850, 0], { color: skin }),
+      component("sphere", "Left eye", [70, 70, 45], [-75, 900, -165], { color: "#f4d45e" }),
+      component("sphere", "Right eye", [70, 70, 45], [75, 900, -165], { color: "#f4d45e" }),
+      component("capsule", "Left arm", [110, 520, 110], [-275, 500, 0], {
+        color: skin,
+        radiusMm: 55,
+        lengthMm: 410,
+        rotationDeg: [0, 0, -18],
+      }),
+      component("capsule", "Right arm", [110, 520, 110], [275, 500, 0], {
+        color: skin,
+        radiusMm: 55,
+        lengthMm: 410,
+        rotationDeg: [0, 0, 18],
+      }),
+      component("capsule", "Left leg", [140, 430, 140], [-115, 215, 0], {
+        color: skin,
+        radiusMm: 70,
+        lengthMm: 290,
+      }),
+      component("capsule", "Right leg", [140, 430, 140], [115, 215, 0], {
+        color: skin,
+        radiusMm: 70,
+        lengthMm: 290,
+      }),
+      component("cone", "Left horn", [90, 190, 90], [-90, 1090, 0], { color: "#d9c8a3" }),
+      component("cone", "Right horn", [90, 190, 90], [90, 1090, 0], { color: "#d9c8a3" }),
+    ],
+  };
+}
+
 function sculptedFallback(message) {
   const round = /\b(round|circular|sphere|ball|orb)\b/i.test(message);
   const tall = /\b(tall|tower|column|vase|bottle)\b/i.test(message);
@@ -463,18 +533,75 @@ function sculptedFallback(message) {
   };
 }
 
+function objectPlanFromDescription(source) {
+  if (
+    /\b(?:round|circular|disc|disk)[\s-]*(?:table[\s-]*)?top\b/i.test(source) &&
+    /\b(?:central|center|centre|single|one)\b[\s-]*(?:leg|support|pedestal)/i.test(source)
+  ) {
+    return tablePlan(`round table ${source}`);
+  }
+  if (/\b(tables?|desks?)\b/i.test(source)) return tablePlan(source);
+  if (/\b(chair|seat)\b/i.test(source)) return chairPlan(source);
+  if (/\b(stool|bench)\b/i.test(source)) return stoolPlan(source);
+  if (/\b(sofa|couch)\b/i.test(source)) return sofaPlan(source);
+  if (/\bbed\b/i.test(source)) return bedPlan(source);
+  if (/\b(cabinet|bookcase|bookshelf|dresser|wardrobe)\b/i.test(source)) return cabinetPlan(source);
+  if (/\b(lamp|light)\b/i.test(source)) return lampPlan(source);
+  if (/\b(shelf|shelves)\b/i.test(source)) return shelfPlan(source);
+  if (/\blegs?\b/i.test(source)) return legsPlan(source);
+  if (/\b(monster|creature|alien)\b/i.test(source)) return creaturePlan(source);
+  return sculptedFallback(source);
+}
+
+function roomScenePlan(message) {
+  const source = String(message || "");
+  const pair = source.match(
+    /\b(\d+(?:\.\d+)?)\s*(mm|cm|m|metres?|meters?)?\s*(?:×|x|by)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|metres?|meters?)?\b/i,
+  );
+  const unit = pair?.[4] || pair?.[2] || "m";
+  const width = pair ? unitMm(pair[1], pair[2] || unit) : 4200;
+  const depth = pair ? unitMm(pair[3], pair[4] || unit) : 3600;
+  const height = measurement(source, "(?:height|high|tall)", 2700);
+  const wall = Math.max(40, Math.min(120, Math.round(Math.min(width, depth) * 0.02)));
+  const warm = /\b(warm|cosy|cozy)\b/i.test(source);
+  const shell = [
+    component("box", "Floor", [width, 35, depth], [0, 17.5, 0], { color: warm ? "#a9825d" : "#b89c78" }),
+    component("box", "Back wall", [width, height, wall], [0, height / 2, depth / 2], {
+      color: warm ? "#d8c6ae" : "#d6d2c8",
+      roughness: 0.9,
+    }),
+    component("box", "Side wall", [wall, height, depth], [-width / 2, height / 2, 0], {
+      color: warm ? "#d8c6ae" : "#d6d2c8",
+      roughness: 0.9,
+    }),
+  ];
+  const prompts = meshPromptsFromRoom(source);
+  const generated = prompts.flatMap((prompt, index) => {
+    const plan = objectPlanFromDescription(prompt);
+    const xOffset = (index - (prompts.length - 1) / 2) * Math.min(1200, width / Math.max(2, prompts.length));
+    return plan.components.map((body, bodyIndex) => ({
+      ...body,
+      id: `scene-${index + 1}-${bodyIndex + 1}-${body.id}`,
+      name: `${plan.name} · ${body.name}`,
+      positionMm: [
+        Number(body.positionMm?.[0] || 0) + xOffset,
+        Number(body.positionMm?.[1] || 0) + 35,
+        Number(body.positionMm?.[2] || 0),
+      ],
+    }));
+  });
+  return {
+    name: "Generated room corner",
+    kind: "scene",
+    components: [...shell, ...generated],
+  };
+}
+
 export function meshPlanFromDescription(message) {
   const source = String(message || "");
-  let plan;
-  if (/\b(tables?|desks?)\b/i.test(source)) plan = tablePlan(source);
-  else if (/\b(chair|seat)\b/i.test(source)) plan = chairPlan(source);
-  else if (/\b(stool|bench)\b/i.test(source)) plan = stoolPlan(source);
-  else if (/\b(sofa|couch)\b/i.test(source)) plan = sofaPlan(source);
-  else if (/\bbed\b/i.test(source)) plan = bedPlan(source);
-  else if (/\b(cabinet|bookcase|bookshelf|dresser|wardrobe)\b/i.test(source)) plan = cabinetPlan(source);
-  else if (/\b(lamp|light)\b/i.test(source)) plan = lampPlan(source);
-  else if (/\b(shelf|shelves)\b/i.test(source)) plan = shelfPlan(source);
-  else plan = sculptedFallback(source);
+  const plan = /\b(room|interior|room[\s-]*corner)\b/i.test(source)
+    ? roomScenePlan(source)
+    : objectPlanFromDescription(source);
   return sanitizeMeshSpec({ ...plan, prompt: source });
 }
 

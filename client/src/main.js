@@ -214,7 +214,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask AI.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Describe anything to generate as editable 3D.</p>`;
     return;
   }
   const current = selectedPieceId();

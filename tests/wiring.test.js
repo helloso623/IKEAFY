@@ -612,15 +612,16 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /--lab-left/);
 });
 
-test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {
+test("the shop is a bottom-right editable 3D generator with chat context", () => {
   assert.match(html, /id="ai-orb"/);
   assert.match(html, /id="ai-dock"/);
   assert.match(html, /id="ai-scene"/);
   assert.match(html, /id="ai-history"/);
   assert.match(html, /id="chat-form"/);
   assert.match(html, /id="lab-voice"/);
-  assert.match(html, /id="many-agents-note"/);
-  assert.match(html, /build this furniture/);
+  assert.match(html, /Describe a chair, monster, room corner, or anything else/);
+  assert.match(html, /Prompt the editable 3D generator/);
+  assert.doesNotMatch(html, /id="many-agents-note"|build this furniture/);
   const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
   assert.doesNotMatch(inspector, /id="chat-form"/);
   const css = read("client/src/styles.css");

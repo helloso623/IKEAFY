@@ -13,7 +13,11 @@ import {
 test("described builds route to meshes while explicit catalog drops stay catalog actions", () => {
   assert.equal(isMeshBuildAsk("build a round walnut table"), true);
   assert.equal(isMeshBuildAsk("generate a sculptural lamp"), true);
+  assert.equal(isMeshBuildAsk("purple horned monster"), true);
+  assert.equal(isMeshBuildAsk("warm room corner"), true);
   assert.equal(isMeshBuildAsk("add a lack table"), false);
+  assert.equal(isMeshBuildAsk("make a LACK table"), false);
+  assert.equal(isMeshBuildAsk("model a LACK-like table"), true);
   assert.equal(isMeshBuildAsk("add zip ties"), false);
   assert.equal(isMeshBuildAsk("find a cheap table"), false);
 });
@@ -35,8 +39,8 @@ test("round pedestal proof is a circular top plus one central leg", () => {
   assert.deepEqual(geometry.dimensionsMm, { x: 900, y: 900, z: 740 });
 });
 
-test("chair spawn has a seat, back, and four legs that meet the seat", () => {
-  const action = localMeshAction("spawn a 480 mm wide chair");
+test("chair generation has a seat, back, and four legs that meet the seat", () => {
+  const action = localMeshAction("generate a 480 mm wide chair");
   assert.equal(action.mesh.kind, "chair");
   const seat = action.mesh.components.find((body) => body.name === "Seat");
   const back = action.mesh.components.find((body) => body.name === "Back");
@@ -52,15 +56,15 @@ test("chair spawn has a seat, back, and four legs that meet the seat", () => {
   assert.deepEqual(geometry.dimensionsMm, { x: 480, y: 500, z: 900 });
 });
 
-test("recent user description grounds a spawn-it mesh follow-up", () => {
+test("recent user description grounds a generate-it mesh follow-up", () => {
   const ctx = {
     history: [
       { role: "user", content: "I want a circular dining table with one central leg" },
       { role: "assistant", content: "That would look balanced." },
     ],
   };
-  assert.match(meshPromptFromContext("spawn it", ctx), /circular dining table/);
-  const action = localMeshAction("spawn it", ctx);
+  assert.match(meshPromptFromContext("generate it", ctx), /circular dining table/);
+  const action = localMeshAction("generate it", ctx);
   assert.equal(action.mesh.kind, "table");
   assert.equal(action.mesh.components[0].shape, "cylinder");
 });

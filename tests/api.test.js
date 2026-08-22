@@ -113,7 +113,7 @@ test("finishing and remodeling a table returns current ways and preserves prior 
   assert.equal(project.diyHistory.length, 2);
 });
 
-test("POST /api/chat creates a room and table via steward actions", async (t) => {
+test("POST /api/chat generates a room scene through one editable mesh action", async (t) => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   t.after(() => {
@@ -137,36 +137,34 @@ test("POST /api/chat creates a room and table via steward actions", async (t) =>
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "make a warm living room with a table",
-        room: { widthM: 4.8, depthM: 3.6 },
+        message: "generate a 4.8 x 3.6 m warm living room corner with a table",
       }),
     });
     assert.equal(res.status, 200, `${route} should accept POST`);
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.backend, "local-steward");
-    assert.ok(
-      body.actions.some((action) => action.type === "room"),
-      `${route} should return a room action`,
-    );
-    assert.ok(
-      body.actions.some((action) => action.type === "mesh" && action.mesh?.kind === "table"),
-      `${route} should return a table mesh action`,
-    );
+    assert.equal(body.actions.length, 1);
+    assert.equal(body.actions[0].type, "mesh");
+    assert.equal(body.actions[0].mesh.kind, "scene");
+    assert.ok(body.actions[0].mesh.components.some((component) => component.name === "Floor"));
+    assert.ok(body.actions[0].mesh.components.some((component) => /Tabletop/.test(component.name)));
+    assert.equal(body.actions[0].partId, undefined);
   }
 });
 
-test("chat() itself creates rooms and tables as steward actions", async () => {
+test("chat() itself generates room prompts as editable scene geometry", async () => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
-    const reply = await chat("make a warm living room with a table", {
+    const reply = await chat("generate a 4.8 x 3.6 m warm living room corner with a table", {
       project: emptyProject(),
-      room: { widthM: 4.8, depthM: 3.6 },
     });
     assert.equal(reply.backend, "local-steward");
-    assert.ok(reply.actions.some((action) => action.type === "room"));
-    assert.ok(reply.actions.some((action) => action.type === "mesh" && action.mesh?.kind === "table"));
+    assert.equal(reply.actions.length, 1);
+    assert.equal(reply.actions[0].type, "mesh");
+    assert.equal(reply.actions[0].mesh.kind, "scene");
+    assert.equal(reply.actions[0].partId, undefined);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
