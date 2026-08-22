@@ -119,7 +119,7 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
   assert.match(readme, /occupancy.*auto-fit/i);
-  assert.match(readme, /ways to make (?:that|the) final table/i);
+  assert.match(readme, /Hunt table pieces.*final table/i);
   assert.match(html, /occupancy cut and auto-fit into an IKEAlive plan/i);
 
   assert.match(server, /app\.post\("\/api\/scan\/video"/);
