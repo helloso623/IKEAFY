@@ -1,3 +1,4 @@
+import { composeStepPrompt, logSceneBible, sceneBibleFromGuide } from "./bible.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
 import { hasFal } from "./video.js";
 
@@ -60,25 +61,8 @@ function falHeaders() {
   };
 }
 
-export function promptForStepScene(guide, stepNumber, extra = "") {
-  const step =
-    guide?.steps?.find((s) => Number(s.number) === Number(stepNumber)) || guide?.steps?.[0] || {};
-  const theme = guide?.theme || {};
-  const title = guide?.title || "this build";
-  const body = String(step.body || "").trim();
-  const parts = (step.partsUsed || []).join(", ") || "the parts named in the instruction";
-  const tool = step.toolRequired ? `Use a ${step.toolRequired}.` : "Hands only.";
-  const text = [
-    "A single textured 3D furniture model, IKEA-style flat-pack mid-assembly, isolated object.",
-    `Setting: ${theme.setting || "birch workshop"}, ${theme.material || "particleboard foil and steel fittings"}.`,
-    "No people, no hands, no text, no logos, no subtitles, no brand marks.",
-    `This is step ${step.number || stepNumber || 1} of "${title}": ${body || "Follow the plate."}`,
-    `Parts in this mesh: ${parts}. ${tool}`,
-    extra ? `Additional direction from the builder: ${String(extra).slice(0, 200)}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return text.slice(0, 1024);
+export function promptForStepScene(guide, stepNumber, extra = "", bible = null) {
+  return composeStepPrompt({ kind: "scene", guide, stepNumber, extra, bible });
 }
 
 async function falQueue(
@@ -162,8 +146,11 @@ async function falQueue(
   throw new Error(`fal timeout after ${elapsedMs}ms (last status: ${lastState})`);
 }
 
-export async function renderStepScene({ guide, stepNumber, extra = "" } = {}, deps = {}) {
-  const prompt = promptForStepScene(guide, stepNumber, extra);
+export async function renderStepScene({ guide, stepNumber, extra = "", bible = null, seed = null } = {}, deps = {}) {
+  const locked = bible || sceneBibleFromGuide(guide);
+  const lockedSeed = Number.isInteger(seed) ? seed : null;
+  const prompt = promptForStepScene(guide, stepNumber, extra, locked);
+  logSceneBible({ bible: locked, seed: lockedSeed, stepNumber, mode: "scene" });
   const local = {
     ok: false,
     live: false,
@@ -172,6 +159,8 @@ export async function renderStepScene({ guide, stepNumber, extra = "" } = {}, de
     model: MODEL,
     prompt,
     meshUrl: null,
+    bible: locked,
+    seed: lockedSeed,
     reason: FAL_SCENE_REQUIRED,
   };
 
@@ -180,18 +169,28 @@ export async function renderStepScene({ guide, stepNumber, extra = "" } = {}, de
     return local;
   }
 
-  ikealiveLog("3d", "render", { stepNumber, title: guide?.title || null, keyed: true, model: MODEL });
-  const result = await falQueue(
-    {
-      prompt,
-      texture: true,
-      pbr: true,
-      texture_quality: "standard",
-      geometry_quality: "standard",
-      quad: false,
-    },
-    deps,
-  );
+  ikealiveLog("3d", "render", {
+    stepNumber,
+    title: guide?.title || null,
+    keyed: true,
+    model: MODEL,
+    sku: locked.sku,
+    seed: lockedSeed,
+  });
+  const payload = {
+    prompt,
+    texture: true,
+    pbr: true,
+    texture_quality: "standard",
+    geometry_quality: "standard",
+    quad: false,
+  };
+  if (lockedSeed != null) {
+    payload.model_seed = lockedSeed;
+    payload.image_seed = lockedSeed;
+    payload.texture_seed = lockedSeed;
+  }
+  const result = await falQueue(payload, deps);
   const meshUrl = meshUrlFrom(result);
   if (!meshUrl) throw new Error("fal returned no mesh url");
   ikealiveLog("3d", "mesh", { stepNumber, meshUrl, provider: "tripo-h3.1", model: MODEL });

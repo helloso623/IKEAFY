@@ -1,3 +1,4 @@
+import { composeStepPrompt, logSceneBible, sceneBibleFromGuide } from "./bible.js";
 import { ikealiveLog, ikealiveWarn } from "./log.js";
 import { hasFal } from "./video.js";
 
@@ -45,28 +46,8 @@ function falHeaders() {
   };
 }
 
-export function promptForStepImage(guide, stepNumber, extra = "") {
-  const step =
-    guide?.steps?.find((s) => Number(s.number) === Number(stepNumber)) || guide?.steps?.[0] || {};
-  const theme = guide?.theme || {};
-  const title = guide?.title || "this build";
-  const body = String(step.body || "").trim();
-  const parts = (step.partsUsed || []).join(", ") || "the parts named in the instruction";
-  const tool = step.toolRequired ? `Use a ${step.toolRequired}.` : "Hands only.";
-  return [
-    "Photoreal IKEA-style assembly instruction still, one clear plate.",
-    `Setting: ${theme.setting || "birch workshop"}, ${theme.light || "soft north window light"}, ${
-      theme.material || "particleboard foil and steel fittings"
-    }, yellow #ffda1a accent.`,
-    "Same workshop, same materials, same lighting as the rest of this guide.",
-    "No on-screen text, no logos, no subtitles, no brand marks.",
-    "Show adult hands frozen mid-move on one assembly action, IKEA-manual framing.",
-    `This is step ${step.number || stepNumber || 1} of "${title}": ${body || "Follow the plate."}`,
-    `Parts in this still: ${parts}. ${tool}`,
-    extra ? `Additional direction from the builder: ${String(extra).slice(0, 400)}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+export function promptForStepImage(guide, stepNumber, extra = "", bible = null) {
+  return composeStepPrompt({ kind: "image", guide, stepNumber, extra, bible });
 }
 
 async function falQueue(
@@ -152,8 +133,11 @@ async function falQueue(
   throw new Error(`fal timeout after ${elapsedMs}ms (last status: ${lastState})`);
 }
 
-export async function renderStepImage({ guide, stepNumber, extra = "" } = {}, deps = {}) {
-  const prompt = promptForStepImage(guide, stepNumber, extra);
+export async function renderStepImage({ guide, stepNumber, extra = "", bible = null, seed = null } = {}, deps = {}) {
+  const locked = bible || sceneBibleFromGuide(guide);
+  const lockedSeed = Number.isInteger(seed) ? seed : null;
+  const prompt = promptForStepImage(guide, stepNumber, extra, locked);
+  logSceneBible({ bible: locked, seed: lockedSeed, stepNumber, mode: "images" });
   const local = {
     ok: false,
     live: false,
@@ -162,6 +146,8 @@ export async function renderStepImage({ guide, stepNumber, extra = "" } = {}, de
     model: MODEL,
     prompt,
     imageUrl: null,
+    bible: locked,
+    seed: lockedSeed,
     reason: FAL_IMAGE_REQUIRED,
   };
 
@@ -170,18 +156,24 @@ export async function renderStepImage({ guide, stepNumber, extra = "" } = {}, de
     return local;
   }
 
-  ikealiveLog("image", "render", { stepNumber, title: guide?.title || null, keyed: true, model: MODEL });
-  const result = await falQueue(
-    {
-      prompt,
-      num_images: 1,
-      aspect_ratio: "16:9",
-      output_format: "png",
-      resolution: "1K",
-      limit_generations: true,
-    },
-    deps,
-  );
+  ikealiveLog("image", "render", {
+    stepNumber,
+    title: guide?.title || null,
+    keyed: true,
+    model: MODEL,
+    sku: locked.sku,
+    seed: lockedSeed,
+  });
+  const payload = {
+    prompt,
+    num_images: 1,
+    aspect_ratio: "16:9",
+    output_format: "png",
+    resolution: "1K",
+    limit_generations: true,
+  };
+  if (lockedSeed != null) payload.seed = lockedSeed;
+  const result = await falQueue(payload, deps);
   const imageUrl = imageUrlFrom(result);
   if (!imageUrl) throw new Error("fal returned no image url");
   ikealiveLog("image", "url", { stepNumber, imageUrl, provider: "nano-banana-2", model: MODEL });
