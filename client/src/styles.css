@@ -1434,6 +1434,7 @@ body.lab-resizing * {
 
 .lab-pane-head {
   display: flex;
+  flex-direction: row;
   align-items: baseline;
   justify-content: flex-start;
   gap: 0.6rem;

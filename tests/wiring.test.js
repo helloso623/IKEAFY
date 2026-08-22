@@ -47,6 +47,12 @@ test("every id house.js reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
 });
 
+test("every id lab-layout.js reaches for exists in the markup", () => {
+  const layout = read("client/src/lab-layout.js");
+  const missing = [...idsUsedIn(layout)].filter((id) => !markupIds.has(id));
+  assert.deepEqual(missing, [], `lab-layout.js looks for ids that index.html does not define: ${missing}`);
+});
+
 test("main.js and the studio do not both own the same control", () => {
   // #app and #film are containers on purpose: main.js decides which tab is up,
   // the studio decides what is inside the plate. Anything else being touched by
@@ -316,4 +322,7 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
   assert.match(html, /class="panel watch bom"/);
   assert.match(html, /class="studio-side"/);
+  assert.match(html, /data-lab-split="left"/);
+  assert.match(html, /data-lab-toggle="right"/);
+  assert.match(css, /--lab-left/);
 });
