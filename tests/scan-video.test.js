@@ -7,11 +7,13 @@ import path from "node:path";
 import {
   ROOM_VIDEO_MAX_SECONDS,
   SCAN_VIDEO_MAX_BYTES,
+  advertisedPhoneLink,
   classifyScanParts,
   decodeBase64Payload,
   inboxGetPayload,
   isAllowedOrigin,
   isPrivateLanHost,
+  isTailscaleHost,
   parseMultipartParts,
   parseVideoUrl,
   phoneUploadUrls,
@@ -22,6 +24,11 @@ import {
   storeScanFrames,
   storeScanVideo,
 } from "../server/lib/scan-video.js";
+import {
+  copyPhoneUrl,
+  lanFallbackUrl,
+  preferredPhoneUrl,
+} from "../client/src/phone-link.js";
 import { scanVideoInboxUrl, scanVideoProxyUrl } from "../client/src/video-frames.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,7 +50,11 @@ test("localhost and LAN origins may call the API", () => {
   assert.equal(isAllowedOrigin("null"), true);
   assert.equal(isAllowedOrigin("https://203.0.113.8:5173"), false);
   assert.equal(isAllowedOrigin("https://evil.example"), false);
+  assert.equal(isAllowedOrigin("https://ikealive.demo-tail.ts.net"), true);
+  assert.equal(isAllowedOrigin("http://ikealive.demo-tail.ts.net"), false);
+  assert.equal(isTailscaleHost("ikealive.demo-tail.ts.net"), true);
   assert.equal(isPrivateLanHost("192.168.1.20"), true);
+  assert.equal(isPrivateLanHost("100.64.12.8"), true);
   assert.equal(isPrivateLanHost("203.0.113.8"), false);
 });
 
@@ -72,6 +83,46 @@ test("phone room video is a 30s LAN inbox", () => {
     assert.match(url, /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+\/phone-upload$/);
     assert.equal(isPrivateLanHost(new URL(url).hostname), true);
   }
+});
+
+test("Tailscale phone link is selectable, copyable, QR-ready, with LAN fallback", async () => {
+  const advertised = advertisedPhoneLink(
+    {
+      headers: {
+        host: "127.0.0.1:8787",
+        "x-forwarded-host": "ikealive.demo-tail.ts.net",
+        "x-forwarded-proto": "https",
+      },
+    },
+    { addresses: ["192.168.1.20"], clientPort: 5173, apiPort: 8787 },
+  );
+  assert.equal(advertised.url, "https://ikealive.demo-tail.ts.net/phone-upload");
+  assert.equal(advertised.tailscaleUrl, advertised.url);
+  assert.equal(advertised.lanUrl, "http://192.168.1.20:5173/phone-upload");
+  assert.equal(preferredPhoneUrl(advertised), advertised.url);
+  assert.equal(lanFallbackUrl(advertised), advertised.lanUrl);
+
+  let copied = "";
+  const input = { value: advertised.url };
+  assert.equal(
+    await copyPhoneUrl(input, {
+      clipboard: { writeText: async (value) => { copied = value; } },
+      documentRef: null,
+    }),
+    advertised.url,
+  );
+  assert.equal(copied, advertised.url);
+
+  const html = read("client/index.html");
+  const phone = read("server/phone-upload.html");
+  const vite = read("client/vite.config.js");
+  assert.match(html, /id="scan-phone-url"[^>]*readonly/);
+  assert.match(html, /id="scan-phone-copy"[^>]*>Copy</);
+  assert.match(html, /id="scan-phone-qr"/);
+  assert.match(html, /id="scan-phone-lan-url"/);
+  assert.equal((phone.match(/<button\b/g) || []).length, 1);
+  assert.match(phone, />Record \/ Send ~30s video</);
+  assert.match(vite, /allowedHosts:\s*\["\.ts\.net"\]/);
 });
 
 test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", () => {
