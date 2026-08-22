@@ -10,6 +10,7 @@ import { sanitizeLogValue as sanitizeServerLog } from "../server/lib/log.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const video = readFileSync(path.join(root, "server/lib/video.js"), "utf8");
 const image = readFileSync(path.join(root, "server/lib/image.js"), "utf8");
+const scene = readFileSync(path.join(root, "server/lib/scene.js"), "utf8");
 const index = readFileSync(path.join(root, "server/index.js"), "utf8");
 const electronMain = readFileSync(path.join(root, "electron/main.js"), "utf8");
 
@@ -19,6 +20,7 @@ test("sanitizeLogValue redacts keys and does not dump data URLs", () => {
   assert.match(sanitizeLogValue("data:image/jpeg;base64,abc"), /^\[data \d+ chars\]$/);
   assert.equal(sanitizeLogValue({ videoUrl: "https://fal.media/files/demo.mp4" }).videoUrl, "https://fal.media/files/demo.mp4");
   assert.equal(sanitizeLogValue({ imageUrl: "https://fal.media/files/demo.jpg" }).imageUrl, "https://fal.media/files/demo.jpg");
+  assert.equal(sanitizeLogValue({ meshUrl: "https://fal.media/files/demo.glb" }).meshUrl, "https://fal.media/files/demo.glb");
   assert.equal(sanitizeServerLog({ fal_key: "fal-secret" }).fal_key, "[set]");
 });
 
@@ -44,16 +46,33 @@ test("Seedance renderer logs queue, poll, and missing FAL_KEY without interpolat
   assert.doesNotMatch(video, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
 });
 
-test("Flux Schnell image logs submit, poll, and url without interpolating the key", () => {
+test("Nano Banana 2 image logs submit, poll, and url without interpolating the key", () => {
   assert.match(image, /ikealiveLog\("image"/);
+  assert.match(image, /fal-ai\/nano-banana-2/);
   assert.match(image, /missing FAL_KEY/);
   assert.match(image, /"submit"/);
   assert.match(image, /"poll"/);
   assert.match(image, /"url"/);
   assert.match(image, /promptChars/);
+  assert.match(image, /model:\s*MODEL/);
   assert.doesNotMatch(image, /ikealiveLog\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(image, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
   assert.doesNotMatch(image, /base64/);
+});
+
+test("Tripo H3.1 scene logs model, submit, poll, and mesh URL without interpolating the key", () => {
+  assert.match(scene, /ikealiveLog\("3d"/);
+  assert.match(scene, /tripo3d\/h3\.1\/text-to-3d/);
+  assert.match(scene, /missing FAL_KEY/);
+  assert.match(scene, /"model"/);
+  assert.match(scene, /"submit"/);
+  assert.match(scene, /"poll"/);
+  assert.match(scene, /"mesh"/);
+  assert.match(scene, /meshUrl/);
+  assert.match(scene, /promptChars/);
+  assert.doesNotMatch(scene, /ikealiveLog\([^)]*process\.env\.FAL_KEY/);
+  assert.doesNotMatch(scene, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
+  assert.doesNotMatch(scene, /base64/);
 });
 
 test("server stdout uses ikealive video parse tavily assembly render and image prefixes", () => {

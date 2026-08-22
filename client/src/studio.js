@@ -12,7 +12,9 @@ const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
   "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 const FAL_IMAGE_REQUIRED =
-  "Set FAL_KEY for Flux Schnell instruction stills. Image mode is a live plate, not a canvas table drawing.";
+  "Set FAL_KEY for Nano Banana 2 instruction stills. Image mode is a live plate, not a canvas table drawing.";
+const FAL_SCENE_REQUIRED =
+  "Set FAL_KEY for Tripo H3.1 instruction meshes. 3D mode loads a live GLB in the workshop, not a catalog LACK table.";
 const STILL_MS = 4000;
 const SCENE_FRAME_MS = 1100;
 
@@ -223,7 +225,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     }
     if (mode !== "video") {
       if (mode === "images") {
-        announce("Rendering Flux Schnell stills…");
+        announce("Rendering Nano Banana 2 stills…");
         await bootImageReel();
         if (state.reel.some((clip) => clip.imageUrl)) {
           announce("Stills ready. Watch the first step.");
@@ -231,8 +233,11 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         return state.run;
       }
       if (mode === "scene") {
-        announce("Playing 3D instructions on the workshop.");
+        announce("Generating Tripo H3.1 meshes…");
         await bootScene();
+        if (state.reel.some((clip) => clip.meshUrl)) {
+          announce("Meshes ready. Watch the first step.");
+        }
         return state.run;
       }
       const reason = posted?.reason || "Unknown instruction render mode.";
@@ -662,6 +667,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     }
     hideVideo();
     el.film?.classList.add("hidden");
+    shop?.clearInstructionMesh?.();
     restoreShop?.();
     renderTransport();
     try {
@@ -993,12 +999,14 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
 
   function clipsFromOutline() {
     const mode = normalizeRenderMode(state.renderMode);
-    const provider = mode === "images" ? "flux-schnell" : mode === "scene" ? "workshop" : "seedance-2.5";
+    const provider =
+      mode === "images" ? "nano-banana-2" : mode === "scene" ? "tripo-h3.1" : "seedance-2.5";
     return (state.outline || []).map((item) => ({
       number: item.number,
       frames: [],
       videoUrl: null,
       imageUrl: null,
+      meshUrl: null,
       parts: item.partsUsed || [],
       provider,
     }));
@@ -1013,21 +1021,34 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     return { az: 35 + i * 12, el: 28 - i * 2, zoom: 1.1 - i * 0.05 };
   }
 
-  function sceneParts(clip) {
-    const outline = state.outline.find((item) => item.number === clip?.number);
-    const ids = outline?.partsUsed || clip?.parts || state.step?.partsUsed || [];
-    return [...new Set(ids.filter(Boolean))];
-  }
-
   function showScene(clip, { play = false } = {}) {
-    const parts = sceneParts(clip);
     const camera = sceneCamera(state.frameIndex);
     const explode = state.frameIndex * 0.08;
-    ikealiveLog("3d", "step", { step: clip.number, parts, camera });
-    if (shop?.illustrate) {
-      shop.illustrate({ parts, camera, explode, partsById: getParts() || {} });
+    if (!clip?.meshUrl) {
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(
+        play
+          ? `Generating Tripo H3.1 · step ${clip?.number || ""}…`
+          : `No Tripo mesh for step ${clip?.number || ""} yet.`,
+      );
+      return;
     }
-    shop?.resize?.();
+    showFilmStatus("");
+    ikealiveLog("3d", "step", { step: clip.number, meshUrl: clip.meshUrl, camera });
+    const loaded = shop?.loadInstructionMesh?.(clip.meshUrl, { camera });
+    if (loaded?.then) {
+      loaded
+        .then(() => {
+          if (explode) shop?.explode?.(explode);
+          shop?.resize?.();
+        })
+        .catch((error) => {
+          showFilmStatus(error?.message || "Could not load the Tripo GLB.");
+        });
+    } else {
+      if (explode) shop?.explode?.(explode);
+      shop?.resize?.();
+    }
     if (!play) return;
     state.timer = setTimeout(() => {
       if (!state.playingOn) return;
@@ -1038,6 +1059,53 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         finishClip();
       }
     }, SCENE_FRAME_MS);
+  }
+
+  async function renderClipScene(clip) {
+    if (!clip || !api.renderScene || !state.run) {
+      ikealiveWarn("3d", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
+      throw new Error(FAL_SCENE_REQUIRED);
+    }
+    ikealiveLog("3d", "render step", { runId: state.run.id, step: clip.number, renderMode: "scene" });
+    const result = await api.renderScene({
+      runId: state.run.id,
+      stepNumber: clip.number,
+      renderMode: "scene",
+    });
+    clip.meshUrl = result.meshUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.meshUrl) {
+      ikealiveWarn("3d", "no mesh url", { step: clip.number, error: result.error || result.reason || FAL_SCENE_REQUIRED });
+      throw new Error(result.error || result.reason || FAL_SCENE_REQUIRED);
+    }
+    ikealiveLog("3d", "mesh", { step: clip.number, meshUrl: clip.meshUrl, provider: clip.provider });
+    return clip;
+  }
+
+  async function upgradeSceneReel(clips) {
+    if (!api.renderScene || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      if (clip.meshUrl) {
+        live += 1;
+        continue;
+      }
+      try {
+        const status = `Generating Tripo H3.1 · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.meshUrl) showFilmStatus(status);
+        await renderClipScene(clip);
+        live += 1;
+        setOut(el.renderOut, `Tripo H3.1 · ${live}/${clips.length} meshes`);
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_SCENE_REQUIRED);
+        return;
+      }
+    }
   }
 
   async function bootScene() {
@@ -1054,16 +1122,39 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     state.frameIndex = 0;
     renderSteps();
     renderTransport();
-    showFilmStatus("");
-    showClip(state.clipIndex, { play: true, restart: true });
+    showFilmStatus("Generating Tripo H3.1 mesh…");
     shop?.resize?.();
+
+    if (!(await falIsLive())) {
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(FAL_SCENE_REQUIRED);
+      announce(FAL_SCENE_REQUIRED);
+      ikealiveWarn("3d", "fal not live — no catalog LACK stand-in");
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Generating Tripo H3.1 · step ${first.number}…`);
+        showFilmStatus(`Generating Tripo H3.1 · step ${first.number}…`);
+        await renderClipScene(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_SCENE_REQUIRED);
+      return;
+    }
+
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.meshUrl)) upgradeSceneReel(state.reel);
   }
 
   async function falIsLive() {
     if (!api.health) return false;
     try {
       const health = await api.health();
-      return Boolean(health?.video?.live || health?.image?.live);
+      return Boolean(health?.video?.live || health?.image?.live || health?.scene?.live);
     } catch {
       return false;
     }
@@ -1188,12 +1279,12 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         continue;
       }
       try {
-        const status = `Rendering Flux Schnell · step ${clip.number} of ${clips.length}…`;
+        const status = `Rendering Nano Banana 2 · step ${clip.number} of ${clips.length}…`;
         announce(status);
         if (!state.reel[state.clipIndex]?.imageUrl) showFilmStatus(status);
         await renderClipImage(clip);
         live += 1;
-        setOut(el.renderOut, `Flux Schnell · ${live}/${clips.length} stills`);
+        setOut(el.renderOut, `Nano Banana 2 · ${live}/${clips.length} stills`);
         if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
       } catch (error) {
         fail(error);
@@ -1217,7 +1308,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     state.frameIndex = 0;
     renderSteps();
     renderTransport();
-    showFilmStatus("Rendering Flux Schnell stills…");
+    showFilmStatus("Rendering Nano Banana 2 stills…");
 
     if (!(await falIsLive())) {
       showFilmStatus(FAL_IMAGE_REQUIRED);
@@ -1229,8 +1320,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     const first = state.reel[state.clipIndex];
     try {
       if (first) {
-        announce(`Rendering Flux Schnell · step ${first.number}…`);
-        showFilmStatus(`Rendering Flux Schnell · step ${first.number}…`);
+        announce(`Rendering Nano Banana 2 · step ${first.number}…`);
+        showFilmStatus(`Rendering Nano Banana 2 · step ${first.number}…`);
         await renderClipImage(first);
       }
     } catch (error) {
@@ -1302,8 +1393,16 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     const images = normalizeRenderMode(state.renderMode) === "images";
     if (isSceneMode()) {
       hideVideo();
-      showFilmStatus("");
-      showScene(clip, { play });
+      if (clip.meshUrl) {
+        showScene(clip, { play });
+        return;
+      }
+      shop?.clearInstructionMesh?.();
+      showFilmStatus(
+        play
+          ? `Generating Tripo H3.1 · step ${clip.number}…`
+          : `No Tripo mesh for step ${clip.number} yet.`,
+      );
       return;
     }
     if (images) {
@@ -1316,8 +1415,8 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       hideVideo();
       showFilmStatus(
         play
-          ? `Rendering Flux Schnell · step ${clip.number}…`
-          : `No Flux still for step ${clip.number} yet.`,
+          ? `Rendering Nano Banana 2 · step ${clip.number}…`
+          : `No Nano Banana still for step ${clip.number} yet.`,
       );
       return;
     }

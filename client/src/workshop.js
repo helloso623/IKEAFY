@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -995,6 +996,9 @@ export function createWorkshop(canvas) {
   scene.add(cableGroup);
   const fx = new THREE.Group();
   scene.add(fx);
+  const gltfLoader = new GLTFLoader();
+  let instructionRoot = null;
+  let instructionUrl = null;
 
   const transform = new TransformControls(camera, canvas);
   const ray = new THREE.Raycaster();
@@ -2238,78 +2242,69 @@ export function createWorkshop(canvas) {
   }
 
   function explode(amount) {
+    const target = instructionRoot || group;
     let i = 0;
-    meshes.forEach((mesh) => {
+    target.traverse((mesh) => {
+      if (!mesh.isMesh) return;
       mesh.position.y += amount * (0.02 + (i % 4) * 0.03);
       i += 1;
     });
   }
 
-  function expandSceneParts(ids, catalog) {
-    const out = [];
-    for (const id of ids || []) {
-      const part = catalog[id];
-      if (part?.kitParts?.length) out.push(...part.kitParts);
-      else if (id) out.push(id);
-    }
-    return out;
-  }
-
-  function layoutScenePieces(ids, catalog) {
-    const pieces = [];
-    const corners = [
-      [-0.23, -0.23],
-      [0.23, -0.23],
-      [-0.23, 0.23],
-      [0.23, 0.23],
-    ];
-    let legs = 0;
-    let extras = 0;
-    expandSceneParts(ids, catalog).forEach((id, i) => {
-      const part = catalog[id];
-      if (!part) return;
-      const y = ((part.dimsMm?.z || 40) * MM) / 2;
-      let x = 0;
-      let z = 0;
-      if (isTableTop(part)) {
-        x = 0;
-        z = 0;
-      } else if (isTableLeg(part)) {
-        const slot = corners[legs % 4];
-        x = slot[0];
-        z = slot[1];
-        legs += 1;
-      } else {
-        x = 0.38 + (extras % 3) * 0.14;
-        z = (Math.floor(extras / 3) - 0.5) * 0.14;
-        extras += 1;
+  function disposeObject(root) {
+    root.traverse((child) => {
+      child.geometry?.dispose?.();
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        mat?.map?.dispose?.();
+        mat?.dispose?.();
       }
-      pieces.push({
-        id: `scene-${i + 1}`,
-        partId: id,
-        x,
-        y,
-        z,
-        rx: 0,
-        ry: 0,
-        rz: 0,
-        sx: 1,
-        sy: 1,
-        sz: 1,
-      });
     });
-    return pieces;
   }
 
-  function illustrate({ parts = [], camera: cam = {}, explode: amount = 0, partsById } = {}) {
-    const catalog = partsById && Object.keys(partsById).length ? partsById : knownParts;
-    const pieces = layoutScenePieces(parts, catalog);
-    sync({ pieces, cables: [], tapes: [], joints: [] }, catalog);
-    const camera = { az: cam.az ?? 42, el: cam.el ?? 28, zoom: cam.zoom ?? 1 };
-    setCamera(camera);
-    if (amount) explode(amount);
+  function clearInstructionMesh() {
+    if (instructionRoot) {
+      scene.remove(instructionRoot);
+      disposeObject(instructionRoot);
+      instructionRoot = null;
+    }
+    instructionUrl = null;
+    group.visible = true;
+    cableGroup.visible = true;
+  }
+
+  function frameInstruction(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    root.scale.multiplyScalar(0.9 / maxDim);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    root.position.sub(fittedCenter);
+    root.position.y -= fitted.min.y;
+  }
+
+  async function loadInstructionMesh(url, { camera: cam } = {}) {
+    const meshUrl = String(url || "").trim();
+    if (!meshUrl) throw new Error("No mesh URL");
+    if (instructionUrl === meshUrl && instructionRoot) {
+      if (cam) setCamera(cam);
+      resize();
+      return { meshUrl, reused: true };
+    }
+    clearInstructionMesh();
+    group.visible = false;
+    cableGroup.visible = false;
+    const gltf = await gltfLoader.loadAsync(meshUrl);
+    instructionRoot = gltf.scene || gltf.scenes?.[0];
+    if (!instructionRoot) throw new Error("GLB had no scene");
+    frameInstruction(instructionRoot);
+    scene.add(instructionRoot);
+    instructionUrl = meshUrl;
+    if (cam) setCamera(cam);
     resize();
-    return { parts: pieces.map((piece) => piece.partId), camera };
+    return { meshUrl };
   }
 
   function setLed(on) {
@@ -2459,7 +2454,8 @@ export function createWorkshop(canvas) {
     sync,
     setSim,
     setCamera,
-    illustrate,
+    loadInstructionMesh,
+    clearInstructionMesh,
     setShading,
     getShading: () => shading,
     setLook,

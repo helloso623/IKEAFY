@@ -133,14 +133,14 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
 });
 
-test("image instructions render Flux Schnell stills in the film stage", () => {
+test("image instructions render Nano Banana 2 stills in the film stage", () => {
   assert.match(html, /id="film-still"/);
   assert.match(studio, /bootImageReel/);
   assert.match(studio, /renderClipImage/);
   assert.match(studio, /showStill/);
   assert.match(studio, /api\.renderImage/);
   assert.match(studio, /ikealiveLog\("image"/);
-  assert.match(studio, /FAL_IMAGE_REQUIRED|Flux Schnell instruction stills/);
+  assert.match(studio, /FAL_IMAGE_REQUIRED|Nano Banana 2 instruction stills/);
   assert.match(apiSource, /ikeafy\/image\/render/);
   assert.match(apiSource, /^\s{2}renderImage:/m);
   const index = read("server/index.js");
@@ -148,7 +148,9 @@ test("image instructions render Flux Schnell stills in the film stage", () => {
   assert.match(index, /renderStepImage/);
   assert.match(index, /ikealiveLog\("image"/);
   const image = read("server/lib/image.js");
-  assert.match(image, /fal-ai\/flux\/schnell/);
+  assert.match(image, /fal-ai\/nano-banana-2/);
+  assert.match(image, /https:\/\/queue\.fal\.run\/fal-ai\/nano-banana-2/);
+  assert.doesNotMatch(image, /fal-ai\/flux\/schnell/);
   assert.match(image, /ikealiveLog\("image", "submit"/);
   assert.match(image, /ikealiveLog\("image", "poll"/);
   assert.match(image, /ikealiveLog\("image", "url"/);
@@ -163,10 +165,11 @@ test("image instructions render Flux Schnell stills in the film stage", () => {
   assert.doesNotMatch(startChosen, /Image instructions are not implemented yet/);
 });
 
-test("3D instructions play on the workshop engine without Seedance", () => {
+test("3D instructions load a Tripo H3.1 GLB on the workshop without a catalog LACK table", () => {
   const workshop = read("client/src/workshop.js");
   const css = read("client/src/styles.css");
   const index = read("server/index.js");
+  const scene = read("server/lib/scene.js");
   const startChosen = studio.slice(studio.indexOf("async function startChosenRender"), studio.indexOf("function setMode"));
   const bootScene = studio.slice(studio.indexOf("async function bootScene"), studio.indexOf("async function falIsLive"));
   const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
@@ -175,22 +178,40 @@ test("3D instructions play on the workshop engine without Seedance", () => {
   assert.match(startChosen, /bootScene/);
   assert.doesNotMatch(startChosen, /3D engine instructions are not implemented yet/);
   assert.match(bootScene, /clipsFromOutline/);
-  assert.doesNotMatch(bootScene, /renderClipVideo|renderVideo|falIsLive/);
+  assert.match(bootScene, /falIsLive/);
+  assert.match(bootScene, /renderClipScene/);
+  assert.match(bootScene, /FAL_SCENE_REQUIRED/);
+  assert.doesNotMatch(bootScene, /illustrate/);
   assert.match(showClip, /isSceneMode/);
   assert.match(showClip, /showScene/);
+  assert.match(showClip, /meshUrl/);
   assert.match(studio, /ikealiveLog\("3d"/);
-  assert.match(studio, /shop\?\.illustrate/);
+  assert.match(studio, /api\.renderScene/);
+  assert.match(studio, /shop\?\.loadInstructionMesh/);
   assert.match(studio, /SCENE_FRAME_MS/);
+  assert.doesNotMatch(studio, /shop\?\.illustrate/);
   assert.match(main, /initStudio\(\{[\s\S]*?shop/);
-  assert.match(workshop, /function illustrate/);
-  assert.match(workshop, /layoutScenePieces/);
+  assert.match(workshop, /function loadInstructionMesh/);
+  assert.match(workshop, /GLTFLoader/);
+  assert.match(workshop, /function clearInstructionMesh/);
+  assert.doesNotMatch(workshop, /function illustrate/);
+  assert.doesNotMatch(workshop, /layoutScenePieces/);
   assert.match(workshop, /setCamera/);
   assert.match(css, /data-render-mode="scene"\] #view/);
   assert.match(css, /opacity:\s*1/);
   assert.match(index, /ikealiveLog\("3d"/);
-  assert.match(index, /scenePlanForStep/);
+  assert.match(index, /\/api\/ikeafy\/scene\/render/);
+  assert.match(index, /renderStepScene/);
   assert.match(index, /engine: "workshop"/);
+  assert.match(index, /tripo3d\/h3\.1\/text-to-3d/);
   assert.doesNotMatch(index, /3D engine instructions are not implemented yet/);
+  assert.match(scene, /https:\/\/queue\.fal\.run\/tripo3d\/h3\.1\/text-to-3d/);
+  assert.match(scene, /ikealiveLog\("3d", "model"/);
+  assert.match(scene, /ikealiveLog\("3d", "submit"/);
+  assert.match(scene, /ikealiveLog\("3d", "poll"/);
+  assert.match(scene, /ikealiveLog\("3d", "mesh"/);
+  assert.match(apiSource, /ikeafy\/scene\/render/);
+  assert.match(apiSource, /^\s{2}renderScene:/m);
 });
 
 test("upload offers video, image, and 3D instruction controls before Seedance", () => {

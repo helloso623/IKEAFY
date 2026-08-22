@@ -1156,7 +1156,10 @@ async function boot() {
     hud,
     shop,
     getParts: () => partsById,
-    restoreShop: () => shop.sync(project, partsById),
+    restoreShop: () => {
+      shop.clearInstructionMesh?.();
+      shop.sync(project, partsById);
+    },
   });
   window.__ikeafyStudio = studio;
 

@@ -1077,10 +1077,30 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   border-radius: 22px;
 }
 #app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] .film-stage,
-#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film-stage,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film-stage {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 0;
+  height: auto;
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
 #app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] #film-video,
-#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #film-video {
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #film-video,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] #film-still,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #film-still,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] #film-frame,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] #film-frame {
   display: none;
+}
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] .film-status,
+#app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film-status {
+  position: relative;
+  inset: auto;
+  min-height: 4.5rem;
+  background: #111;
+  border-radius: 22px;
 }
 #app.mode-ikeafy[data-interface="watch"][data-render-mode="scene"] .film,
 #app.mode-ikeafy[data-interface="watch"][data-render-mode="3d"] .film {
