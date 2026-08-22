@@ -550,9 +550,10 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     move.normalize().multiplyScalar(speed);
     const room = three.room || { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
     const next = three.camera.position.clone().add(move);
-    next.x = Math.min(room.widthM - 0.12, Math.max(0.12, next.x));
-    next.y = Math.min(room.heightM - 0.2, Math.max(0.35, next.y));
-    next.z = Math.min(room.depthM - 0.12, Math.max(0.12, next.z));
+    // The front wall is open, so walk can circle the house — not only the interior.
+    next.x = Math.min(room.widthM + 1.4, Math.max(-1.4, next.x));
+    next.y = Math.min(room.heightM + 0.45, Math.max(0.35, next.y));
+    next.z = Math.min(room.depthM + 2.4, Math.max(-0.6, next.z));
     const delta = next.sub(three.camera.position);
     three.camera.position.add(delta);
     three.orbit.target.add(delta);

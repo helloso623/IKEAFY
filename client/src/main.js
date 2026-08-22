@@ -1311,7 +1311,7 @@ async function boot() {
   const studioBar = $("ikea-agent-bar");
   if (studioBar) studioBar.innerHTML = roster;
 
-  studio = initStudio({ api, hud });
+  studio = initStudio({ api, hud, shop, getParts: () => partsById });
   window.__ikeafyStudio = studio;
 
   await loadCatalog();
