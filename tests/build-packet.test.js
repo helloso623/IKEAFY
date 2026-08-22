@@ -50,11 +50,11 @@ test("print packet contains construction ways, cut pieces, and parsed todo steps
   });
 
   assert.match(html, /Table &lt;one&gt;/);
-  assert.match(html, /Candidate piece routes/);
+  assert.match(html, /Construction ways/);
   assert.match(html, /Cut top \+ ready-made legs/);
-  assert.match(html, /Pieces for this table/);
+  assert.match(html, /Cut list and shaped pieces/);
   assert.match(html, /birch plywood/);
-  assert.match(html, /Live piece matches/);
+  assert.match(html, /Live ways and piece matches/);
   assert.match(html, /Cut-to-size table plan/);
   assert.match(html, /IKEAlive watch \/ plan \/ todo/);
   assert.match(html, /Cut the top to its modeled size/);

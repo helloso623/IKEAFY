@@ -86,7 +86,7 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} piece plan`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -116,14 +116,14 @@ export function buildPacketHtml(packet = {}) {
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
-  <h2>Candidate piece routes</h2>
+  <h2>Construction ways</h2>
   ${wayRows}
-  <h2>Pieces for this table</h2>
+  <h2>Cut list and shaped pieces</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  ${liveRows ? `<h2>Live piece matches</h2><ul>${liveRows}</ul>` : ""}
+  ${liveRows ? `<h2>Live ways and piece matches</h2><ul>${liveRows}</ul>` : ""}
   <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
   <p class="warning">${escapeHtml(bom.disclaimer || "")}</p>
@@ -133,7 +133,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the table-piece PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();
