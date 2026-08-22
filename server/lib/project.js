@@ -202,9 +202,11 @@ function ensureHistory(project) {
   return project.history;
 }
 
-export function rememberEdit(project) {
+export function rememberEdit(project, { clientEdit = null } = {}) {
   const history = ensureHistory(project);
-  history.past.push(cloneEditState(project));
+  const snapshot = cloneEditState(project);
+  if (clientEdit) snapshot.clientEdit = String(clientEdit);
+  history.past.push(snapshot);
   if (history.past.length > HISTORY_LIMIT) history.past.shift();
   history.future = [];
   return editStatus(project);
@@ -219,17 +221,23 @@ export function discardLastEdit(project) {
 export function undoEdit(project) {
   const history = ensureHistory(project);
   if (!history.past.length) return null;
-  history.future.push(cloneEditState(project));
-  applyEditState(project, history.past.pop());
-  return editStatus(project);
+  const snapshot = history.past.pop();
+  const current = cloneEditState(project);
+  if (snapshot.clientEdit) current.clientEdit = snapshot.clientEdit;
+  history.future.push(current);
+  applyEditState(project, snapshot);
+  return { ...editStatus(project), clientEdit: snapshot.clientEdit || null };
 }
 
 export function redoEdit(project) {
   const history = ensureHistory(project);
   if (!history.future.length) return null;
-  history.past.push(cloneEditState(project));
-  applyEditState(project, history.future.pop());
-  return editStatus(project);
+  const snapshot = history.future.pop();
+  const current = cloneEditState(project);
+  if (snapshot.clientEdit) current.clientEdit = snapshot.clientEdit;
+  history.past.push(current);
+  applyEditState(project, snapshot);
+  return { ...editStatus(project), clientEdit: snapshot.clientEdit || null };
 }
 
 export function editStatus(project) {

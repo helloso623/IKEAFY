@@ -1100,16 +1100,25 @@ app.post("/api/project/duplicate", (req, res) => {
   res.json({ ok: true, piece, chrome: benchChrome(state.project), edit: editStatus(state.project) });
 });
 
+app.post("/api/project/checkpoint", (req, res) => {
+  const clientEdit = String(req.body?.clientEdit || "").trim().slice(0, 120);
+  if (!clientEdit) {
+    return res.status(400).json({ ok: false, error: "A client edit id is required." });
+  }
+  rememberEdit(state.project, { clientEdit });
+  res.json({ ok: true, clientEdit, edit: editStatus(state.project) });
+});
+
 app.post("/api/project/undo", (_req, res) => {
   const edit = undoEdit(state.project);
   if (!edit) return res.status(400).json({ ok: false, error: "Nothing to undo." });
-  res.json({ ok: true, ...projectPayload(state.project) });
+  res.json({ ok: true, clientEdit: edit.clientEdit, ...projectPayload(state.project) });
 });
 
 app.post("/api/project/redo", (_req, res) => {
   const edit = redoEdit(state.project);
   if (!edit) return res.status(400).json({ ok: false, error: "Nothing to redo." });
-  res.json({ ok: true, ...projectPayload(state.project) });
+  res.json({ ok: true, clientEdit: edit.clientEdit, ...projectPayload(state.project) });
 });
 
 app.post("/api/project/rescale", (req, res) => {

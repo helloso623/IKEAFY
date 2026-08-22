@@ -114,3 +114,26 @@ test("toolbar and workshop wire all three component views to selective edits", (
   assert.match(workshop, /subdivideTriangleAttributes/);
   assert.match(workshop, /setComponentMode/);
 });
+
+test("sculpt, model, subdivide, and component edits all checkpoint undo snapshots", () => {
+  const workshop = readFileSync(path.join(root, "client/src/workshop.js"), "utf8");
+  const main = readFileSync(path.join(root, "client/src/main.js"), "utf8");
+  const api = readFileSync(path.join(root, "client/src/api.js"), "utf8");
+  const server = readFileSync(path.join(root, "server/index.js"), "utf8");
+  const body = (name, next) =>
+    workshop.slice(workshop.indexOf(`function ${name}`), workshop.indexOf(`function ${next}`));
+
+  assert.match(body("beginSculptStroke", "sculptStep"), /beginGeometryEdit\(\)/);
+  assert.match(body("scaleComponentSelection", "geometryAttributeInput"), /beginGeometryEdit\(\)/);
+  assert.match(body("subdivideSelected", "beginFaceStroke"), /beginGeometryEdit\(\)/);
+  assert.match(body("beginFaceStroke", "moveFaceStroke"), /beginGeometryEdit\(\)/);
+  assert.match(body("beginBevelStroke", "applyBevel"), /beginGeometryEdit\(\)/);
+  assert.match(body("beginKnifeStroke", "moveKnifeStroke"), /beginGeometryEdit\(\)/);
+  assert.match(body("applyLoopCut", "beginMeshStroke"), /beginGeometryEdit\(\)/);
+  assert.match(workshop, /applyGeometryEdit\(clientEdit, direction\)/);
+  assert.match(main, /api\.checkpoint\(clientEdit\)/);
+  assert.match(main, /shop\.applyGeometryEdit\?\.\(result\.clientEdit, "undo"\)/);
+  assert.match(main, /shop\.applyGeometryEdit\?\.\(result\.clientEdit, "redo"\)/);
+  assert.match(api, /checkpoint:\s*\(clientEdit\).*\/api\/project\/checkpoint/);
+  assert.match(server, /app\.post\("\/api\/project\/checkpoint"/);
+});
