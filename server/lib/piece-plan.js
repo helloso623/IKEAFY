@@ -451,7 +451,7 @@ function constructionWays(profile, ikeaMatch, lines) {
       id: `ikea-${ikeaMatch.article}`,
       title: `IKEA dimension match: ${ikeaMatch.name}`,
       recommended: false,
-      summary: `Compare complete article ${ikeaMatch.article} with the current silhouette as a ready-made table route.`,
+      summary: `Compare complete article ${ikeaMatch.article} with the current silhouette; this is a whole-table route, not a source for screws.`,
       joinery: "Use the complete product as supplied after confirming silhouette, height, and load needs.",
       uses: [],
       additionalCuts: [],
