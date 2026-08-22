@@ -321,10 +321,12 @@ test("the bench catalog ids stay hidden and empty — no parts shelf", () => {
   assert.match(main, /shelf\.replaceChildren\(\)/);
 });
 
-test("lab tests stay behind a details fold", () => {
-  const start = html.indexOf('id="lab-btns"');
-  assert.ok(start > 0, "lab buttons must exist");
-  assert.match(html.slice(Math.max(0, start - 400), start), /<details class="more-tools">/);
+test("dead simulation controls stay out of the Lab", () => {
+  assert.doesNotMatch(html, /id="lab-btns"/);
+  assert.doesNotMatch(html, /id="sim-behavior"/);
+  assert.doesNotMatch(html, /data-test=/);
+  assert.doesNotMatch(html, /id="tape-elec"|id="tape-gaff"/);
+  assert.doesNotMatch(lab, /Run sim|data-sim|simRun/);
 });
 
 test("House is a live Lab form: camera, photos, plan, cheaper fits, overlay", () => {
@@ -392,22 +394,17 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
   assert.doesNotMatch(css, /\.house-drawer/);
 });
 
-test("the lab strip assigns jobs and runs one behavior suite", () => {
+test("the lab strip assigns furniture jobs without dead simulation buttons", () => {
   assert.match(html, /id="lab-strip"/);
   assert.match(html, /id="fn-btns"/);
-  assert.match(html, /id="sim-behavior"/);
   assert.match(html, /data-fn="support"/);
   assert.match(html, /data-fn="light"/);
   assert.match(html, /data-fn="sense"/);
   assert.match(html, /data-fn="control"/);
   assert.match(html, /data-fn="decorate"/);
-  const stripStart = html.indexOf('id="lab-strip"');
-  const strip = html.slice(stripStart, html.indexOf("</details>", stripStart));
-  assert.match(strip, /id="lab-btns"/, "the existing lab tests stay inside the new strip");
-  assert.match(lab, /simRun/);
   assert.match(lab, /data-fn/);
   assert.match(lab, /api\.label/);
-  assert.match(apiSource, /simRun/);
+  assert.doesNotMatch(lab, /simRun|data-sim|Run sim/);
 });
 
 test("the workshop is the app — no leftover Next store", () => {
