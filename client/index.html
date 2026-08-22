@@ -466,7 +466,7 @@
       <div class="lab-viewport" aria-hidden="true">
         <button type="button" class="lab-edge-tab lab-edge-left" id="lab-show-left" data-lab-toggle="left" title="Show outliner ([)" hidden>[</button>
         <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
-        <div class="lab-view-bar">
+        <div class="lab-view-bar" id="edit-bar">
           <div class="lab-view-tools" id="edit-tools">
             <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
             <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
@@ -497,6 +497,7 @@
             </label>
           </div>
         </div>
+        <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
           <span class="lab-cube-top">TOP</span>
           <span class="lab-cube-front">FRONT</span>
@@ -519,12 +520,12 @@
       <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
-          <strong class="lab-pane-title">Materials</strong>
+          <strong class="lab-pane-title">Parameters · Functions</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
-            <summary class="lab-sheet-sum">Selection</summary>
+            <summary class="lab-sheet-sum">Parameters</summary>
             <div class="lab-sheet-body">
               <div class="lab-param-grid">
                 <span class="lab-param-key">Selection</span>
@@ -558,6 +559,21 @@
                 <button type="button" data-mat-finish="metal" title="Brushed metal" disabled>Metal</button>
               </div>
               <p class="hint lab-hint" id="mat-hint">Pick a piece, then set its material.</p>
+            </div>
+          </details>
+          <details class="lab-sheet" open>
+            <summary class="lab-sheet-sum">Functions</summary>
+            <div class="lab-sheet-body">
+              <div id="lab-strip" class="lab-strip">
+                <p class="hint lab-hint" id="fn-hint">Assign a job on the selected piece.</p>
+                <div class="row wrap" id="fn-btns">
+                  <button type="button" data-fn="support">Support</button>
+                  <button type="button" data-fn="light">Light</button>
+                  <button type="button" data-fn="sense">Sense</button>
+                  <button type="button" data-fn="control">Control</button>
+                  <button type="button" data-fn="decorate">Decorate</button>
+                </div>
+              </div>
             </div>
           </details>
         </div>
