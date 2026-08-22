@@ -4,14 +4,18 @@
   "private": true,
   "type": "module",
   "description": "IKEAFY: a consumer assembly app — official IKEA steps, a 3D bench, and a room overlay.",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite --config client/vite.config.js --host 0.0.0.0 --port 5173",
+    "electron": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:electron:open\"",
+    "electron:dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:electron:open\"",
+    "electron:open": "ELECTRON_DEV=1 electron .",
     "start": "node server/index.js",
     "build": "vite build --config client/vite.config.js",
     "test": "node --test tests/*.test.js",
-    "lint": "for f in server/index.js server/lib/*.js client/src/*.js tests/*.js; do node --check \"$f\" || exit 1; done"
+    "lint": "for f in server/index.js server/lib/*.js client/src/*.js electron/*.js tests/*.js; do node --check \"$f\" || exit 1; done"
   },
   "engines": {
     "node": ">=20"
@@ -23,6 +27,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "electron": "^43.4.1",
     "vite": "^6.2.0"
   }
 }

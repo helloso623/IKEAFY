@@ -107,6 +107,18 @@ const VIDEO_PARTNERS = {
 
 const app = express();
 app.use(express.json({ limit: "16mb" }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || origin === "null" || origin === "file://") {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 const state = {
   project: emptyProject(),
