@@ -27,11 +27,11 @@
       data-mode="ikeafy"
       data-lab="desk"
       data-guide-mode="custom"
-      data-interface="upload"
+      data-interface="intro"
     >
       <header class="top">
         <div class="top-left">
-          <a class="brand" href="#upload" data-go-interface="upload">
+          <a class="brand" href="#intro" data-go-interface="intro">
             <strong>IKEAlive</strong>
           </a>
           <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
@@ -62,9 +62,9 @@
         </div>
       </header>
 
-      <!-- ============ UPLOAD / LANDING ============ -->
-      <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
-        <div class="landing landing-split">
+      <!-- ============ INTRO ============ -->
+      <section class="iface iface-intro" data-pane="ikeafy" data-interface-pane="intro" aria-label="Start">
+        <div class="landing landing-intro">
           <div class="landing-copy">
             <p class="kicker"><span class="kicker-spark" aria-hidden="true">✨</span> IKEAlive engine</p>
             <h1>Watch the manual<br />instead of <span class="hl">reading it.</span></h1>
@@ -111,8 +111,17 @@
                 <p>Find a part, identify hardware, or get unstuck without leaving.</p>
               </li>
             </ul>
-          </div>
 
+            <button type="button" class="primary start-process" data-go-mode="lab">
+              <span class="btn-spark" aria-hidden="true">✦</span> Start the process
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ UPLOAD ============ -->
+      <section class="iface iface-upload" data-pane="ikeafy" data-interface-pane="upload" aria-label="Upload a manual">
+        <div class="landing landing-upload-only">
           <div class="landing-panel">
             <div class="landing-animation" aria-hidden="true">
               <svg viewBox="0 0 400 220" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -309,6 +318,7 @@
           <strong class="lab-pane-title house-space">Room photos / 3D rebuild</strong>
           <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
+        <button type="button" class="primary bench-upload-cta desk-space" data-go-interface="upload">Upload IKEA instructions →</button>
         <div class="pane bench-nav lab-tree">
           <details class="lab-folder lab-model desk-space" id="lab-model" open>
             <summary class="lab-folder-sum">

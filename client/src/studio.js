@@ -1871,7 +1871,6 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
   });
 
   setMode("custom");
-  setInterface("upload");
   fillProducts();
 
   return {

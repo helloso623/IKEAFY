@@ -1,11 +1,16 @@
 const app = document.getElementById("app");
 
 function setInterface(name) {
-  if (!app || (name !== "upload" && name !== "watch")) return;
+  if (!app || (name !== "intro" && name !== "upload" && name !== "watch")) return;
   app.setAttribute("data-interface", name);
   const tab = document.querySelector('#modes [data-mode="ikeafy"]');
   if (app.dataset.mode !== "ikeafy") tab?.click();
   window.dispatchEvent(new Event("resize"));
+}
+
+function goMode(name) {
+  const tab = document.querySelector(`#modes [data-mode="${name}"]`);
+  tab?.click();
 }
 
 function setWatchCard(name) {
@@ -23,6 +28,8 @@ function setWatchCard(name) {
 document.addEventListener("click", (event) => {
   const go = event.target.closest("[data-go-interface]");
   if (go) setInterface(go.getAttribute("data-go-interface"));
+  const goModeBtn = event.target.closest("[data-go-mode]");
+  if (goModeBtn) goMode(goModeBtn.getAttribute("data-go-mode"));
   const pick = event.target.closest(".watch-pick");
   if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
 });

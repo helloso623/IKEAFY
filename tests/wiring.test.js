@@ -73,8 +73,12 @@ test("every api call the client makes is exported by the api client", () => {
 });
 
 test("IKEAlive is upload then watch, not a bench side panel", () => {
-  assert.match(html, /data-interface="upload"/);
+  assert.match(html, /data-interface="intro"/);
+  assert.match(html, /data-interface-pane="intro"/);
   assert.match(html, /data-interface-pane="upload"/);
+  assert.match(html, /class="primary start-process"/, "intro sends builders to the bench, not straight to the form");
+  assert.match(html, /data-go-mode="lab"/);
+  assert.match(html, /bench-upload-cta/, "the bench offers a way into the upload form");
   assert.match(html, /class="studio-side"/, "the watch rail holds the four Finley cards");
   assert.match(html, /class="watch-picks"/, "four buttons switch the watch cards");
   assert.match(html, /data-watch-card="bom"/);
