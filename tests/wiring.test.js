@@ -394,16 +394,8 @@ test("Lab spaces are Bench, House, AR, then Scan", () => {
   assert.doesNotMatch(css, /\.house-drawer/);
 });
 
-test("the lab strip assigns furniture jobs without dead simulation buttons", () => {
-  assert.match(html, /id="lab-strip"/);
-  assert.match(html, /id="fn-btns"/);
-  assert.match(html, /data-fn="support"/);
-  assert.match(html, /data-fn="light"/);
-  assert.match(html, /data-fn="sense"/);
-  assert.match(html, /data-fn="control"/);
-  assert.match(html, /data-fn="decorate"/);
-  assert.match(lab, /data-fn/);
-  assert.match(lab, /api\.label/);
+test("the removed function and simulation strips stay out of the Lab", () => {
+  assert.doesNotMatch(html, /id="lab-strip"|id="fn-btns"|data-fn=/);
   assert.doesNotMatch(lab, /simRun|data-sim|Run sim/);
 });
 
@@ -448,12 +440,10 @@ test("Lab AI is a bottom-right orb, not a header Ask", () => {
 
 test("bench editing controls are wired for furniture first", () => {
   for (const id of [
-    "edit-bar",
     "edit-move",
     "edit-rotate",
     "edit-scale",
     "edit-snap",
-    "edit-pose",
     "duplicate-piece",
     "delete-piece",
     "undo-edit",
@@ -511,8 +501,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
   assert.match(html, /Bodies/);
   assert.doesNotMatch(html, /Add · Catalog/);
-  assert.match(html, /Parameters/);
-  assert.match(html, /Functions/);
+  assert.match(html, /Materials/);
+  assert.doesNotMatch(html, />Functions</);
   assert.doesNotMatch(html, /Parameters · Functions · Nets/);
   assert.doesNotMatch(html, /<summary class="lab-sheet-sum">Nets<\/summary>/);
   const css = read("client/src/styles.css");

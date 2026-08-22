@@ -210,10 +210,9 @@ function renderBenchPieces() {
   list.innerHTML = [...regular, ...scanBodies]
     .map(({ piece, part: entryPart }) => {
       const part = entryPart || partsById[piece.partId];
-      const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
       const on = piece.id === current ? " on" : "";
       const scan = piece.reconstructed ? ` · ${part?.dimsMm ? `${Math.round(part.dimsMm.x)}×${Math.round(part.dimsMm.y)}×${Math.round(part.dimsMm.z)} mm` : "mesh"}` : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${job}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      return `<div class="item${on}" data-piece="${piece.id}"><span>${part?.name || piece.partId}${scan}</span><small data-drop="${piece.id}">Delete</small></div>`;
 
     })
     .join("");
@@ -727,10 +726,7 @@ $("mat-finish")?.addEventListener("click", (ev) => {
 function showPart(part, piece) {
   const lines = [part.name];
   const size = sizePlain(part);
-  const price = money(part.cost);
-  const shopLine = [size, price && part.store ? `${price} at ${part.store}` : price].filter(Boolean).join(" · ");
-  if (shopLine) lines.push(shopLine);
-  if (piece?.functionLabel) lines.push(`Job: ${piece.functionLabel}`);
+  if (size) lines.push(size);
 
   if (piece?.reconstructed) lines.push("Locally reconstructed triangle mesh · part id scan-mesh.");
 
@@ -982,13 +978,6 @@ for (const btn of document.querySelectorAll("#modes button")) {
       return;
     }
     setMode(btn.dataset.mode);
-  });
-}
-
-for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
-  btn.addEventListener("click", () => {
-    setMode("lab");
-    setLabSpace(btn.dataset.lab);
   });
 }
 
