@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
 
@@ -116,22 +117,130 @@ function renderBenchPieces() {
     .join("");
 }
 
-async function loadCatalog() {
-  const q = { q: $("search").value || "" };
-  if ($("cost").value) q.maxCost = $("cost").value;
-  const parts = await api.catalog(q);
-  for (const p of parts) partsById[p.id] = p;
-  const count = $("catalog-count");
-  if (count) count.textContent = String(parts.length);
-  $("catalog").innerHTML = parts
-    .map(
-      (p) =>
-        `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>${money(p.cost)}${p.store ? ` · ${p.store}` : ""}</small></div>`,
-    )
-    .join("");
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
 }
 
+function searchBoxes() {
+  return [$("omnibox"), $("search")].filter(Boolean);
+}
+
+function activeQuery() {
+  const focused = searchBoxes().find((node) => node === document.activeElement);
+  return String(focused?.value ?? $("omnibox")?.value ?? $("search")?.value ?? "");
+}
+
+function catalogEmptyHtml(typed, budget) {
+  const query = escapeHtml(String(typed || "").trim());
+  const cap = budget ? ` under $${escapeHtml(budget)}` : "";
+  if (query) {
+    return `<div class="hint empty-catalog">Nothing on the shelf matches “${query}”${cap}. Try a shorter name, or <button type="button" class="quiet" data-ask="${query}">Ask the shop</button>.</div>`;
+  }
+  return `<p class="hint empty-catalog">Nothing on the shelf${cap}. Raise the budget or clear the filter.</p>`;
+}
+
+function updateCatalogHint(parts, typed) {
+  const hint = $("catalog-hint");
+  const query = String(typed || "").trim();
+  const count = parts.length;
+  if (!hint) {
+    const node = $("catalog-count");
+    if (node) node.textContent = String(count);
+    return;
+  }
+  if (query && !count) {
+    hint.innerHTML = `No matches for “${escapeHtml(query)}”. Ask, or try “table” or “lack”.`;
+  } else if (query) {
+    hint.innerHTML = `<span id="catalog-count">${count}</span> match${count === 1 ? "" : "es"} for “${escapeHtml(query)}”.`;
+  } else {
+    hint.innerHTML = `The shelf scrolls — <span id="catalog-count">${count}</span> parts in the catalogue.`;
+  }
+}
+
+async function loadCatalog(raw) {
+  const typed = raw == null ? activeQuery() : String(raw);
+  const q = { q: catalogNeedle(typed) };
+  const budget = $("cost")?.value || parseBudget(typed);
+  if (budget) q.maxCost = budget;
+  const parts = await api.catalog(q);
+  for (const p of parts) partsById[p.id] = p;
+  updateCatalogHint(parts, typed);
+  const shelf = $("catalog");
+  if (!shelf) return;
+  shelf.innerHTML = parts.length
+    ? parts
+        .map(
+          (p) =>
+            `<div class="item" data-add="${p.id}"><span>${p.name}</span><small>${money(p.cost)}${p.store ? ` · ${p.store}` : ""}</small></div>`,
+        )
+        .join("")
+    : catalogEmptyHtml(typed, budget);
+}
+
+function appendChat(who, text, backend) {
+  const line =
+    who === "you"
+      ? `<div class="me">you: ${escapeHtml(text)}</div>`
+      : `<div><strong>${escapeHtml(who)}</strong>${backend ? ` · ${escapeHtml(backend)}` : ""}<br>${escapeHtml(text)}</div>`;
+  for (const id of ["chat-log", "ikea-chat-log"]) {
+    const log = $(id);
+    if (!log) continue;
+    log.insertAdjacentHTML("beforeend", line);
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+async function askShop(message) {
+  const text = String(message || "").trim();
+  if (!text) return;
+  appendChat("you", text);
+  hud("Asking the shop…");
+  try {
+    const reply = await api.chat(text, {
+      costBarrier: $("cost")?.value || parseBudget(text) || costBarrier,
+      step: studio?.state?.run?.cursor,
+      partId: shop.getSelected()?.part?.id,
+    });
+    appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
+    for (const action of reply.actions || []) {
+      if (action.type === "camera") shop.setCamera(action);
+      if (action.type === "adaptation" && $("adapt-out")) $("adapt-out").textContent = action.plan.note;
+      if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
+        inspect("The board is programmed.");
+      }
+    }
+    await refreshProject();
+    hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
+  } catch (err) {
+    appendChat("shop", err.message || "The shop could not answer.");
+    hud("The shop could not answer.");
+  }
+}
+
+const omnibox = ensureOmnibox();
+bindOmnibox({
+  boxes: searchBoxes(),
+  form: omnibox.form || $("omnibox-form"),
+  askButton: omnibox.ask || $("omnibox-ask"),
+  onFilter: (query) => loadCatalog(query),
+  onAsk: (query) => {
+    loadCatalog(query);
+    askShop(query);
+  },
+});
+
 $("catalog").addEventListener("click", async (ev) => {
+  const ask = ev.target.closest("[data-ask]");
+  if (ask) {
+    askShop(ask.dataset.ask || activeQuery());
+    return;
+  }
   const item = ev.target.closest("[data-add]");
   const id = item?.dataset.add;
   if (!id) return;
@@ -163,10 +272,9 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
   }
 });
 
-$("search").addEventListener("input", loadCatalog);
-$("cost").addEventListener("change", () => {
+$("cost")?.addEventListener("change", () => {
   costBarrier = $("cost").value;
-  loadCatalog();
+  loadCatalog(activeQuery());
 });
 
 function isElectronics(part) {
@@ -333,6 +441,9 @@ function setMode(mode) {
   for (const btn of document.querySelectorAll("#modes button")) {
     btn.classList.toggle("on", btn.dataset.mode === mode);
   }
+  for (const rail of document.querySelectorAll(".rail")) {
+    rail.classList.remove("hidden");
+  }
   for (const pane of document.querySelectorAll("[data-pane]")) {
     pane.classList.toggle("hidden", pane.dataset.pane !== mode);
   }
@@ -413,27 +524,12 @@ function drawRoom(plan) {
   c.classList.remove("hidden");
 }
 
-$("chat-form").addEventListener("submit", async (ev) => {
+$("chat-form")?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const message = $("chat-in").value.trim();
   if (!message) return;
   $("chat-in").value = "";
-  $("chat-log").innerHTML += `<div class="me">you: ${message}</div>`;
-  const reply = await api.chat(message, {
-    costBarrier,
-    step: studio?.state?.run?.cursor,
-    partId: shop.getSelected()?.part?.id,
-  });
-  $("chat-log").innerHTML += `<div><strong>${reply.agent.name}</strong> · ${reply.backend}<br>${reply.text}</div>`;
-  $("chat-log").scrollTop = 9999;
-  for (const action of reply.actions || []) {
-    if (action.type === "camera") shop.setCamera(action);
-    if (action.type === "adaptation") $("adapt-out").textContent = action.plan.note;
-    if (action.type === "firmware" && isElectronics(shop.getSelected()?.part)) {
-      inspect("The board is programmed.");
-    }
-  }
-  await refreshProject();
+  await askShop(message);
 });
 
 window.addEventListener("keydown", (ev) => {
