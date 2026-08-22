@@ -312,6 +312,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   const stored = body.runId ? getAssembly(body.runId) : null;
   const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
   try {
     const result = await renderStepVideo({
       guide,
@@ -339,6 +340,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       prompt: result.prompt,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "render error", { stepNumber, error: String(err.message || err) });
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
@@ -346,7 +348,9 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
   if (!hasFal()) {
+    console.warn("[ikealive:video]", "missing FAL_KEY — reel skipped");
     return res.status(503).json({
       ok: false,
       reel: true,
@@ -392,6 +396,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
       steps,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });

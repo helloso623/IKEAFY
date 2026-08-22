@@ -6,6 +6,7 @@
 
 import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
 import { bindVoice } from "./voice.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
@@ -894,8 +895,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   async function renderClipVideo(clip) {
     if (!clip || !api.renderVideo || !state.run) {
+      ikealiveWarn("video", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
       throw new Error(FAL_REQUIRED);
     }
+    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number });
     const result = await api.renderVideo({
       runId: state.run.id,
       stepNumber: clip.number,
@@ -903,8 +906,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     clip.videoUrl = result.videoUrl || null;
     clip.provider = result.provider || clip.provider;
     if (!clip.videoUrl) {
+      ikealiveWarn("video", "no video url", { step: clip.number, error: result.error || result.reason || FAL_REQUIRED });
       throw new Error(result.error || result.reason || FAL_REQUIRED);
     }
+    ikealiveLog("video", "step ready", { step: clip.number, videoUrl: clip.videoUrl, provider: clip.provider });
     return clip;
   }
 
@@ -953,6 +958,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!(await falIsLive())) {
       showFilmStatus(FAL_REQUIRED);
       announce(FAL_REQUIRED);
+      ikealiveWarn("video", "fal not live — reel is not a canvas storyboard");
       return;
     }
 
