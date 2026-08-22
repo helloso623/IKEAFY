@@ -183,6 +183,38 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
 });
 
+test("bench editing controls are wired for furniture first", () => {
+  for (const id of [
+    "edit-bar",
+    "edit-move",
+    "edit-rotate",
+    "edit-scale",
+    "edit-snap",
+    "edit-pose",
+    "duplicate-piece",
+    "delete-piece",
+    "undo-edit",
+    "redo-edit",
+    "edit-tools",
+    "snap-flag",
+  ]) {
+    assert.ok(markupIds.has(id), `bench editing markup is missing #${id}`);
+  }
+  assert.match(main, /api\.move/);
+  assert.match(main, /api\.duplicate/);
+  assert.match(main, /api\.undo/);
+  assert.match(main, /api\.redo/);
+  assert.match(main, /onPoseCommit|commitPose/);
+  assert.match(main, /setEditMode/);
+  assert.match(main, /shop\.setSnap|setSnap\(/);
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /setTranslationSnap/);
+  assert.match(workshop, /onPoseCommit/);
+  assert.match(apiSource, /^\s{2}duplicate:/m);
+  assert.match(apiSource, /^\s{2}undo:/m);
+  assert.match(apiSource, /^\s{2}redo:/m);
+});
+
 test("empty inspect is quiet — no ports, no Arduino", () => {
   const start = html.indexOf('id="inspect"');
   const block = html.slice(start, html.indexOf("</div>", start) + 6);

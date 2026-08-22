@@ -227,6 +227,7 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
 }
 .item:hover { background: var(--paper-deep); }
+.item.on { background: var(--paper-deep); }
 .item span { font-weight: 600; }
 .item small { color: var(--soft); flex: 0 1 auto; text-align: right; font-size: 0.78rem; line-height: 1.4; }
 
@@ -1500,7 +1501,9 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 
 .lab-browser .item:hover,
-.lab-inspector .item:hover { background: var(--lab-raised); }
+.lab-inspector .item:hover,
+.lab-browser .item.on,
+.lab-inspector .item.on { background: var(--lab-raised); }
 
 .lab-browser .item span {
   font-family: var(--lab-ui);
