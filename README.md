@@ -85,7 +85,3 @@ Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes
 ## Social preview
 
 The repository currently has no committed social-preview image. Add one in the GitHub repository settings when final brand artwork is available; the README intentionally does not reference a placeholder or missing asset.
-
----
-
-<p align="center"><sub>IKEAFY is the repo. All rights reserved.</sub></p>
