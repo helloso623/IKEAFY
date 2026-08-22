@@ -11,6 +11,9 @@ import { ikealiveLog, ikealiveWarn } from "./log.js";
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 const FAL_REQUIRED =
   "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
+const FAL_IMAGE_REQUIRED =
+  "Set FAL_KEY for Flux Schnell instruction stills. Image mode is a live plate, not a canvas table drawing.";
+const STILL_MS = 4000;
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -37,6 +40,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     film: first("#film"),
     frame: first("#film-frame"),
     video: first("#film-video"),
+    still: first("#film-still"),
     caption: first("#film-caption"),
     play: first("#film-play"),
     next: first("#film-wait"),
@@ -217,11 +221,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (posted?.ok === false) return fail(new Error(posted.reason));
     }
     if (mode !== "video") {
-      const reason =
-        posted?.reason ||
-        (mode === "images"
-          ? "Image instructions are not implemented yet."
-          : "3D engine instructions are not implemented yet.");
+      if (mode === "images") {
+        announce("Rendering Flux Schnell stills…");
+        await bootImageReel();
+        if (state.reel.some((clip) => clip.imageUrl)) {
+          announce("Stills ready. Watch the first step.");
+        }
+        return state.run;
+      }
+      const reason = "3D engine instructions are not implemented yet.";
       hideVideo();
       showFilmStatus(reason);
       announce(reason);
@@ -660,6 +668,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ------------------------------------------------------------------- playback
 
+  function hideStill() {
+    if (el.still) {
+      el.still.removeAttribute("src");
+      el.still.alt = "";
+      el.still.classList.add("hidden");
+    }
+  }
+
   function hideVideo() {
     if (el.video) {
       el.video.pause();
@@ -667,6 +683,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       el.video.load();
       el.video.classList.add("hidden");
     }
+    hideStill();
     el.frame?.classList.add("hidden");
   }
 
@@ -968,11 +985,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   function clipsFromOutline() {
+    const images = normalizeRenderMode(state.renderMode) === "images";
     return (state.outline || []).map((item) => ({
       number: item.number,
       frames: [],
       videoUrl: null,
-      provider: "seedance-2.5",
+      imageUrl: null,
+      provider: images ? "flux-schnell" : "seedance-2.5",
     }));
   }
 
@@ -980,7 +999,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!api.health) return false;
     try {
       const health = await api.health();
-      return Boolean(health?.video?.live);
+      return Boolean(health?.video?.live || health?.image?.live);
     } catch {
       return false;
     }
@@ -1004,6 +1023,27 @@ export function initStudio({ api, hud = () => {} } = {}) {
       throw new Error(result.error || result.reason || FAL_REQUIRED);
     }
     ikealiveLog("video", "step ready", { step: clip.number, videoUrl: clip.videoUrl, provider: clip.provider });
+    return clip;
+  }
+
+  async function renderClipImage(clip) {
+    if (!clip || !api.renderImage || !state.run) {
+      ikealiveWarn("image", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
+      throw new Error(FAL_IMAGE_REQUIRED);
+    }
+    ikealiveLog("image", "render step", { runId: state.run.id, step: clip.number, renderMode: "images" });
+    const result = await api.renderImage({
+      runId: state.run.id,
+      stepNumber: clip.number,
+      renderMode: "images",
+    });
+    clip.imageUrl = result.imageUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.imageUrl) {
+      ikealiveWarn("image", "no image url", { step: clip.number, error: result.error || result.reason || FAL_IMAGE_REQUIRED });
+      throw new Error(result.error || result.reason || FAL_IMAGE_REQUIRED);
+    }
+    ikealiveLog("image", "url", { step: clip.number, imageUrl: clip.imageUrl, provider: clip.provider });
     return clip;
   }
 
@@ -1073,9 +1113,76 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
 
+  async function upgradeImageReel(clips) {
+    if (!api.renderImage || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      if (clip.imageUrl) {
+        live += 1;
+        continue;
+      }
+      try {
+        const status = `Rendering Flux Schnell · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.imageUrl) showFilmStatus(status);
+        await renderClipImage(clip);
+        live += 1;
+        setOut(el.renderOut, `Flux Schnell · ${live}/${clips.length} stills`);
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_IMAGE_REQUIRED);
+        return;
+      }
+    }
+  }
+
+  async function bootImageReel() {
+    if (!state.run) return;
+    stopPlayback();
+    el.film?.classList.remove("hidden");
+    hideVideo();
+    state.reel = clipsFromOutline();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
+    state.frameIndex = 0;
+    renderSteps();
+    renderTransport();
+    showFilmStatus("Rendering Flux Schnell stills…");
+
+    if (!(await falIsLive())) {
+      showFilmStatus(FAL_IMAGE_REQUIRED);
+      announce(FAL_IMAGE_REQUIRED);
+      ikealiveWarn("image", "fal not live — stills are not a canvas table");
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Rendering Flux Schnell · step ${first.number}…`);
+        showFilmStatus(`Rendering Flux Schnell · step ${first.number}…`);
+        await renderClipImage(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_IMAGE_REQUIRED);
+      return;
+    }
+
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.imageUrl)) upgradeImageReel(state.reel);
+  }
+
   function showVideo(url, { play = false } = {}) {
     if (!el.video || !url) return false;
     el.frame?.classList.add("hidden");
+    hideStill();
     showFilmStatus("");
     el.video.classList.remove("hidden");
     if (el.video.src !== url) {
@@ -1088,6 +1195,20 @@ export function initStudio({ api, hud = () => {} } = {}) {
     } else {
       el.video.pause();
     }
+    return true;
+  }
+
+  function showStill(url, { number } = {}) {
+    if (!el.still || !url) return false;
+    el.frame?.classList.add("hidden");
+    if (el.video) {
+      el.video.pause();
+      el.video.classList.add("hidden");
+    }
+    showFilmStatus("");
+    el.still.classList.remove("hidden");
+    el.still.alt = number ? `Step ${number} assembly still` : "Assembly still";
+    if (el.still.getAttribute("src") !== url) el.still.src = url;
     return true;
   }
 
@@ -1112,6 +1233,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
     setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
     renderSteps();
     renderTransport();
+
+    const images = normalizeRenderMode(state.renderMode) === "images";
+    if (images) {
+      if (clip.imageUrl && showStill(clip.imageUrl, { number: clip.number })) {
+        if (play) {
+          state.timer = setTimeout(() => finishClip(), STILL_MS);
+        }
+        return;
+      }
+      hideVideo();
+      showFilmStatus(
+        play
+          ? `Rendering Flux Schnell · step ${clip.number}…`
+          : `No Flux still for step ${clip.number} yet.`,
+      );
+      return;
+    }
 
     if (clip.videoUrl && showVideo(clip.videoUrl, { play })) {
       if (state.timer) clearTimeout(state.timer);
@@ -1501,7 +1639,9 @@ export function initStudio({ api, hud = () => {} } = {}) {
     attachBroken,
     requestFittings,
     clearCustomSession,
-    replay: bootReel,
+    replay() {
+      return normalizeRenderMode(state.renderMode) === "images" ? bootImageReel() : bootReel();
+    },
     destroy() {
       state.destroyed = true;
       stopPlayback();

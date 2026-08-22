@@ -51,6 +51,7 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
+import { FAL_IMAGE_REQUIRED, renderStepImage } from "./lib/image.js";
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
@@ -107,6 +108,21 @@ const VIDEO_PARTNERS = {
   },
 };
 
+const IMAGE_PARTNERS = {
+  flux: {
+    name: "Flux Schnell",
+    model: "fal-ai/flux/schnell",
+    status: "optional",
+    note: "Cheap instruction stills through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a LACK table.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/image.js call Flux Schnell. Nothing leaves the machine without it.",
+  },
+};
+
 const app = express();
 app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
@@ -141,6 +157,12 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
+    },
+    image: {
+      partners: IMAGE_PARTNERS,
+      renderer: hasFal() ? "fal-ai/flux/schnell via fal.ai" : "none",
+      live: hasFal(),
+      route: "/api/ikeafy/image/render",
     },
     render: {
       route: "/api/ikeafy/render",
@@ -346,13 +368,10 @@ app.post("/api/ikeafy/render", (req, res) => {
     const updated = setAssemblyRenderMode(runId, mode);
     if (!updated.ok) ikealiveWarn("render", "run missing", { runId, mode });
   }
-  if (mode === "video") {
+  if (mode === "video" || mode === "images") {
     return res.json({ ok: true, mode, renderMode: mode, implemented: true, reason: null });
   }
-  const reason =
-    mode === "images"
-      ? "Image instructions are not implemented yet."
-      : "3D engine instructions are not implemented yet.";
+  const reason = "3D engine instructions are not implemented yet.";
   ikealiveLog("render", "unimplemented", { mode, reason });
   res.json({ ok: true, mode, renderMode: mode, implemented: false, reason });
 });
@@ -376,7 +395,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image instructions are not implemented yet."
+        ? "Image mode uses Flux Schnell stills, not Seedance."
         : "3D engine instructions are not implemented yet.";
     ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
     return res.json({
@@ -434,7 +453,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image instructions are not implemented yet."
+        ? "Image mode uses Flux Schnell stills, not Seedance."
         : "3D engine instructions are not implemented yet.";
     ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
     return res.json({
@@ -497,6 +516,66 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   } catch (err) {
     ikealiveWarn("video", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/image/render", async (req, res) => {
+  const body = req.body || {};
+  const { stored, mode } = rememberRenderMode(body);
+  const guide = guideForVideo(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  const renderMode = mode || "images";
+  ikealiveLog("image", "POST /api/ikeafy/image/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "images") {
+    const reason =
+      renderMode === "video"
+        ? "Video mode uses Seedance films, not Flux stills."
+        : "3D engine instructions are not implemented yet.";
+    ikealiveLog("image", "image route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      imageUrl: null,
+      reason,
+    });
+  }
+  try {
+    const result = await renderStepImage({
+      guide,
+      stepNumber,
+      extra: body.instructions || body.extra || "",
+    });
+    if (stored?.guide) state.guide = stored.guide;
+    if (!result.imageUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_IMAGE_REQUIRED,
+        imageUrl: null,
+        partners: IMAGE_PARTNERS,
+      });
+    }
+    res.json({
+      ok: true,
+      stepNumber,
+      live: true,
+      partners: IMAGE_PARTNERS,
+      imageUrl: result.imageUrl,
+      provider: result.provider,
+      prompt: result.prompt,
+    });
+  } catch (err) {
+    ikealiveWarn("image", "render error", { stepNumber, error: String(err.message || err) });
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
 

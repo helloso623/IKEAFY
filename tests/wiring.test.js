@@ -106,6 +106,7 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.doesNotMatch(html, /Or paste the guide/);
   assert.match(html, /id="upload-progress"/);
   assert.match(html, /id="film-video"/);
+  assert.match(html, /id="film-still"/);
   assert.match(html, /id="film-status"/);
   assert.match(html, /id="film-play"/);
   assert.match(html, /id="film-wait"/);
@@ -130,6 +131,36 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(studio, /bom\.owned|You have this/);
   const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
+});
+
+test("image instructions render Flux Schnell stills in the film stage", () => {
+  assert.match(html, /id="film-still"/);
+  assert.match(studio, /bootImageReel/);
+  assert.match(studio, /renderClipImage/);
+  assert.match(studio, /showStill/);
+  assert.match(studio, /api\.renderImage/);
+  assert.match(studio, /ikealiveLog\("image"/);
+  assert.match(studio, /FAL_IMAGE_REQUIRED|Flux Schnell instruction stills/);
+  assert.match(apiSource, /ikeafy\/image\/render/);
+  assert.match(apiSource, /^\s{2}renderImage:/m);
+  const index = read("server/index.js");
+  assert.match(index, /\/api\/ikeafy\/image\/render/);
+  assert.match(index, /renderStepImage/);
+  assert.match(index, /ikealiveLog\("image"/);
+  const image = read("server/lib/image.js");
+  assert.match(image, /fal-ai\/flux\/schnell/);
+  assert.match(image, /ikealiveLog\("image", "submit"/);
+  assert.match(image, /ikealiveLog\("image", "poll"/);
+  assert.match(image, /ikealiveLog\("image", "url"/);
+  assert.doesNotMatch(image, /seedance/i);
+  const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
+  assert.match(showClip, /imageUrl/);
+  assert.match(showClip, /showStill/);
+  assert.equal(/drawFrame\(/.test(showClip), false, "image mode must not draw the LACK table canvas");
+  const startChosen = studio.slice(studio.indexOf("async function startChosenRender"), studio.indexOf("function setMode"));
+  assert.match(startChosen, /mode === "images"/);
+  assert.match(startChosen, /bootImageReel/);
+  assert.doesNotMatch(startChosen, /Image instructions are not implemented yet/);
 });
 
 test("upload offers video, image, and 3D instruction controls before Seedance", () => {
