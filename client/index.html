@@ -322,15 +322,15 @@
             <div class="lab-folder-body">
               <p class="hint lab-hint">Pick a body, then push it around. Esc drops the active tool.</p>
               <div class="model-tools" id="model-tools">
-                <span class="model-kicker">Summon</span>
-                <button type="button" class="lab-tool" data-summon-shape="cube" title="Summon an editable cube on the bench">Cube</button>
-                <button type="button" class="lab-tool" data-summon-shape="box" title="Summon an editable box on the bench">Box</button>
-                <button type="button" class="lab-tool" data-summon-shape="sphere" title="Summon an editable sphere on the bench">Sphere</button>
-                <button type="button" class="lab-tool" data-summon-shape="cylinder" title="Summon an editable cylinder on the bench">Cylinder</button>
-                <button type="button" class="lab-tool" data-summon-shape="cone" title="Summon an editable cone on the bench">Cone</button>
-                <button type="button" class="lab-tool" data-summon-shape="torus" title="Summon an editable torus on the bench">Torus</button>
-                <button type="button" class="lab-tool" data-summon-shape="plane" title="Summon an editable plane on the bench">Plane</button>
-                <button type="button" class="lab-tool" data-summon-shape="prism" title="Summon an editable prism on the bench">Prism</button>
+                <span class="model-kicker">Shapes · Summon</span>
+                <button type="button" class="lab-tool" id="shape-cube" data-summon-shape="cube" title="Summon an editable cube on the bench">Cube</button>
+                <button type="button" class="lab-tool" id="shape-box" data-summon-shape="box" title="Summon an editable box on the bench">Box</button>
+                <button type="button" class="lab-tool" id="shape-sphere" data-summon-shape="sphere" title="Summon an editable sphere on the bench">Sphere</button>
+                <button type="button" class="lab-tool" id="shape-cylinder" data-summon-shape="cylinder" title="Summon an editable cylinder on the bench">Cylinder</button>
+                <button type="button" class="lab-tool" id="shape-cone" data-summon-shape="cone" title="Summon an editable cone on the bench">Cone</button>
+                <button type="button" class="lab-tool" id="shape-torus" data-summon-shape="torus" title="Summon an editable torus on the bench">Torus</button>
+                <button type="button" class="lab-tool" id="shape-plane" data-summon-shape="plane" title="Summon an editable plane on the bench">Plane</button>
+                <button type="button" class="lab-tool" id="shape-prism" data-summon-shape="prism" title="Summon an editable prism on the bench">Prism</button>
                 <span class="model-kicker">Sketch</span>
                 <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
                 <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
@@ -614,13 +614,6 @@
             </label>
           </div>
         </div>
-        <div id="finish-progress" class="finish-progress" role="status" aria-live="polite" hidden>
-          <div class="finish-progress-copy">
-            <strong id="finish-progress-text">Reading the model…</strong>
-            <span id="finish-progress-percent">3%</span>
-          </div>
-          <progress id="finish-progress-bar" max="100" value="3">3%</progress>
-        </div>
         <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
           <span class="lab-cube-top">TOP</span>
@@ -754,6 +747,34 @@
           <ol id="ai-history" class="ai-history"></ol>
         </details>
       </aside>
+    </div>
+    <div
+      id="finish-progress"
+      class="finish-progress"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="finish-progress-text"
+      aria-describedby="finish-progress-detail"
+      hidden
+    >
+      <section class="finish-progress-card">
+        <p class="finish-progress-kicker">IKEAlive · Finish / Find a way</p>
+        <div class="finish-progress-mark" aria-hidden="true"><span></span></div>
+        <h2 id="finish-progress-text">Reading the model…</h2>
+        <p id="finish-progress-detail">Analyzing the current edited geometry, materials, and dimensions.</p>
+        <progress id="finish-progress-bar" max="100" value="3">3%</progress>
+        <div class="finish-progress-copy">
+          <span>Building a real tutorial for this model</span>
+          <strong id="finish-progress-percent">3%</strong>
+        </div>
+        <ol class="finish-progress-stages" aria-label="Research progress">
+          <li data-finish-stage="reading" data-at="3">Reading the model</li>
+          <li data-finish-stage="research" data-at="25">Researching how to build</li>
+          <li data-finish-stage="components" data-at="55">Listing components</li>
+          <li data-finish-stage="steps" data-at="80">Writing steps</li>
+          <li data-finish-stage="guide" data-at="92">Sending to IKEAlive</li>
+        </ol>
+      </section>
     </div>
     <script type="module" src="/src/interface-nav.js"></script>
     <script type="module" src="/src/main.js"></script>

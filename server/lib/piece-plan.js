@@ -854,7 +854,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
   deps.onProgress?.(12, "Reading the model…");
   const build = pieceBomForProject(project, { model: deps.model });
   if (!build.ok) return build;
-  deps.onProgress?.(38, "Matching boards, hardware, and construction…");
+  deps.onProgress?.(32, "Researching how to build…");
   let liveSources = [];
   if (hasTavily()) {
     try {
@@ -863,7 +863,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
       liveSources = [];
     }
   }
-  deps.onProgress?.(68, "Scoring look-alikes…");
+  deps.onProgress?.(62, "Listing components…");
   const scoredSources = liveSources.map((source) => {
     const text = `${source.title || ""} ${source.note || ""}`.toLowerCase();
     const target = `${build.profile.topShape} ${build.profile.supportStyle} ${build.profile.materialFamily}`;
@@ -876,7 +876,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
           : Math.min(build.similarityScore, 45 + matched * 12),
     };
   });
-  deps.onProgress?.(86, "Writing the IKEAlive plan…");
+  deps.onProgress?.(82, "Writing steps…");
   return {
     ok: true,
     bom: {

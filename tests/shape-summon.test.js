@@ -12,30 +12,8 @@ import { chat, routeAgent, sanitizeActions } from "../server/lib/agents.js";
 import { isMeshBuildAsk, localMeshAction } from "../server/lib/mesh-plan.js";
 import { emptyProject } from "../server/lib/project.js";
 
-function withoutHosted(run) {
-  return async () => {
-    const previous = process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_API_KEY;
-    try {
-      await run();
-    } finally {
-      if (previous === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previous;
-    }
-  };
-}
-
-test("all summon shapes build finite editable triangle geometry", () => {
-  assert.deepEqual(SHAPE_SUMMON_NAMES, [
-    "cube",
-    "box",
-    "sphere",
-    "cylinder",
-    "cone",
-    "torus",
-    "plane",
-    "prism",
-  ]);
+test("every Shapes button builds finite editable triangle geometry", () => {
+  assert.deepEqual(SHAPE_SUMMON_NAMES, ["cube", "box", "sphere", "cylinder", "cone", "torus", "plane", "prism"]);
   for (const name of SHAPE_SUMMON_NAMES) {
     const spec = shapeSummonSpec(name);
     const geometry = buildAiMeshGeometry(spec);
@@ -43,10 +21,11 @@ test("all summon shapes build finite editable triangle geometry", () => {
     assert.ok(geometry.positions instanceof Float32Array);
     assert.ok(geometry.positions.length >= 18);
     assert.ok(geometry.positions.every(Number.isFinite));
+    assert.ok(geometry.triangleCount >= 2);
   }
 });
 
-test("every summon button receives a live click listener", () => {
+test("clicking every Shapes button invokes its geometry handler", () => {
   const buttons = SHAPE_SUMMON_NAMES.map((name) => {
     const listeners = [];
     return {
@@ -63,16 +42,36 @@ test("every summon button receives a live click listener", () => {
   const summoned = [];
   const count = bindShapeSummonButtons(
     { querySelectorAll: () => buttons },
-    (spec, name) => summoned.push([name, spec.components[0].shape]),
+    (spec, name) => summoned.push([name, spec.components[0].shape, buildAiMeshGeometry(spec).triangleCount]),
   );
   assert.equal(count, SHAPE_SUMMON_NAMES.length);
   assert.ok(buttons.every((button) => button.listeners.length === 1));
   for (const button of buttons) button.click();
-  assert.deepEqual(
-    summoned,
-    SHAPE_SUMMON_NAMES.map((name) => [name, name === "cube" ? "box" : name]),
-  );
+  assert.deepEqual(summoned.map(([name, shape]) => [name, shape]), [
+    ["cube", "box"],
+    ["box", "box"],
+    ["sphere", "sphere"],
+    ["cylinder", "cylinder"],
+    ["cone", "cone"],
+    ["torus", "torus"],
+    ["plane", "plane"],
+    ["prism", "prism"],
+  ]);
+  assert.ok(summoned.every(([, , triangles]) => triangles >= 2));
 });
+
+function withoutHosted(run) {
+  return async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  };
+}
 
 test("shape words summon their matching editable Three.js primitives", () => {
   const cases = [
@@ -98,24 +97,6 @@ test("shape words summon their matching editable Three.js primitives", () => {
     const geometry = buildAiMeshGeometry(action.mesh);
     assert.ok(geometry.triangleCount >= 2, prompt);
     assert.ok(geometry.positions.length >= 18, prompt);
-  }
-});
-
-test("shape toolbar specs all compile to editable triangle geometry", () => {
-  assert.deepEqual(SHAPE_SUMMON_NAMES, [
-    "cube",
-    "box",
-    "sphere",
-    "cylinder",
-    "cone",
-    "torus",
-    "plane",
-    "prism",
-  ]);
-  for (const name of SHAPE_SUMMON_NAMES) {
-    const spec = shapeSummonSpec(name);
-    assert.equal(spec.kind, "primitive");
-    assert.ok(buildAiMeshGeometry(spec).triangleCount >= 2, name);
   }
 });
 
