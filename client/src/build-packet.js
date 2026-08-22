@@ -151,7 +151,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the table-piece PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();
