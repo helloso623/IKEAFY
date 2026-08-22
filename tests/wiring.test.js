@@ -47,6 +47,12 @@ test("every id house.js reaches for exists in the markup", () => {
   assert.deepEqual(missing, [], `house.js looks for ids that index.html does not define: ${missing}`);
 });
 
+test("every id lab-layout.js reaches for exists in the markup", () => {
+  const layout = read("client/src/lab-layout.js");
+  const missing = [...idsUsedIn(layout)].filter((id) => !markupIds.has(id));
+  assert.deepEqual(missing, [], `lab-layout.js looks for ids that index.html does not define: ${missing}`);
+});
+
 test("main.js and the studio do not both own the same control", () => {
   // #app and #film are containers on purpose: main.js decides which tab is up,
   // the studio decides what is inside the plate. Anything else being touched by
@@ -74,7 +80,8 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(html, /data-watch-card="reviews"/);
   assert.match(html, /data-watch-card="broken"/);
   assert.match(html, /data-watch-card="spare"/);
-  assert.match(html, /id="omnibox"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-dock"/);
   const side = html.slice(html.indexOf('class="studio-side"'), html.indexOf('class="studio-side"') + 220);
   assert.match(side, /Assembly inventory|IKEAlive watch|part ID/i);
 });
@@ -108,6 +115,9 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="ikea-chat-form"/);
   assert.match(html, /id="ikea-voice"/);
   assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-history"/);
+  assert.match(html, /id="ai-scene"/);
   assert.equal(/<details class="studio-chat">/.test(html), false);
   assert.match(studio, /bindVoice/);
   assert.match(main, /bindVoice/);
@@ -120,6 +130,41 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(studio, /bom\.owned|You have this/);
   const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
+});
+
+test("upload offers video, image, and 3D instruction controls before Seedance", () => {
+  for (const id of ["render-modes", "render-mode-video", "render-mode-images", "render-mode-scene"]) {
+    assert.ok(markupIds.has(id), `upload markup is missing #${id}`);
+  }
+  assert.match(html, /data-render-mode="video"/);
+  assert.match(html, /data-render-mode="images"/);
+  assert.match(html, /data-render-mode="scene"/);
+  assert.match(html, /Video instructions/);
+  assert.match(html, /Image instructions/);
+  assert.match(html, /3D instructions/);
+  assert.match(html, /Get the Reel/);
+  assert.match(studio, /#render-mode-video/);
+  assert.match(studio, /#render-mode-images/);
+  assert.match(studio, /#render-mode-scene/);
+  assert.match(studio, /chooseRenderMode/);
+  assert.match(studio, /afterGuideReady/);
+  assert.match(studio, /startChosenRender/);
+  assert.match(studio, /ikealiveLog\("render"/);
+  assert.match(studio, /api\.runStart\(\{[\s\S]*?renderMode:/);
+  assert.match(studio, /api\.renderVideo\(\{[\s\S]*?renderMode:/);
+  assert.match(studio, /api\.render\(/);
+  assert.match(studio, /mode !== "video"/);
+  assert.match(apiSource, /ikeafy\/render/);
+  assert.match(apiSource, /^\s{2}render:/m);
+  const index = read("server/index.js");
+  assert.match(index, /\/api\/ikeafy\/render/);
+  assert.match(index, /ikealiveLog\("render"/);
+  const parseCustom = studio.slice(studio.indexOf("async function parseCustom"), studio.indexOf("function saveCustom"));
+  assert.match(parseCustom, /afterGuideReady/);
+  assert.doesNotMatch(parseCustom, /await bootReel\(/);
+  const startOfficial = studio.slice(studio.indexOf("async function startOfficial"), studio.indexOf("async function parseCustom"));
+  assert.match(startOfficial, /afterGuideReady/);
+  assert.doesNotMatch(startOfficial, /await bootReel\(/);
 });
 
 test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
@@ -141,7 +186,7 @@ test("electronics stays off the Lab header and inspect", () => {
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
   assert.match(modes, /data-mode="lab"/);
-  assert.equal(/data-mode="bench"/.test(modes), false, "Bench is inside Lab, not a header product");
+  assert.equal(/data-mode="bench"/.test(modes), false, "Desk is inside Lab, not a header product");
   assert.equal(/data-mode="house"/.test(modes), false, "House is inside Lab, not a header product");
   assert.equal(/data-mode="ar"/.test(modes), false, "AR is inside Lab, not a header product");
   assert.match(html, /id="lab-spaces"/);
@@ -158,11 +203,40 @@ test("Lab electronics chrome stays hidden even if the server still knows about b
   assert.match(main, /chrome\?\.electronics|chrome\.electronics/, "main.js still reads the server's chrome flag");
 });
 
-test("the bench catalog scrolls in one well of sample cards", () => {
+test("Lab loadCatalog hides electronics unless you search or toggle them", () => {
+  assert.match(main, /function isLabShelfPart/);
+  assert.match(main, /function isElectronicsQuery/);
+  assert.match(main, /function filterLabCatalog/);
+  assert.match(main, /category === "electronics"/);
+  assert.match(main, /category === "cable"/);
+  assert.match(main, /soldering-iron/);
+  assert.match(main, /multimeter/);
+  assert.match(main, /enclosure-print/);
+  assert.match(main, /arduino-nano/);
+  assert.match(main, /\.filter\(isLabShelfPart\)/);
+  assert.match(main, /arduino\|leds\?\|nano\|esp\(\?:32\)\?\|resistors\?\|breadboards\?\|jumpers\?\|solder/);
+  assert.match(html, /id="show-electronics"/);
+  assert.match(html, /Show electronics/);
+  assert.doesNotMatch(html, /id="show-electronics"[^>]*checked/);
+  assert.match(main, /\$\("show-electronics"\)/);
+  const server = read("server/index.js");
+  assert.match(server, /state\.project = emptyProject\(\)/);
+  assert.match(server, /filterLabCatalog/);
+  assert.doesNotMatch(server, /req\.body\?\.lamp \? seedLampTable/);
+  assert.doesNotMatch(html, /Arduino Nano|ESP32|Half breadboard|Soldering iron|Digital multimeter|Printable lamp enclosure/);
+});
+
+test("the bench catalog ids stay hidden and empty — no parts shelf", () => {
   assert.match(html, /id="catalog-well"/);
   assert.match(html, /id="catalog"/);
+  assert.doesNotMatch(html, /catalog-panel/);
+  assert.doesNotMatch(html, /Filter library/);
+  assert.doesNotMatch(html, /parts in the catalogue/);
+  assert.match(html, /class="hidden"[^>]*>[\s\S]*id="catalog-well"/);
   const css = read("client/src/styles.css");
   assert.match(css.replace(/\s+/g, " "), /#catalog-well[^}]*overflow-y: auto/);
+  assert.doesNotMatch(main, /data-add="\$\{p\.id\}"/);
+  assert.match(main, /shelf\.replaceChildren\(\)/);
 });
 
 test("lab tests stay behind a details fold", () => {
@@ -255,6 +329,24 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /api\.isolate\(/);
   assert.match(main, /shop\.setCamera/);
   assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
+  assert.match(main, /action\.type === "scan"/);
+  assert.match(main, /action\.type === "move"/);
+  assert.match(main, /buildSceneContext|labScenePayload/);
+  assert.match(main, /photoName/);
+});
+
+test("Lab AI is a bottom-right orb, not a header Ask", () => {
+  for (const id of ["ai-orb", "ai-dock", "ai-mic", "ai-history", "ai-status", "chat-log", "chat-in"]) {
+    assert.ok(markupIds.has(id), `Lab AI markup is missing #${id}`);
+  }
+  assert.match(html, /id="omnibox"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /\.omnibox-form \{ display: none !important/);
+  assert.match(css, /#ai-orb/);
+  assert.match(css, /#app\.mode-ikeafy #ai-orb/);
+  assert.match(main, /bindVoice/);
+  assert.match(main, /bindAiDock/);
+  assert.match(main, /webkitSpeechRecognition|speechCtor|bindVoice/);
 });
 
 test("bench editing controls are wired for furniture first", () => {
@@ -289,6 +381,20 @@ test("bench editing controls are wired for furniture first", () => {
   assert.match(apiSource, /^\s{2}redo:/m);
 });
 
+test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
+  const workshop = read("client/src/workshop.js");
+  const start = workshop.indexOf("export function createWorkshop");
+  const created = workshop.slice(start, workshop.indexOf("const group = new THREE.Group()", start));
+  assert.doesNotMatch(created, /new THREE\.GridHelper/);
+  assert.match(created, /polygonOffset:\s*true/);
+  assert.match(created, /floor\.receiveShadow\s*=\s*false/);
+  assert.match(created, /floor\.position\.y\s*=\s*-0\.12/);
+  assert.doesNotMatch(workshop, /new THREE\.GridHelper/);
+  assert.match(workshop, /floor\.receiveShadow\s*=\s*false/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*true/);
+  assert.doesNotMatch(workshop, /floor\.receiveShadow\s*=\s*!lookOn/);
+});
+
 test("empty inspect is quiet — no ports, no Arduino", () => {
   const start = html.indexOf('id="inspect"');
   const block = html.slice(start, html.indexOf("</div>", start) + 6);
@@ -306,8 +412,8 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /class="[^"]*lab-browser/, "left pane is the Fusion-style browser");
   assert.match(html, /class="[^"]*lab-viewport/, "center pane is the CAD viewport");
   assert.match(html, /class="[^"]*lab-inspector/, "right pane is the KiCad-style inspector");
-  assert.match(html, /Catalog/);
   assert.match(html, /Bodies/);
+  assert.doesNotMatch(html, /Add · Catalog/);
   assert.match(html, /Parameters/);
   assert.match(html, /Functions/);
   assert.doesNotMatch(html, /Parameters · Functions · Nets/);
@@ -322,4 +428,28 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(css, /Clash Display/, "Finley card type stays on the watch rail");
   assert.match(html, /class="panel watch bom"/);
   assert.match(html, /class="studio-side"/);
+  assert.match(html, /data-lab-split="left"/);
+  assert.match(html, /data-lab-toggle="right"/);
+  assert.match(css, /--lab-left/);
+});
+
+test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {
+  const header = html.slice(html.indexOf('class="top"'), html.indexOf("</header>"));
+  assert.doesNotMatch(header, /omnibox/);
+  assert.doesNotMatch(header, /id="omnibox-ask"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-dock"/);
+  assert.match(html, /id="ai-scene"/);
+  assert.match(html, /id="ai-history"/);
+  assert.match(html, /id="chat-form"/);
+  assert.match(html, /id="lab-voice"/);
+  const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
+  assert.doesNotMatch(inspector, /id="chat-form"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*right:/);
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*bottom:/);
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*border-radius:\s*50%/);
+  assert.match(main, /bindAiDock/);
+  assert.match(main, /sceneContext/);
+  assert.match(main, /scene,/);
 });

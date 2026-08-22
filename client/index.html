@@ -39,16 +39,6 @@
           <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
         </nav>
-        <form id="omnibox-form" class="omnibox-form" role="search">
-          <input
-            id="omnibox"
-            type="search"
-            placeholder="Add a table, generate a lamp, or ask…"
-            autocomplete="off"
-            aria-label="Search the catalog or ask the shop"
-          />
-          <button type="button" id="omnibox-ask">Ask</button>
-        </form>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
           <label class="toggle bench-only hidden">
@@ -66,8 +56,8 @@
         <div class="landing">
           <p class="kicker">IKEAlive</p>
           <h1>Your manual has a next move.</h1>
-          <p class="lede">
-            Upload the IKEA instructions PDF. We read the plates, Seedance 2.5 builds a reel, and you watch one step at a time.
+            <p class="lede">
+            Upload the IKEA instructions PDF. We read the plates, you choose video, image, or 3D instructions, and you watch one step at a time.
           </p>
 
           <form id="upload-form" class="card upload-card">
@@ -91,6 +81,21 @@
             <div id="custom-source" class="custom-parse">
               <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
               <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
+            </div>
+
+            <div id="render-modes" class="render-modes" role="group" aria-label="How to render instructions">
+              <p class="render-modes-label">How should we show the steps?</p>
+              <div class="row render-mode-picks">
+                <button type="button" id="render-mode-video" class="render-mode" data-render-mode="video" aria-pressed="false">
+                  Video instructions
+                </button>
+                <button type="button" id="render-mode-images" class="render-mode" data-render-mode="images" aria-pressed="false">
+                  Image instructions
+                </button>
+                <button type="button" id="render-mode-scene" class="render-mode" data-render-mode="scene" aria-pressed="false">
+                  3D instructions
+                </button>
+              </div>
             </div>
 
             <div class="row upload-actions">
@@ -118,7 +123,7 @@
                   <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
                 </svg>
               </span>
-              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
+              <span><strong>Choose</strong> video, image, or 3D instructions — Seedance 2.5 films the video path</span>
             </li>
             <li>
               <span class="process-icon" aria-hidden="true">
@@ -163,6 +168,7 @@
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
+        <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
         <div id="viewport-strip" class="viewport-strip bench-only hidden" aria-label="Viewport and simulation"></div>
@@ -170,6 +176,7 @@
         <!-- Lab CAD: op timeline + dimensions overlay. Filled by src/workshop.js. -->
         <div id="cad-timeline" class="cad-timeline" aria-label="Timeline of bench ops"></div>
         <div id="cad-dims" class="cad-dims" aria-hidden="true"></div>
+        <div id="cad-measure" class="cad-dims cad-measure" aria-live="polite"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
             <canvas id="film-frame" class="hidden"></canvas>
@@ -269,30 +276,15 @@
         </section>
       </aside>
 
-      <!-- ============ LAB — left browser (catalog / bodies) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Browser">
+      <!-- ============ LAB — outliner (bodies / scan / room) ============ -->
+      <aside class="rail left lab-browser hidden" id="lab-browser" data-pane="lab" aria-label="Outliner" aria-expanded="true">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Browser</span>
-          <strong class="lab-pane-title">Catalog / Bodies / Room</strong>
+          <span class="lab-pane-kicker">Outliner</span>
+          <strong class="lab-pane-title">Bodies / Scan / Room</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-left" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
         </header>
         <div class="pane bench-nav lab-tree">
-          <details class="lab-folder catalog-panel" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
-              Catalog
-            </summary>
-            <div class="lab-folder-body">
-              <div class="lab-filter">
-                <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
-                <input id="search" type="search" placeholder="Filter library" />
-              </div>
-              <p class="hint lab-hint" id="catalog-hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalogue.</p>
-              <div id="catalog-well" class="well scroll samples lab-well">
-                <div id="catalog" class="list samples"></div>
-              </div>
-            </div>
-          </details>
-          <details class="lab-folder" open>
+          <details class="lab-folder lab-outliner" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
               Bodies
@@ -301,16 +293,87 @@
               <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
+          <details class="lab-folder scan-object" id="scan-object-panel">
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-scan" aria-hidden="true"></span>
+              Scan object
+            </summary>
+            <div class="lab-folder-body">
+              <p class="hint lab-hint">Use a plain backdrop. Keep the object upright and fill each frame.</p>
+              <div class="scan-views">
+                <label class="field" for="scan-front">
+                  <span>Front photo</span>
+                  <input id="scan-front" type="file" accept="image/*" />
+                  <canvas id="scan-front-preview" width="0" height="0" aria-label="Front binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-side">
+                  <span>Side photo</span>
+                  <input id="scan-side" type="file" accept="image/*" />
+                  <canvas id="scan-side-preview" width="0" height="0" aria-label="Side binary silhouette"></canvas>
+                </label>
+                <label class="field" for="scan-top">
+                  <span>Top photo</span>
+                  <input id="scan-top" type="file" accept="image/*" />
+                  <canvas id="scan-top-preview" width="0" height="0" aria-label="Top binary silhouette"></canvas>
+                </label>
+              </div>
+              <div class="scan-scale">
+                <label class="field" for="scan-scale-kind">
+                  <span>Scale from</span>
+                  <select id="scan-scale-kind">
+                    <option value="circumference">Circumference</option>
+                    <option value="length">Known longest length</option>
+                  </select>
+                </label>
+                <label class="field" for="scan-scale-mm">
+                  <span>Scale (mm)</span>
+                  <input id="scan-scale-mm" type="number" min="1" step="1" value="300" />
+                </label>
+              </div>
+              <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
+              <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
+                Three silhouettes become a local binary visual hull, then a real triangle mesh.
+              </div>
+            </div>
+          </details>
+          <!-- Wiring hooks stay hidden. Lab adds via scan, AI, sketch, or an explicit electronics search. -->
+          <div class="hidden" aria-hidden="true">
+            <span>Catalog</span>
+            <form id="omnibox-form" class="omnibox-form" role="search" hidden>
+              <input
+                id="omnibox"
+                type="search"
+                placeholder="Add a table, generate a lamp, or ask…"
+                autocomplete="off"
+                aria-label="Search the catalog or ask the shop"
+              />
+              <button type="button" id="omnibox-ask">Ask</button>
+            </form>
+            <label><input id="show-electronics" type="checkbox" /> Show electronics</label>
+            <input id="cost" type="number" min="0" step="1" />
+            <input id="search" type="search" />
+            <p id="catalog-hint"><span id="catalog-count">0</span></p>
+            <div id="catalog-well">
+              <div id="catalog"></div>
+            </div>
+          </div>
           <details class="lab-folder" id="lab-room" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-room" aria-hidden="true"></span>
               This room
             </summary>
             <div class="lab-folder-body house-plate">
-              <p class="hint lab-hint house-caption">Photo and measurements sit with the bench. AR shows the overlay.</p>
+              <p class="hint lab-hint house-caption">
+                Photo and measurements sit with the bench. AR shows the overlay — add more angles and
+                the Lab rebuilds the whole room in 3D.
+              </p>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />
+              </label>
+              <label class="field file-field" for="room-photos">
+                <span>More room photos (3D rebuild)</span>
+                <input id="room-photos" type="file" accept="image/*" multiple />
               </label>
               <div class="row wrap lab-dims">
                 <label class="field" for="room-w">
@@ -327,16 +390,35 @@
                 <input id="room-budget" type="number" value="40" />
               </label>
               <button id="adapt-btn" class="primary house-go">Put a table in there</button>
+              <div class="row wrap house-extra">
+                <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
+                <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
+              </div>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
           </details>
         </div>
+        <div
+          class="lab-split"
+          id="lab-split-left"
+          data-lab-split="left"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-browser"
+          aria-label="Resize outliner"
+          tabindex="0"
+        ></div>
       </aside>
 
       <div class="lab-viewport" aria-hidden="true">
+        <button type="button" class="lab-edge-tab lab-edge-left" id="lab-show-left" data-lab-toggle="left" title="Show outliner ([)" hidden>[</button>
+        <button type="button" class="lab-edge-tab lab-edge-right" id="lab-show-right" data-lab-toggle="right" title="Show inspector (])" hidden>]</button>
         <div class="lab-view-bar">
           <div class="lab-view-tools" id="edit-tools">
+            <button type="button" class="lab-tool on" data-lab-toggle="left" title="Hide outliner ([)" aria-pressed="true">[</button>
+            <button type="button" class="lab-tool on" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
+            <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" data-edit="translate">Move</button>
             <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
             <button type="button" class="lab-tool" data-edit="scale">Scale</button>
@@ -349,6 +431,10 @@
             <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
             <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
             <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
+            <span class="lab-tool-rule"></span>
+            <button type="button" class="lab-tool" id="lab-look" title="Unlit clay view — no shadows">Look</button>
+            <button type="button" class="lab-tool" id="lab-look-at" title="Frame selected">Look at</button>
+            <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
             <span class="lab-proj">Perspective</span>
@@ -377,10 +463,11 @@
       </div>
 
       <!-- ============ LAB — right inspector (parameters / functions) ============ -->
-      <aside class="rail right lab-inspector hidden" data-pane="lab" aria-label="Inspector">
+      <aside class="rail right lab-inspector hidden" id="lab-inspector" data-pane="lab" aria-label="Inspector" aria-expanded="true">
         <header class="lab-pane-head">
           <span class="lab-pane-kicker">Inspector</span>
           <strong class="lab-pane-title">Parameters · Functions</strong>
+          <button type="button" class="lab-pane-toggle" id="lab-hide-right" data-lab-toggle="right" title="Hide inspector (])" aria-pressed="true">]</button>
         </header>
         <div class="pane bench-ctx lab-sheets">
           <details class="lab-sheet" open>
@@ -410,7 +497,7 @@
                   <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
                   <button type="button" data-cad-tool="joint">Joint</button>
                 </div>
-                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
+                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale. L Look, M Measure, F Look at.</p>
               </div>
             </div>
           </details>
@@ -454,20 +541,56 @@
             </div>
           </details>
         </div>
-        <div class="panel card chat shop-chat lab-console">
-          <h2>Shop chat</h2>
-          <details class="more-tools">
-            <summary>Who is answering</summary>
-            <div id="agent-bar" class="agent-bar"></div>
-          </details>
-          <div id="chat-log" class="chat-log"></div>
-          <form id="chat-form">
-            <input id="chat-in" autocomplete="off" placeholder="Add a LACK table, put four legs, generate a lamp…" />
-            <button type="button" id="lab-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
-            <button type="submit" class="primary">Send</button>
-          </form>
-          <p id="lab-voice-status" class="voice-status hint" aria-live="polite"></p>
-        </div>
+        <div
+          class="lab-split"
+          id="lab-split-right"
+          data-lab-split="right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="lab-inspector"
+          aria-label="Resize inspector"
+          tabindex="0"
+        ></div>
+      </aside>
+
+      <button
+        type="button"
+        id="ai-orb"
+        class="ai-orb"
+        aria-expanded="false"
+        aria-controls="ai-dock"
+        title="Ask the shop"
+      >
+        AI
+      </button>
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Shop chat">
+        <header class="ai-dock-head">
+          <strong>Shop</strong>
+          <button type="button" id="ai-dock-close" class="quiet">Close</button>
+        </header>
+        <section class="ai-scene" aria-label="Scene context">
+          <h3>Scene</h3>
+          <p id="ai-scene">Upload</p>
+        </section>
+        <div id="agent-bar" class="agent-bar"></div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="ai-form">
+          <input
+            id="chat-in"
+            autocomplete="off"
+            placeholder="Add a table, generate a lamp, or ask about this scene…"
+            aria-label="Command the shop"
+          />
+          <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>
+          <button type="button" id="lab-voice" class="quiet" hidden aria-pressed="false" title="Speak">Mic</button>
+          <button type="submit" class="primary">Send</button>
+        </form>
+        <p id="ai-status" class="hint ai-status" aria-live="polite"></p>
+        <p id="lab-voice-status" class="voice-status hint" hidden aria-live="polite"></p>
+        <details class="ai-history-fold" open>
+          <summary>Command history</summary>
+          <ol id="ai-history" class="ai-history"></ol>
+        </details>
       </aside>
     </div>
     <script>

@@ -57,6 +57,7 @@ Same furniture. Different lens. Pick before you hit **Get the Reel**.
 Leave keys empty and the rest of the app stays local. Video and stills are the ones that leave the machine, and only when `FAL_KEY` is set.
 
 ## Open the workshop
+A consumer app for assembling IKEA furniture. Upload an instructions PDF, or type a product name so Tavily can fetch the official IKEA PDF (catalog stand-in without `TAVILY_API_KEY`). The studio turns the plates into a Seedance reel you watch one step at a time. Official LACK is a secondary locked sheet. The right rail holds inventory, troubles, identify, and small parts. The yellow circle at the bottom-right opens shop chat, voice, command history, and the scene the shop can see (mode, step, selected piece, room). Watch chat still has a Mic that uses the Web Speech API and `/api/agents/chat` so spoken commands can start the reel, change step, or request a spare.
 
 Requires [Node.js](https://nodejs.org) **20+**. Copy `.env.example` → `.env` if you want keys; leave them blank to stay local. **Do not commit `.env`.**
 
@@ -96,6 +97,7 @@ Optional: `PORT` (API, default `8787`), `CLIENT_PORT` (Vite, default `5173`). Mo
 | Path | What lives here |
 | --- | --- |
 | `client/` | Vite + Three UI (studio, bench, house) |
+| `electron/` | Desktop shell that loads the Vite client + Express API |
 | `server/` | Express API |
 | `electron/` | Desktop wrapper |
 | `guides/` | Official building guides |
@@ -109,3 +111,6 @@ Lab is one workspace with three spaces: **Bench** (3D edit), **House** (photo + 
 ## License
 
 No license file is published yet. All rights reserved until one is added.
+### Object scans
+
+Lab → **Scan** accepts aligned front, side, and top photos plus a circumference or known length. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.

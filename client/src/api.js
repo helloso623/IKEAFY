@@ -1,5 +1,13 @@
+export function apiRoot(loc = globalThis.location) {
+  if (loc?.protocol === "file:") {
+    const port = Number(globalThis.__IKEALIVE_API_PORT__) || 8787;
+    return `http://127.0.0.1:${port}`;
+  }
+  return "";
+}
+
 async function req(url, opts) {
-  const res = await fetch(url, {
+  const res = await fetch(`${apiRoot()}${url}`, {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
@@ -30,7 +38,7 @@ export const api = {
     return req(`/api/catalog?${p}`);
   },
   project: () => req("/api/project"),
-  seed: (empty = false) => post("/api/project/seed", { empty }),
+  seed: () => post("/api/project/seed", { empty: true }),
   add: (partId, pose) => post("/api/project/add", { partId, pose }),
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
@@ -61,6 +69,7 @@ export const api = {
   video: (body = {}) => post("/api/ikeafy/video", body),
   renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
   renderReel: (body = {}) => post("/api/ikeafy/video/reel", body),
+  render: (body = {}) => post("/api/ikeafy/render", body),
   colorize: (step) => post("/api/ikeafy/colorize", { step }),
   reviews: () => req("/api/ikeafy/reviews"),
   broken: (step, note, photoName = "broken.jpg") =>

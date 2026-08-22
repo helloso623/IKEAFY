@@ -57,6 +57,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     productName: first("#product-name"),
     productLookup: first("#product-lookup"),
     uploadForm: first("#upload-form"),
+    renderModes: first("#render-modes"),
+    renderModeVideo: first("#render-mode-video"),
+    renderModeImages: first("#render-mode-images"),
+    renderModeScene: first("#render-mode-scene"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
     brokenNote: first("#broken-note"),
@@ -94,6 +98,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     broken: null,
     submitting: false,
     destroyed: false,
+    renderMode: null,
   };
 
   function listen(node, event, handler) {
@@ -141,6 +146,94 @@ export function initStudio({ api, hud = () => {} } = {}) {
       return;
     }
     document.getElementById("app")?.setAttribute("data-interface", next);
+  }
+
+  function normalizeRenderMode(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (raw === "video") return "video";
+    if (raw === "images" || raw === "image") return "images";
+    if (raw === "scene" || raw === "3d") return "scene";
+    return null;
+  }
+
+  function syncRenderModeUi() {
+    const mode = normalizeRenderMode(state.renderMode);
+    const app = document.getElementById("app");
+    if (mode) app?.setAttribute("data-render-mode", mode);
+    else app?.removeAttribute("data-render-mode");
+    for (const btn of document.querySelectorAll("button[data-render-mode]")) {
+      const on = btn.getAttribute("data-render-mode") === mode;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  function hasGuideSource() {
+    return Boolean(el.pdf?.files?.[0] || String(el.productName?.value || "").trim());
+  }
+
+  async function chooseRenderMode(value) {
+    const mode = normalizeRenderMode(value);
+    if (!mode) return null;
+    state.renderMode = mode;
+    syncRenderModeUi();
+    ikealiveLog("render", "mode chosen", { mode });
+    try {
+      if (state.submitting) return mode;
+      if (state.run) return startChosenRender();
+      if (hasGuideSource()) return parseCustom();
+      announce("Drop a PDF or type a product name, then get the reel.");
+      return mode;
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
+  async function afterGuideReady() {
+    const mode = normalizeRenderMode(state.renderMode || state.run?.renderMode);
+    if (!mode) {
+      announce("Choose video, image, or 3D instructions.");
+      return null;
+    }
+    state.renderMode = mode;
+    syncRenderModeUi();
+    return startChosenRender();
+  }
+
+  async function startChosenRender() {
+    const mode = normalizeRenderMode(state.renderMode || state.run?.renderMode);
+    if (!mode || !state.run) return null;
+    state.renderMode = mode;
+    syncRenderModeUi();
+    setInterface("watch");
+    el.film?.classList.remove("hidden");
+    let posted = null;
+    if (api.render) {
+      posted = await api.render({
+        mode,
+        renderMode: mode,
+        runId: state.run.id,
+      });
+      if (posted?.ok === false) return fail(new Error(posted.reason));
+    }
+    if (mode !== "video") {
+      const reason =
+        posted?.reason ||
+        (mode === "images"
+          ? "Image instructions are not implemented yet."
+          : "3D engine instructions are not implemented yet.");
+      hideVideo();
+      showFilmStatus(reason);
+      announce(reason);
+      ikealiveLog("render", "unimplemented", { mode, reason });
+      return posted;
+    }
+    announce("Rendering Seedance 2.5…");
+    await bootReel();
+    if (state.reel.some((clip) => clip.videoUrl)) {
+      announce("Reel ready. Watch the first step.");
+    }
+    return state.run;
   }
 
   function setMode(mode) {
@@ -437,14 +530,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
       setMode("official");
       announce("Opening the official sheet…");
       ikealiveLog("assembly", "official start", { article: el.product?.value || "304.499.08" });
-      const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
+      const view = await api.runStart({
+        mode: "official",
+        article: el.product?.value || undefined,
+        renderMode: state.renderMode || undefined,
+      });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      setInterface("watch");
-      announce("Rendering Seedance 2.5…");
       ikealiveLog("assembly", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
-      await bootReel();
+      await afterGuideReady();
       return view;
     } catch (error) {
       return fail(error);
@@ -496,18 +591,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
         mode: "custom",
         instructions: el.notes?.value || "",
         images,
+        renderMode: state.renderMode || undefined,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       saveCustom();
       await renderReviews();
-      setInterface("watch");
-      announce("Rendering Seedance 2.5…");
       ikealiveLog("assembly", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
-      await bootReel();
-      if (state.reel.some((clip) => clip.videoUrl)) {
-        announce("Reel ready. Watch the first step.");
-      }
+      await afterGuideReady();
       return view;
     } catch (error) {
       return fail(error);
@@ -549,6 +640,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.reel = [];
     state.clipIndex = 0;
     state.frameIndex = 0;
+    state.renderMode = null;
+    syncRenderModeUi();
     if (el.notes) el.notes.value = "";
     for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
@@ -898,10 +991,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
       ikealiveWarn("video", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
       throw new Error(FAL_REQUIRED);
     }
-    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number });
+    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number, renderMode: "video" });
     const result = await api.renderVideo({
       runId: state.run.id,
       stepNumber: clip.number,
+      renderMode: "video",
     });
     clip.videoUrl = result.videoUrl || null;
     clip.provider = result.provider || clip.provider;
@@ -1322,6 +1416,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
+  listen(el.renderModes, "click", (event) => {
+    const btn = event.target.closest("button[data-render-mode]");
+    if (btn) chooseRenderMode(btn.getAttribute("data-render-mode"));
+  });
   listen(el.productLookup, "click", lookupProductManual);
   listen(el.pdf, "change", () => {
     const file = el.pdf?.files?.[0] || null;
@@ -1390,6 +1488,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     setInterface,
     startOfficial,
     parseCustom,
+    chooseRenderMode,
     lookupProductManual,
     applyActions: applyStudioActions,
     nextStep,

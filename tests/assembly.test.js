@@ -5,8 +5,10 @@ import {
   confirmStep,
   editStep,
   goBack,
+  normalizeRenderMode,
   peekStep,
   resetAssemblies,
+  setAssemblyRenderMode,
   skipStep,
   startAssembly,
   stuckOn,
@@ -160,4 +162,28 @@ test("unknown runs and steps fail loudly", () => {
   const { run } = startAssembly({ mode: "official" });
   assert.equal(peekStep(run.id, 99).ok, false);
   assert.equal(startAssembly({ mode: "official", article: "000.000.00" }).ok, false);
+});
+
+test("an assembly run stores the chosen instruction render mode", () => {
+  assert.equal(normalizeRenderMode("video"), "video");
+  assert.equal(normalizeRenderMode("images"), "images");
+  assert.equal(normalizeRenderMode("image"), "images");
+  assert.equal(normalizeRenderMode("3d"), "scene");
+  assert.equal(normalizeRenderMode("scene"), "scene");
+  assert.equal(normalizeRenderMode("nope"), null);
+
+  const video = startAssembly({ mode: "official", renderMode: "video" });
+  assert.equal(video.ok, true);
+  assert.equal(video.run.renderMode, "video");
+
+  const images = startAssembly({ mode: "custom", guide: CUSTOM, renderMode: "images" });
+  assert.equal(images.run.renderMode, "images");
+
+  const scene = startAssembly({ mode: "custom", guide: CUSTOM, renderMode: "3d" });
+  assert.equal(scene.run.renderMode, "scene");
+
+  const later = setAssemblyRenderMode(scene.run.id, "video");
+  assert.equal(later.ok, true);
+  assert.equal(later.run.renderMode, "video");
+  assert.equal(assemblyView(scene.run.id).run.renderMode, "video");
 });

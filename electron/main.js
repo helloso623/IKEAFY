@@ -1,19 +1,22 @@
 /**
- * Desktop shell for the whole IKEAlive workshop (upload/watch, Lab Bench, House).
- * The renderer is the existing Vite + Express app loaded over http://127.0.0.1 —
- * no nodeIntegration, no file:// chrome that would need a preload bridge.
+ * Desktop shell for the IKEAlive / Lab web app (upload/watch, Bench, House).
+ * Starts Express when needed, then loads the Vite client on :5173 in dev or
+ * the built UI from file://dist (falling back to the Express static origin).
+ * Renderer console-message events are forwarded to the Electron terminal.
  */
 import { app, BrowserWindow, dialog } from "electron";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { rendererConsoleText } from "./log.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
+const DIST_INDEX = path.join(ROOT, "dist", "index.html");
 
 export const SERVER_PORT = Number(process.env.PORT || 8787);
-export const CLIENT_PORT = Number(process.env.VITE_PORT || 5173);
+export const CLIENT_PORT = Number(process.env.CLIENT_PORT || process.env.VITE_PORT || 5173);
 export const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 export const CLIENT_ORIGIN = `http://127.0.0.1:${CLIENT_PORT}`;
 
@@ -22,6 +25,11 @@ const WAIT_MS = isDev ? 90_000 : 45_000;
 
 let serverProcess = null;
 let quitting = false;
+
+export function distFileUrl(indexPath = DIST_INDEX) {
+  if (!existsSync(indexPath)) return null;
+  return pathToFileURL(indexPath).href;
+}
 
 export async function waitForUrl(url, timeoutMs = WAIT_MS) {
   const started = Date.now();
@@ -63,19 +71,21 @@ function startExpress() {
   return child;
 }
 
-async function ensureServer() {
+export async function ensureServer() {
   if (await urlReady(`${SERVER_ORIGIN}/api/health`)) return;
   serverProcess = startExpress();
   await waitForUrl(`${SERVER_ORIGIN}/api/health`);
 }
 
-async function clientUrl() {
+export async function clientUrl() {
   await ensureServer();
   if (isDev) {
     await waitForUrl(CLIENT_ORIGIN);
     return CLIENT_ORIGIN;
   }
   if (await urlReady(CLIENT_ORIGIN)) return CLIENT_ORIGIN;
+  const fileUrl = distFileUrl();
+  if (fileUrl) return fileUrl;
   return SERVER_ORIGIN;
 }
 
@@ -106,33 +116,37 @@ function createWindow(url) {
   return win;
 }
 
-app.setName("IKEAlive");
+const launchedAsElectron = Boolean(app);
 
-app.whenReady().then(async () => {
-  try {
-    const url = await clientUrl();
-    createWindow(url);
-  } catch (err) {
-    console.error(err);
-    dialog.showErrorBox("IKEAlive", String(err?.message || err));
+if (launchedAsElectron) {
+  app.setName("IKEAlive");
+
+  app.whenReady().then(async () => {
+    try {
+      const url = await clientUrl();
+      createWindow(url);
+    } catch (err) {
+      console.error(err);
+      dialog.showErrorBox("IKEAlive", String(err?.message || err));
+      app.quit();
+      return;
+    }
+    app.on("activate", async () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow(await clientUrl());
+      }
+    });
+  });
+
+  app.on("window-all-closed", () => {
     app.quit();
-    return;
-  }
-  app.on("activate", async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow(await clientUrl());
+  });
+
+  app.on("before-quit", () => {
+    quitting = true;
+    if (serverProcess && !serverProcess.killed) {
+      serverProcess.kill();
+      serverProcess = null;
     }
   });
-});
-
-app.on("window-all-closed", () => {
-  app.quit();
-});
-
-app.on("before-quit", () => {
-  quitting = true;
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-    serverProcess = null;
-  }
-});
+}

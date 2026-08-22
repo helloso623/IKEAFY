@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROSTER, chat, planCreativeActions, planStudioActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
+import {
+  ROSTER,
+  chat,
+  describeScene,
+  mergeChatContext,
+  planCreativeActions,
+  planStudioActions,
+  routeAgent,
+  shouldEscalate,
+} from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
 
 function withoutHosted(fn) {
@@ -41,10 +50,11 @@ test(
   "local steward can add a catalog part",
   withoutHosted(async () => {
     const project = emptyProject();
-    const reply = await chat("add a cheap led", { project, costBarrier: 2 });
+    const reply = await chat("add zip ties", { project, costBarrier: 2 });
     assert.equal(reply.backend, "local-steward");
     assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
     assert.equal(project.pieces.length, 1);
+    assert.equal(project.pieces[0].partId, "zip-tie");
   }),
 );
 
@@ -76,19 +86,41 @@ test(
 );
 
 test(
-  "generate a lamp places nano, led, and button when they are in the catalog",
+  "generate a lamp drops a LACK table, not a Nano or LED",
   withoutHosted(async () => {
     const project = emptyProject();
     const reply = await chat("generate a lamp", { project });
     const ids = project.pieces.map((p) => p.partId);
-    assert.ok(ids.includes("arduino-nano"));
-    assert.ok(ids.includes("led-5mm"));
-    assert.ok(ids.includes("tactile-btn"));
+    assert.ok(ids.includes("lack-top"));
+    assert.equal(ids.filter((id) => id === "lack-leg").length, 4);
+    assert.equal(ids.includes("arduino-nano"), false);
+    assert.equal(ids.includes("led-5mm"), false);
+    assert.equal(ids.includes("tactile-btn"), false);
     assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
-    assert.ok(reply.actions.some((a) => a.type === "label"));
-    assert.ok(reply.actions.some((a) => a.type === "isolate" && a.label === "lamp-board"));
+    assert.equal(reply.actions.some((a) => a.type === "isolate"), false);
+    assert.doesNotMatch(reply.text, /arduino|nano|led|firmware/i);
   }),
 );
+
+test("chat reads part and step from scene context", async () => {
+  const merged = mergeChatContext({
+    scene: { partId: "lack-top", step: 4, interface: "watch", product: "LACK" },
+  });
+  assert.equal(merged.partId, "lack-top");
+  assert.equal(merged.step, 4);
+  assert.match(describeScene(merged.scene), /Watch step 4/);
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const reply = await chat("label it support", {
+      scene: { partId: "lack-top", mode: "lab", lab: "desk" },
+    });
+    assert.ok(reply.actions.some((a) => a.type === "label" && a.partId === "lack-top" && a.label === "support"));
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
 
 test("studio voice commands become reel actions, not bench adds", () => {
   assert.equal(planStudioActions("get the reel").actions[0].action, "start");
@@ -109,9 +141,11 @@ test(
 
 test("creative desk plans add, camera, label, and isolate", () => {
   const lamp = planCreativeActions("generate a lamp");
-  assert.ok(lamp.actions.some((a) => a.type === "add"));
-  assert.ok(lamp.actions.some((a) => a.type === "label"));
-  assert.ok(lamp.actions.some((a) => a.type === "isolate"));
+  assert.ok(lamp.actions.some((a) => a.type === "add" && a.partId === "lack-top"));
+  assert.equal(lamp.actions.filter((a) => a.type === "add" && a.partId === "lack-leg").length, 4);
+  assert.equal(lamp.actions.some((a) => a.type === "isolate"), false);
+  const isolate = planCreativeActions("isolate the board");
+  assert.ok(isolate.actions.some((a) => a.type === "isolate"));
   const cam = planCreativeActions("move the camera left");
   assert.ok(cam.actions.some((a) => a.type === "camera" && a.az === 120));
 });
@@ -195,3 +229,59 @@ test("hosted creative desk uses the key and returns bench actions", async () => 
     else process.env.OPENAI_API_KEY = previous;
   }
 });
+
+test("describeScene reads selected piece, count, and Lab mode", () => {
+  const note = describeScene({
+    photoName: "view.jpg",
+    scene: {
+      lab: "desk",
+      pieceCount: 2,
+      selected: { name: "LACK table top", dimsMm: { x: 550, y: 50, z: 550 } },
+    },
+  });
+  assert.match(note, /desk mode/);
+  assert.match(note, /2 pieces/);
+  assert.match(note, /LACK table top/);
+  assert.match(note, /550×50×550 mm/);
+  assert.match(note, /view\.jpg/);
+});
+
+test(
+  "local steward answers from the bench scene JSON",
+  withoutHosted(async () => {
+    const reply = await chat("what is this on the screen?", {
+      scene: {
+        lab: "ar",
+        pieceCount: 1,
+        selected: { name: "LACK table top", dimsMm: { x: 550, y: 50, z: 550 } },
+      },
+      photoName: "view.jpg",
+    });
+    assert.equal(reply.backend, "local-steward");
+    assert.match(reply.text, /LACK table top/);
+    assert.match(reply.text, /ar mode/);
+  }),
+);
+
+test("scan and generate stay on existing shop actions", () => {
+  const scan = planCreativeActions("scan this object");
+  assert.equal(scan.handles, true);
+  assert.ok(scan.actions.some((a) => a.type === "scan"));
+  const lamp = planCreativeActions("generate a lamp");
+  assert.ok(lamp.actions.some((a) => a.type === "add"));
+});
+
+test(
+  "move this left nudges the selected piece",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const { addPiece } = await import("../server/lib/project.js");
+    const piece = addPiece(project, "lack-top", { x: 0.2, y: 0.22, z: 0 });
+    const reply = await chat("move this left", {
+      project,
+      scene: { lab: "desk", pieceCount: 1, selected: { id: piece.id, name: "LACK table top", partId: "lack-top" } },
+    });
+    assert.ok(reply.actions.some((a) => a.type === "move" && a.id === piece.id));
+    assert.ok(project.pieces[0].x < 0.2);
+  }),
+);

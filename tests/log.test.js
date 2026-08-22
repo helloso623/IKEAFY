@@ -42,11 +42,12 @@ test("Seedance renderer logs queue, poll, and missing FAL_KEY without interpolat
   assert.doesNotMatch(video, /ikealiveWarn\([^)]*process\.env\.FAL_KEY/);
 });
 
-test("server stdout uses ikealive video parse tavily and assembly prefixes", () => {
+test("server stdout uses ikealive video parse tavily assembly and render prefixes", () => {
   assert.match(index, /ikealiveLog\("video"/);
   assert.match(index, /ikealiveLog\("parse"/);
   assert.match(index, /ikealiveLog\("tavily"/);
   assert.match(index, /ikealiveLog\("assembly"/);
+  assert.match(index, /ikealiveLog\("render"/);
   assert.match(index, /keyed:\s*hasFal\(\)/);
   assert.doesNotMatch(index, /process\.env\.FAL_KEY/);
 });
