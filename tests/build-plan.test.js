@@ -119,14 +119,14 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.equal(plan.hardwareLines, undefined);
 });
 
-test("piece-plan source is numbered for the IKEAlive parser", () => {
+test("ways-to-make source is numbered for the IKEAlive parser", () => {
   const plan = buildWaysForProject({
     name: "Shelf",
     pieces: [piece("generic-shelf-board", "shelf")],
   });
   const source = buildPlanSource(plan);
   assert.match(source, /Construction ways:/);
-  assert.match(source, /Furniture pieces:/);
+  assert.match(source, /Cut list:/);
   assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
   assert.match(source, /^1\. Freeze this model revision/m);
   assert.match(source, /^6\. Turn the table upright/m);
