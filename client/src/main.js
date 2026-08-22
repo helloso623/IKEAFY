@@ -119,8 +119,9 @@ function sizePlain(part) {
 }
 
 /**
- * Lab is furniture-only for now. Electronics chrome (Arduino, nets, isolate)
- * stays off the panel; loadCatalog also drops boards, cables, and bench irons.
+ * Lab is furniture/hardware by default. Electronics chrome (Arduino, nets,
+ * isolate) stays off the panel. Boards only land on the shelf when #search /
+ * #omnibox asks for them, or the Show electronics toggle is on.
  */
 function applyChrome(chrome) {
   void chrome?.electronics;
@@ -260,12 +261,29 @@ function isLabShelfPart(part) {
   return true;
 }
 
+const ELECTRONICS_SEARCH =
+  /\b(arduino|leds?|nano|esp32?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+
+function isElectronicsQuery(query) {
+  return ELECTRONICS_SEARCH.test(String(query || ""));
+}
+
+function showElectronicsOn() {
+  return Boolean($("show-electronics")?.checked);
+}
+
+function filterLabCatalog(parts, typed) {
+  if (showElectronicsOn() || isElectronicsQuery(typed)) return parts;
+  return parts.filter(isLabShelfPart);
+}
+
 async function loadCatalog(raw) {
   const typed = raw == null ? activeQuery() : String(raw);
   const q = { q: catalogNeedle(typed) };
   const budget = $("cost")?.value || parseBudget(typed);
   if (budget) q.maxCost = budget;
-  const parts = (await api.catalog(q)).filter(isLabShelfPart);
+  if (showElectronicsOn()) q.electronics = "1";
+  const parts = filterLabCatalog(await api.catalog(q), typed);
   for (const p of parts) partsById[p.id] = p;
   updateCatalogHint(parts, typed);
   const shelf = $("catalog");
@@ -390,6 +408,10 @@ $("bench-pieces")?.addEventListener("click", async (ev) => {
 
 $("cost")?.addEventListener("change", () => {
   costBarrier = $("cost").value;
+  loadCatalog(activeQuery());
+});
+
+$("show-electronics")?.addEventListener("change", () => {
   loadCatalog(activeQuery());
 });
 
@@ -901,7 +923,7 @@ window.addEventListener("keydown", (ev) => {
 
 async function boot() {
   const [health, agents, all] = await Promise.all([api.health(), api.agents(), api.catalog({})]);
-  for (const p of all.filter(isLabShelfPart)) partsById[p.id] = p;
+  for (const p of filterLabCatalog(all, "")) partsById[p.id] = p;
   const roster = agents.roster.map((a) => `<span class="${a.role}">${a.name} · ${a.model}</span>`).join("");
   $("agent-bar").innerHTML = roster;
   const studioBar = $("ikea-agent-bar");

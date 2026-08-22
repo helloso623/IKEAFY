@@ -621,6 +621,27 @@ export function labShelfParts(parts = PARTS) {
   return parts.filter(isLabShelfPart).map((p) => ({ ...p }));
 }
 
+/** Typed in #search / #omnibox — boards stay hidden until one of these hits. */
+export const ELECTRONICS_SEARCH =
+  /\b(arduino|leds?|nano|esp32?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
+
+export function isElectronicsQuery(query) {
+  return ELECTRONICS_SEARCH.test(String(query || ""));
+}
+
+export function includeLabElectronics({ query = "", showElectronics = false } = {}) {
+  return Boolean(showElectronics) || isElectronicsQuery(query);
+}
+
+/** Default Lab catalog is furniture/hardware. Electronics only if searched or toggled. */
+export function filterLabCatalog(parts, { query = "", showElectronics = false } = {}) {
+  const list = Array.isArray(parts) ? parts : [];
+  if (includeLabElectronics({ query, showElectronics })) {
+    return list.map((p) => ({ ...p }));
+  }
+  return list.filter(isLabShelfPart).map((p) => ({ ...p }));
+}
+
 export function listParts() {
   return PARTS.map((p) => ({ ...p }));
 }

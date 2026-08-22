@@ -5,8 +5,8 @@ import { readFileSync, existsSync } from "node:fs";
 
 import {
   cheaperAlternatives,
+  filterLabCatalog,
   getPart,
-  isLabShelfPart,
   listParts,
   PARTNERS,
   searchParts,
@@ -161,15 +161,20 @@ app.get("/api/catalog", (req, res) => {
   if (req.query.x || req.query.maxX) dimsMm.x = Number(req.query.x || req.query.maxX);
   if (req.query.y || req.query.maxY) dimsMm.y = Number(req.query.y || req.query.maxY);
   if (req.query.z || req.query.maxZ) dimsMm.z = Number(req.query.z || req.query.maxZ);
+  const query = req.query.q || "";
+  const showElectronics = /^(1|true|yes)$/i.test(String(req.query.electronics || ""));
   res.json(
-    searchParts({
-      query: req.query.q || "",
-      maxCost,
-      category: req.query.category,
-      store: req.query.store,
-      minSpecs,
-      dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
-    }).filter(isLabShelfPart),
+    filterLabCatalog(
+      searchParts({
+        query,
+        maxCost,
+        category: req.query.category,
+        store: req.query.store,
+        minSpecs,
+        dimsMm: dimsMm.x || dimsMm.y || dimsMm.z ? dimsMm : undefined,
+      }),
+      { query, showElectronics },
+    ),
   );
 });
 
