@@ -7,6 +7,7 @@ import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
 import { analyzeStability, describeStability } from "./stability.js";
 import {
+  buildComponentDrawChain,
   buildWeldedTopology,
   componentMode as normalizeComponentMode,
   selectedWeldVertices,
@@ -1361,7 +1362,13 @@ export function createWorkshop(canvas) {
   let componentMode = null;
   let componentSelection = new Set();
   let componentRows = [];
+  let componentDrawOn = false;
+  let componentDrawPoints = [];
+  let componentDrawTarget = null;
+  let componentDrawMaterialIndex = 0;
   let onComponentSelect = () => {};
+  let onDimensions = () => {};
+  let lastDimensionKey = "";
   let snapOn = true;
   let editMode = "translate";
   let simOn = false;
@@ -1562,7 +1569,11 @@ export function createWorkshop(canvas) {
 
   function attach(mesh, quiet = false) {
     const changedBody = selected !== (mesh || null);
-    if (changedBody) componentSelection = new Set();
+    if (changedBody) {
+      componentSelection = new Set();
+      componentDrawPoints = [];
+      componentDrawTarget = null;
+    }
     selected = mesh || null;
     if (!mesh) {
       transform.detach();
@@ -1693,12 +1704,12 @@ export function createWorkshop(canvas) {
     }
   }
 
-  /* ---- Sculpt-lite: grab / smooth / inflate + one-shot subdivide ---------
+  /* ---- Sculpt-lite: grab / smooth / inflate / draw / pinch / flatten -----
      Blender-flavored vertex editing on the selected body. Deformed geometry
      is client-side dressing: sculptStore keeps the edited BufferGeometry per
      piece so sync() rebuilds put it back, exactly like matOverrides. */
   const sculptStore = new Map(); // pieceId -> [geometry per sculptable child]
-  let sculptMode = null; // null | "grab" | "smooth" | "inflate"
+  let sculptMode = null;
   let sculptStroke = null;
   let onSculpt = () => {};
 
@@ -1744,11 +1755,21 @@ export function createWorkshop(canvas) {
     return Math.max(0.025, size.length() * 0.16);
   }
 
-  function sculptHit(ev) {
+  function sculptIntersection(ev) {
     if (!selected) return null;
     pointAt(ev);
     const hits = ray.intersectObject(selected, true).filter((h) => !h.object.isSprite);
-    return hits.length ? hits[0].point.clone() : null;
+    if (!hits.length) return null;
+    const hit = hits[0];
+    const normal = hit.face?.normal
+      ?.clone()
+      .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld))
+      .normalize() || camera.getWorldDirection(new THREE.Vector3()).negate();
+    return { point: hit.point.clone(), normal, object: hit.object, faceIndex: hit.faceIndex };
+  }
+
+  function sculptHit(ev) {
+    return sculptIntersection(ev)?.point || null;
   }
 
   function prepSculptTarget(child) {
@@ -1901,19 +1922,29 @@ export function createWorkshop(canvas) {
     });
     saveSculptFor(edit.pieceId, mesh);
     componentSelection = new Set();
+    resetComponentDrawChain();
     refreshComponentOverlay();
     markSelected(selected);
     return true;
   }
 
   function beginSculptStroke(ev) {
-    const hit = sculptHit(ev);
-    if (!hit) return false;
+    const intersection = sculptIntersection(ev);
+    if (!intersection) return false;
+    const hit = intersection.point;
     const clientEdit = beginGeometryEdit();
     if (!clientEdit) return false;
     const targets = sculptTargets(selected).map(prepSculptTarget);
     const radius = brushRadius(selected);
-    const stroke = { hit, targets, radius, moved: false, clientEdit };
+    const stroke = {
+      hit,
+      targets,
+      radius,
+      moved: false,
+      clientEdit,
+      flattenOrigin: hit.clone(),
+      flattenNormal: intersection.normal.clone(),
+    };
     if (sculptMode === "grab") {
       const planeNormal = camera.getWorldDirection(new THREE.Vector3());
       stroke.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, hit);
@@ -1938,6 +1969,7 @@ export function createWorkshop(canvas) {
     const { radius } = stroke;
     const c = new THREE.Vector3();
     const n = new THREE.Vector3();
+    const surfaceNormal = new THREE.Vector3();
     for (const target of stroke.targets) {
       const normal = target.geo.getAttribute("normal");
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(target.child.matrixWorld);
@@ -1947,10 +1979,20 @@ export function createWorkshop(canvas) {
         if (d >= radius) continue;
         const w = (1 - d / radius) ** 2;
         touched = true;
-        if (sculptMode === "inflate") {
-          n.set(0, 0, 0);
-          for (const i of group) n.add(new THREE.Vector3().fromBufferAttribute(normal, i));
-          n.applyMatrix3(normalMatrix).normalize().multiplyScalar(radius * 0.05 * w);
+        surfaceNormal.set(0, 0, 0);
+        for (const i of group) {
+          surfaceNormal.add(new THREE.Vector3().fromBufferAttribute(normal, i));
+        }
+        surfaceNormal.applyMatrix3(normalMatrix).normalize();
+        if (sculptMode === "inflate" || sculptMode === "draw") {
+          const strength = sculptMode === "draw" ? 0.028 : 0.05;
+          n.copy(surfaceNormal).multiplyScalar(radius * strength * w);
+        } else if (sculptMode === "pinch") {
+          n.copy(hit).sub(c);
+          n.addScaledVector(surfaceNormal, -n.dot(surfaceNormal)).multiplyScalar(0.16 * w);
+        } else if (sculptMode === "flatten") {
+          const distance = c.clone().sub(stroke.flattenOrigin).dot(stroke.flattenNormal);
+          n.copy(stroke.flattenNormal).multiplyScalar(-distance * 0.22 * w);
         } else {
           // smooth: relax the welded vertex toward the brush center
           n.copy(hit).sub(c).multiplyScalar(0.12 * w);
@@ -2017,7 +2059,9 @@ export function createWorkshop(canvas) {
   }
 
   function setSculptMode(next) {
-    const mode = ["grab", "smooth", "inflate"].includes(next) ? next : null;
+    const mode = ["grab", "smooth", "inflate", "draw", "pinch", "flatten"].includes(next)
+      ? next
+      : null;
     sculptMode = mode;
     if (mode) {
       if (componentMode) setComponentMode(null);
@@ -2090,6 +2134,10 @@ export function createWorkshop(canvas) {
     depthWrite: false,
     toneMapped: false,
   });
+  const componentDrawFx = new THREE.Group();
+  scene.add(componentDrawFx);
+  const componentDrawFaceMat = componentFaceSelectedMat.clone();
+  componentDrawFaceMat.opacity = 0.2;
 
   function qualifiedComponentKey(targetIndex, localId) {
     return `${targetIndex}|${localId}`;
@@ -2117,6 +2165,184 @@ export function createWorkshop(canvas) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(values, 3));
     return geometry;
+  }
+
+  function resetComponentDrawChain() {
+    componentDrawPoints = [];
+    componentDrawTarget = null;
+    componentDrawMaterialIndex = 0;
+    componentDrawFx.traverse((child) => child.geometry?.dispose?.());
+    componentDrawFx.clear();
+  }
+
+  function refreshComponentDrawOverlay() {
+    componentDrawFx.traverse((child) => child.geometry?.dispose?.());
+    componentDrawFx.clear();
+    if (!componentDrawOn || !componentDrawPoints.length) return;
+    const chain = buildComponentDrawChain(
+      componentDrawPoints.map((point) => [point.x, point.y, point.z]),
+      { closed: componentDrawPoints.length >= 3 },
+    );
+    componentDrawFx.add(
+      new THREE.Points(positionGeometry(chain.points.flat()), componentPointSelectedMat),
+    );
+    if (chain.edges.length) {
+      const values = chain.edges.flatMap(([a, b]) => [...chain.points[a], ...chain.points[b]]);
+      componentDrawFx.add(new THREE.LineSegments(positionGeometry(values), componentEdgeSelectedMat));
+    }
+    if (chain.faces.length) {
+      const values = chain.faces.flatMap((face) => face.flatMap((index) => chain.points[index]));
+      componentDrawFx.add(new THREE.Mesh(positionGeometry(values), componentDrawFaceMat));
+    }
+  }
+
+  function drawClosesAtPointer(ev) {
+    if (componentDrawPoints.length < 3) return false;
+    const projected = componentDrawPoints[0].clone().project(camera);
+    const rect = canvas.getBoundingClientRect();
+    const x = rect.left + (projected.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-projected.y * 0.5 + 0.5) * rect.height;
+    return Math.hypot(ev.clientX - x, ev.clientY - y) <= 14;
+  }
+
+  function drawnFaceMaterial(geometry, faceIndex) {
+    const offset = Math.max(0, Number(faceIndex) || 0) * 3;
+    const entry = geometry.groups.find(
+      (groupEntry) => offset >= groupEntry.start && offset < groupEntry.start + groupEntry.count,
+    );
+    return entry?.materialIndex ?? 0;
+  }
+
+  function appendDrawnFaces(child, points) {
+    const oldGeometry = sculptGeometry(child);
+    const position = oldGeometry.getAttribute("position");
+    const inverse = child.matrixWorld.clone().invert();
+    const localPoints = points.map((point) => point.clone().applyMatrix4(inverse));
+    const chain = buildComponentDrawChain(
+      localPoints.map((point) => [point.x, point.y, point.z]),
+      { closed: true },
+    );
+    if (!chain.faces.length) return null;
+    const cornerIndices = chain.faces.flat();
+    const nearest = localPoints.map((point) => {
+      let best = 0;
+      let bestDistance = Infinity;
+      const candidate = new THREE.Vector3();
+      for (let index = 0; index < position.count; index += 1) {
+        candidate.fromBufferAttribute(position, index);
+        const distance = candidate.distanceToSquared(point);
+        if (distance < bestDistance) {
+          best = index;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    });
+    const next = new THREE.BufferGeometry();
+    for (const [name, attribute] of Object.entries(oldGeometry.attributes)) {
+      if (name === "normal" || name === "tangent") continue;
+      const ArrayType = attribute.array.constructor;
+      const added = new ArrayType(cornerIndices.length * attribute.itemSize);
+      if (name === "position") {
+        cornerIndices.forEach((pointIndex, corner) => {
+          const point = localPoints[pointIndex];
+          const offset = corner * 3;
+          added[offset] = point.x;
+          added[offset + 1] = point.y;
+          added[offset + 2] = point.z;
+        });
+      } else {
+        cornerIndices.forEach((pointIndex, corner) => {
+          const source = nearest[pointIndex] * attribute.itemSize;
+          const offset = corner * attribute.itemSize;
+          for (let axis = 0; axis < attribute.itemSize; axis += 1) {
+            added[offset + axis] = attribute.array[source + axis];
+          }
+        });
+      }
+      const values = new ArrayType(attribute.array.length + added.length);
+      values.set(attribute.array);
+      values.set(added, attribute.array.length);
+      next.setAttribute(
+        name,
+        new THREE.BufferAttribute(values, attribute.itemSize, attribute.normalized),
+      );
+    }
+    for (const entry of oldGeometry.groups) {
+      next.addGroup(entry.start, entry.count, entry.materialIndex);
+    }
+    if (oldGeometry.groups.length) {
+      next.addGroup(position.count, cornerIndices.length, componentDrawMaterialIndex);
+    }
+    next.name = oldGeometry.name;
+    next.computeVertexNormals();
+    next.computeBoundingBox();
+    next.computeBoundingSphere();
+    return { geometry: next, addedFaces: chain.faces.length, beforeFaces: position.count / 3 };
+  }
+
+  function commitComponentDrawFace() {
+    if (!componentDrawTarget || componentDrawPoints.length < 3) return false;
+    const clientEdit = beginGeometryEdit();
+    if (!clientEdit) return false;
+    const targetIndex = sculptTargets(selected).indexOf(componentDrawTarget);
+    const oldGeometry = componentDrawTarget.geometry;
+    const result = appendDrawnFaces(componentDrawTarget, componentDrawPoints);
+    if (!result || targetIndex < 0) {
+      result?.geometry.dispose();
+      cancelGeometryEdit(clientEdit);
+      return false;
+    }
+    componentDrawTarget.geometry = result.geometry;
+    oldGeometry.dispose();
+    saveSculpt();
+    completeGeometryEdit(clientEdit);
+    componentDrawPoints = [];
+    componentDrawTarget = null;
+    componentDrawMaterialIndex = 0;
+    componentMode = "face";
+    componentSelection = new Set(
+      Array.from(
+        { length: result.addedFaces },
+        (_, index) => qualifiedComponentKey(targetIndex, `f:${result.beforeFaces + index}`),
+      ),
+    );
+    for (const button of document.querySelectorAll("[data-component-mode]")) {
+      const active = button.dataset.componentMode === "face";
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    refreshComponentOverlay();
+    emitComponentSelection();
+    const name = selected?.userData?.part?.name || "body";
+    pushOp("D", `Draw ${result.addedFaces} face${result.addedFaces === 1 ? "" : "s"} · ${name}`);
+    onMeshEdit({
+      tool: "component-draw",
+      name,
+      label: `Drew ${result.addedFaces} point-chain face${result.addedFaces === 1 ? "" : "s"}`,
+      clientEdit,
+    });
+    return true;
+  }
+
+  function addComponentDrawPoint(ev) {
+    if (!componentDrawOn || !selected) return false;
+    if (drawClosesAtPointer(ev)) return commitComponentDrawFace();
+    const intersection = sculptIntersection(ev);
+    if (!intersection) return true;
+    if (!componentDrawTarget) {
+      componentDrawTarget = intersection.object;
+      componentDrawMaterialIndex = drawnFaceMaterial(
+        intersection.object.geometry,
+        intersection.faceIndex,
+      );
+    }
+    const previous = componentDrawPoints.at(-1);
+    if (previous?.distanceTo(intersection.point) < 0.001) return true;
+    if (componentDrawPoints.length >= 64) return true;
+    componentDrawPoints.push(intersection.point);
+    refreshComponentDrawOverlay();
+    return true;
   }
 
   function addComponentPoints(row) {
@@ -2198,7 +2424,10 @@ export function createWorkshop(canvas) {
 
   function refreshComponentOverlay() {
     clearComponentOverlay();
-    if (!componentMode || !selected) return;
+    if (!componentMode || !selected) {
+      refreshComponentDrawOverlay();
+      return;
+    }
     componentRows = sculptTargets(selected).map((child, index) => {
       const geometry = sculptGeometry(child);
       child.updateMatrixWorld(true);
@@ -2213,6 +2442,7 @@ export function createWorkshop(canvas) {
       else if (componentMode === "edge") addComponentEdges(row);
       else addComponentFaces(row);
     }
+    refreshComponentDrawOverlay();
   }
 
   function componentKeyFromHit(hit) {
@@ -2252,7 +2482,11 @@ export function createWorkshop(canvas) {
 
   function setComponentMode(next) {
     const mode = normalizeComponentMode(next);
-    if (componentMode !== mode) componentSelection = new Set();
+    if (componentMode !== mode) {
+      componentSelection = new Set();
+      resetComponentDrawChain();
+    }
+    if (!mode && componentDrawOn) setComponentDraw(false);
     componentMode = mode;
     if (mode) {
       if (cadTool) setCadTool(null);
@@ -2272,6 +2506,19 @@ export function createWorkshop(canvas) {
     refreshComponentOverlay();
     emitComponentSelection();
     return componentMode;
+  }
+
+  function setComponentDraw(on) {
+    const enabled = Boolean(on && selected);
+    componentDrawOn = enabled;
+    resetComponentDrawChain();
+    if (enabled && !componentMode) setComponentMode("vertex");
+    canvas.classList.toggle("component-drawing", enabled);
+    const button = document.querySelector("[data-component-draw]");
+    button?.classList.toggle("on", enabled);
+    button?.setAttribute("aria-pressed", String(enabled));
+    refreshComponentDrawOverlay();
+    return componentDrawOn;
   }
 
   function clearComponentSelection() {
@@ -3164,6 +3411,29 @@ export function createWorkshop(canvas) {
 
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
+  const dimSize = new THREE.Vector3();
+
+  function getSelectedDimensionsMm() {
+    if (!selected?.parent) return null;
+    dimBox.setFromObject(selected);
+    if (dimBox.isEmpty()) return null;
+    dimBox.getSize(dimSize);
+    return {
+      x: Math.round(dimSize.x * 10000) / 10,
+      y: Math.round(dimSize.y * 10000) / 10,
+      z: Math.round(dimSize.z * 10000) / 10,
+    };
+  }
+
+  function emitDimensions() {
+    const dimensions = getSelectedDimensionsMm();
+    const key = dimensions
+      ? `${selected?.userData?.piece?.id || ""}:${dimensions.x}:${dimensions.y}:${dimensions.z}`
+      : "";
+    if (key === lastDimensionKey) return;
+    lastDimensionKey = key;
+    onDimensions(dimensions);
+  }
   function updateDims() {
     if (!dimsEl || sketch || measureOn || meshStroke) return;
     const data = selected?.userData;
@@ -3178,10 +3448,10 @@ export function createWorkshop(canvas) {
     }
     dimBox.getCenter(dimCenter);
     dimCenter.y = dimBox.max.y + 0.025;
-    const d = data.part.dimsMm;
-    const w = Math.max(1, Math.round(d.x * selected.scale.x));
-    const dep = Math.max(1, Math.round(d.y * selected.scale.z));
-    const h = Math.max(1, Math.round(d.z * selected.scale.y));
+    dimBox.getSize(dimSize);
+    const w = Math.max(1, Math.round(dimSize.x * 1000));
+    const dep = Math.max(1, Math.round(dimSize.z * 1000));
+    const h = Math.max(1, Math.round(dimSize.y * 1000));
     placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
   }
 
@@ -3237,7 +3507,7 @@ export function createWorkshop(canvas) {
     const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
     const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
     const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
-    readEl.textContent = `${fmtMm(measureA.distanceTo(measureB))} · Δ ${dx} × ${dy} × ${dz} mm`;
+    readEl.textContent = `${fmtMm(measureA.distanceTo(measureB))} · Δ ${dx} × ${dy} × ${dz} mm · ticks 10 mm`;
   }
 
   function getMeasuredMm() {
@@ -3401,6 +3671,27 @@ export function createWorkshop(canvas) {
     b.position.copy(measureB);
     measureFx.add(b);
     measureFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([measureA, measureB]), measureLineMat));
+    const span = measureB.clone().sub(measureA);
+    const length = span.length();
+    if (length > 1e-6) {
+      const direction = span.clone().divideScalar(length);
+      const side = direction.clone().cross(camera.getWorldDirection(new THREE.Vector3()));
+      if (side.lengthSq() < 1e-8) side.copy(direction).cross(new THREE.Vector3(0, 1, 0));
+      if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+      side.normalize();
+      const totalMm = Math.floor(length * 1000);
+      const tickStepMm = Math.max(10, Math.ceil(totalMm / 200 / 10) * 10);
+      const values = [];
+      for (let mm = 0; mm <= totalMm; mm += tickStepMm) {
+        const center = measureA.clone().addScaledVector(direction, mm / 1000);
+        const offset = side.clone().multiplyScalar(mm % 50 === 0 ? 0.006 : 0.0035);
+        values.push(
+          center.x - offset.x, center.y - offset.y, center.z - offset.z,
+          center.x + offset.x, center.y + offset.y, center.z + offset.z,
+        );
+      }
+      measureFx.add(new THREE.LineSegments(positionGeometry(values), measureLineMat));
+    }
   }
 
   function fmtMm(meters) {
@@ -3834,6 +4125,11 @@ export function createWorkshop(canvas) {
       setMeasure(false);
       return;
     }
+    if (ev.key === "Escape" && componentDrawOn) {
+      if (componentDrawPoints.length) resetComponentDrawChain();
+      else setComponentDraw(false);
+      return;
+    }
     if (ev.key === "Escape" && componentMode) {
       if (!clearComponentSelection()) setComponentMode(null);
       return;
@@ -4078,6 +4374,7 @@ export function createWorkshop(canvas) {
       jointPick(ev);
       return;
     }
+    if (componentDrawOn && selected && addComponentDrawPoint(ev)) return;
     if (componentMode && selected && pickComponent(ev)) return;
     if (meshTool && selected && beginMeshStroke(ev)) return;
     if (sculptMode && selected && beginSculptStroke(ev)) {
@@ -4258,6 +4555,7 @@ export function createWorkshop(canvas) {
     if (boxHelper && selected) boxHelper.update();
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
+    emitDimensions();
     updateMeasureLabel();
     updatePhysicsPreview();
     renderer.render(scene, camera);
@@ -4454,6 +4752,8 @@ export function createWorkshop(canvas) {
     subdivideSelected,
     setComponentMode,
     getComponentMode: () => componentMode,
+    setComponentDraw,
+    getComponentDraw: () => componentDrawOn,
     getComponentSelection: () => ({
       mode: componentMode,
       count: componentSelection.size,
@@ -4479,6 +4779,11 @@ export function createWorkshop(canvas) {
     isPieceHidden: (id) => hiddenIds.has(id),
     hiddenCount: () => hiddenIds.size,
     getMeasuredMm,
+    getSelectedDimensionsMm,
+    onDimensions: (fn) => {
+      onDimensions = fn;
+      onDimensions(getSelectedDimensionsMm());
+    },
     runPhysicsPreview,
     clearPhysicsPreview: () => clearPhysicsPreview(true),
     physicsActive: () => Boolean(physicsAnim),

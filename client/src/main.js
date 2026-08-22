@@ -983,6 +983,21 @@ shop.onComponentSelect?.(({ mode, count, name }) => {
   );
 });
 
+shop.onDimensions?.((dimensions) => {
+  for (const axis of ["x", "y", "z"]) {
+    const input = $(`dimension-${axis}-mm`);
+    if (!input) continue;
+    input.disabled = !dimensions;
+    if (document.activeElement === input) continue;
+    const value = dimensions?.[axis];
+    input.value = Number.isFinite(value)
+      ? Number.isInteger(value)
+        ? String(value)
+        : value.toFixed(1)
+      : "";
+  }
+});
+
 // Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
 // a joint mate lands as api.move (plus a joint record) so undo covers both.
 shop.onSketch?.(async ({ partId, pose, label }) => {
@@ -1130,6 +1145,9 @@ const SCULPT_HINTS = {
   grab: "Grab — drag on the piece to pull vertices with it.",
   smooth: "Smooth — drag on the piece to relax the surface.",
   inflate: "Inflate — drag on the piece to puff the surface out.",
+  draw: "Draw — drag to build up the surface with a soft brush.",
+  pinch: "Pinch — drag to pull nearby surface points toward the brush.",
+  flatten: "Flatten — drag to settle the surface onto the first-hit plane.",
 };
 
 const MESH_HINTS = {
@@ -1145,6 +1163,16 @@ const COMPONENT_LABELS = { vertex: "Vertex", edge: "Edge", face: "Face" };
 function setComponentModeUi(mode) {
   if (!shop.getSelected()) return hud(`Pick a mesh, then open ${COMPONENT_LABELS[mode] || "component"} view.`);
   shop.setComponentMode?.(mode);
+}
+
+function setComponentDrawUi() {
+  if (!shop.getSelected()) return hud("Pick a mesh, then draw points on it.");
+  const next = shop.setComponentDraw?.(!shop.getComponentDraw?.());
+  hud(
+    next
+      ? "Draw points — click vertices in order; each click chains an edge. Click the first point to close real faces."
+      : "Point drawing off.",
+  );
 }
 
 function setSculptTool(mode) {
@@ -1263,11 +1291,37 @@ async function scaleSelectedToMeasured() {
   await scaleSelectedBy(target / measured);
 }
 
+async function setSelectedDimension(axis, rawValue) {
+  const target = Number(rawValue);
+  const dimensions = shop.getSelectedDimensionsMm?.();
+  const current = dimensions?.[axis];
+  if (!["x", "y", "z"].includes(axis) || !Number.isFinite(target) || target <= 0) {
+    return hud("Type a dimension above 0 mm.");
+  }
+  if (!Number.isFinite(current) || current <= 0) return hud("Pick a body, then set its dimensions.");
+  const factor = target / current;
+  if (Math.abs(factor - 1) < 1e-4) return;
+  if (shop.hasComponentSelection?.()) {
+    const result = shop.scaleComponentSelection?.(factor);
+    if (!result) return hud("Those components could not be resized.");
+    hud(`Resized the selected ${result.mode} components toward ${target} mm on ${axis.toUpperCase()}.`);
+    return;
+  }
+  const pose = shop.getSelectedPose?.();
+  if (!pose) return hud("Pick a body, then set its dimensions.");
+  const scaleKey = `s${axis}`;
+  const next = { id: pose.id, [scaleKey]: pose[scaleKey] * factor };
+  if (axis === "y") next.y = pose.y * factor;
+  await commitPose(next);
+  hud(`Set ${axis.toUpperCase()} to ${target} mm.`);
+}
+
 $("edit-tools")?.addEventListener("click", (ev) => {
   const mode = ev.target.closest("[data-edit]")?.dataset.edit;
   if (mode) setEditMode(mode);
   const component = ev.target.closest("[data-component-mode]")?.dataset.componentMode;
   if (component) setComponentModeUi(component);
+  if (ev.target.closest("[data-component-draw]")) setComponentDrawUi();
   if (ev.target.closest("[data-snap]")) setSnap(!shop.getSnap());
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-delete]")) deleteSelected();
@@ -1294,6 +1348,14 @@ $("scale-apply")?.addEventListener("click", () => {
 $("scale-to-measure")?.addEventListener("click", () => {
   scaleSelectedToMeasured();
 });
+for (const input of document.querySelectorAll("[data-dimension-axis]")) {
+  input.addEventListener("change", () => {
+    setSelectedDimension(input.dataset.dimensionAxis, input.value);
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") input.blur();
+  });
+}
 
 document.addEventListener("click", (event) => {
   const id = event.target.closest("[data-piece-plan]")?.dataset.piecePlan;

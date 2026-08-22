@@ -344,6 +344,9 @@
                 <button type="button" class="lab-tool" data-sculpt="grab" title="Sculpt: drag vertices under the brush">Grab</button>
                 <button type="button" class="lab-tool" data-sculpt="smooth" title="Sculpt: drag to relax the surface">Smooth</button>
                 <button type="button" class="lab-tool" data-sculpt="inflate" title="Sculpt: drag to puff the surface out">Inflate</button>
+                <button type="button" class="lab-tool" data-sculpt="draw" title="Sculpt: build up the surface with a softer normal brush">Draw</button>
+                <button type="button" class="lab-tool" data-sculpt="pinch" title="Sculpt: pull nearby surface points toward the brush">Pinch</button>
+                <button type="button" class="lab-tool" data-sculpt="flatten" title="Sculpt: settle nearby points onto the first-hit plane">Flatten</button>
                 <span class="model-kicker">Show</span>
                 <button type="button" class="lab-tool" data-hide-selected title="Hide the selected body (H)">Hide</button>
                 <button type="button" class="lab-tool" data-unhide-all title="Unhide every body (Alt+H)">Unhide all</button>
@@ -372,7 +375,12 @@
                 </label>
                 <button type="button" id="scale-to-measure" class="quiet">Scale to fit</button>
               </div>
-              <p class="hint lab-hint">Scale targets selected vertices, edges, or faces. With no component targeted it resizes the whole body. Measure two points, then Scale to fit makes that span the typed millimetres.</p>
+              <div class="live-dimensions" aria-label="Live body dimensions in millimetres">
+                <label for="dimension-x-mm"><span>X mm</span><input id="dimension-x-mm" data-dimension-axis="x" type="number" min="1" step="1" placeholder="—" /></label>
+                <label for="dimension-y-mm"><span>Y mm</span><input id="dimension-y-mm" data-dimension-axis="y" type="number" min="1" step="1" placeholder="—" /></label>
+                <label for="dimension-z-mm"><span>Z mm</span><input id="dimension-z-mm" data-dimension-axis="z" type="number" min="1" step="1" placeholder="—" /></label>
+              </div>
+              <p class="hint lab-hint">Dimensions update live while scaling; type X, Y, or Z to set that axis. Measure shows 10 mm ticks. Component selections still scale around their shared center.</p>
             </div>
           </details>
           <details class="lab-folder lab-outliner desk-space" open>
@@ -582,6 +590,7 @@
             <button type="button" class="lab-tool component-mode" id="component-vertex" data-component-mode="vertex" aria-pressed="false" title="Vertex view (1) · click vertices; Shift-click toggles">Vertex view</button>
             <button type="button" class="lab-tool component-mode" id="component-edge" data-component-mode="edge" aria-pressed="false" title="Edge view (2) · click edges; Shift-click toggles">Edge view</button>
             <button type="button" class="lab-tool component-mode" id="component-face" data-component-mode="face" aria-pressed="false" title="Face view (3) · click faces; Shift-click toggles">Face view</button>
+            <button type="button" class="lab-tool component-mode" id="component-draw" data-component-draw aria-pressed="false" title="Draw points: click to add vertices and chain edges; click the first point to close real faces">Draw points</button>
             <span class="lab-tool-rule"></span>
             <button type="button" class="lab-tool on" id="edit-snap" data-snap aria-pressed="true">Snap</button>
             <button type="button" class="lab-tool" id="duplicate-piece" data-duplicate>Duplicate</button>

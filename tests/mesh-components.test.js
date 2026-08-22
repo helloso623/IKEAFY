@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
+  buildComponentDrawChain,
   buildWeldedTopology,
   componentMode,
   scaleComponentVertices,
@@ -36,6 +37,24 @@ test("component selection replaces, shift-toggles, and clears on empty click", (
   assert.deepEqual([...selected], ["v:1"]);
   selected = updateComponentSelection(selected, null, { empty: true, shiftKey: true });
   assert.deepEqual([...selected], []);
+});
+
+test("point drawing adds vertices, chains edges, and closes a triangle fan", () => {
+  const points = [
+    [0, 0, 0],
+    [2, 0, 0],
+    [2, 2, 0],
+    [0, 2, 0],
+  ];
+  const open = buildComponentDrawChain(points);
+  assert.equal(open.points.length, 4);
+  assert.deepEqual(open.edges, [[0, 1], [1, 2], [2, 3]]);
+  assert.deepEqual(open.faces, []);
+
+  const closed = buildComponentDrawChain(points, { closed: true });
+  assert.equal(closed.closed, true);
+  assert.deepEqual(closed.edges.at(-1), [3, 0]);
+  assert.deepEqual(closed.faces, [[0, 1, 2], [0, 2, 3]]);
 });
 
 test("welded topology exposes shared vertices, edges, and triangle faces", () => {
@@ -108,9 +127,20 @@ test("toolbar and workshop wire all three component views to selective edits", (
   ]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*data-component-mode="${mode}"`));
   }
+  assert.match(html, /id="component-draw"[^>]*data-component-draw/);
+  for (const axis of ["x", "y", "z"]) {
+    assert.match(html, new RegExp(`id="dimension-${axis}-mm"[^>]*data-dimension-axis="${axis}"`));
+  }
+  for (const brush of ["draw", "pinch", "flatten"]) {
+    assert.match(html, new RegExp(`data-sculpt="${brush}"`));
+  }
   assert.match(main, /shop\.scaleComponentSelection/);
   assert.match(main, /shop\.hasComponentSelection/);
+  assert.match(main, /setSelectedDimension/);
   assert.match(workshop, /updateComponentSelection/);
+  assert.match(workshop, /addComponentDrawPoint/);
+  assert.match(workshop, /getSelectedDimensionsMm/);
+  assert.match(workshop, /tickStepMm/);
   assert.match(workshop, /subdivideTriangleAttributes/);
   assert.match(workshop, /setComponentMode/);
 });

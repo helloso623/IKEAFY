@@ -13,6 +13,26 @@ export function updateComponentSelection(selection, key, { shiftKey = false, emp
   return current;
 }
 
+export function buildComponentDrawChain(input, { closed = false } = {}) {
+  const points = (input || []).map((point) => {
+    const values = Array.from(point || [], Number);
+    if (values.length !== 3 || values.some((value) => !Number.isFinite(value))) {
+      throw new Error("Draw-chain points need finite x, y and z coordinates.");
+    }
+    return values;
+  });
+  const edges = [];
+  for (let index = 1; index < points.length; index += 1) edges.push([index - 1, index]);
+  if (closed && points.length >= 3) edges.push([points.length - 1, 0]);
+  const faces = [];
+  if (closed && points.length >= 3) {
+    for (let index = 1; index < points.length - 1; index += 1) {
+      faces.push([0, index, index + 1]);
+    }
+  }
+  return { points, edges, faces, closed: Boolean(closed && points.length >= 3) };
+}
+
 function positionKey(x, y, z, tolerance) {
   return `${Math.round(x / tolerance)}|${Math.round(y / tolerance)}|${Math.round(z / tolerance)}`;
 }

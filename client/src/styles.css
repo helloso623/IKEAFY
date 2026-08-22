@@ -2138,6 +2138,29 @@ body.lab-resizing * {
 .scale-row { display: flex; gap: 0.45rem; align-items: flex-end; }
 .scale-row .field { flex: 1 1 auto; min-width: 0; }
 .scale-row .quiet { flex: 0 0 auto; }
+.live-dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+.live-dimensions label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--lab-soft);
+  font: 500 9px/1 var(--lab-mono);
+  text-transform: uppercase;
+}
+.live-dimensions input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--lab-line);
+  border-radius: 2px;
+  background: var(--lab-bg);
+  color: var(--lab-ink);
+  padding: 0.34rem 0.3rem;
+  font: 500 10px/1 var(--lab-mono);
+}
+.live-dimensions input:focus { border-color: #ffda1a; outline: 0; }
 
 .lab-body-list .item.is-hidden > span { opacity: 0.45; }
 
@@ -3068,6 +3091,7 @@ body.lab-resizing * {
 #view.sculpting:active { cursor: grabbing; }
 #view.modeling { cursor: crosshair; }
 #view.component-editing { cursor: pointer; }
+#view.component-drawing { cursor: crosshair; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;
