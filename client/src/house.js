@@ -33,13 +33,6 @@ import {
   modelEnvelope,
   scenePlanSource,
 } from "./scene-refit.js";
-import {
-  createOccupancyGrid,
-  detectDesignIssues,
-  mergeFrameOccupancy,
-  reconcileFurniturePlacement,
-  tableModelFromComponents,
-} from "./room-intelligence.js";
 
 const $ = (id) => document.getElementById(id);
 
