@@ -712,10 +712,14 @@ test("the shop is a bottom-right editable 3D generator with chat context", () =>
 
 test("shape summon buttons are present and wired directly to editable meshes", () => {
   for (const shape of ["cube", "box", "sphere", "cylinder", "cone", "torus", "plane", "prism"]) {
+    assert.ok(markupIds.has(`shape-${shape}`), `Shapes strip is missing #shape-${shape}`);
     assert.match(html, new RegExp(`data-summon-shape="${shape}"`));
   }
   assert.match(main, /bindShapeSummonButtons\(document/);
   assert.match(main, /shop\.addGeneratedMesh\?\.\(spec\)/);
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /function addGeneratedMesh/);
+  assert.match(workshop, /new THREE\.Mesh\(geometry, material\)/);
 });
 
 test("physics preview is an overlay by Finish that never edits the bodies", () => {
