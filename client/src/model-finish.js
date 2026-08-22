@@ -13,6 +13,7 @@ function percentile(values, ratio) {
  */
 export function analyzeMeshGeometry(positions = [], fallbackDims = {}) {
   const values = ArrayBuffer.isView(positions) ? positions : Array.isArray(positions) ? positions : [];
+  let geometryHash = 2166136261;
   const bounds = {
     minX: Infinity,
     maxX: -Infinity,
@@ -26,6 +27,10 @@ export function analyzeMeshGeometry(positions = [], fallbackDims = {}) {
     const y = Number(values[index + 1]);
     const z = Number(values[index + 2]);
     if (![x, y, z].every(Number.isFinite)) continue;
+    for (const coordinate of [x, y, z]) {
+      geometryHash ^= Math.round(coordinate * 1_000_000);
+      geometryHash = Math.imul(geometryHash, 16777619);
+    }
     bounds.minX = Math.min(bounds.minX, x);
     bounds.maxX = Math.max(bounds.maxX, x);
     bounds.minY = Math.min(bounds.minY, y);
@@ -58,6 +63,7 @@ export function analyzeMeshGeometry(positions = [], fallbackDims = {}) {
   const topRoundness = roundTop ? clamp(1 - Math.abs(topRadius90 - 1) / 0.25) : 0;
   return {
     source: "local-triangle-analysis",
+    geometryFingerprint: `mesh-${(geometryHash >>> 0).toString(16).padStart(8, "0")}-${Math.floor(values.length / 3)}`,
     vertexCount: Math.floor(values.length / 3),
     topShape: roundTop ? "round" : "rectangular",
     supportStyle: centralSupport ? "central" : "distributed",
@@ -97,7 +103,7 @@ export function finishModelSnapshot(records = [], getMaterial = () => null) {
           color: material.color || record.piece.color || record.part.color || null,
           texture: material.texture || null,
           roughness: finite(material.roughness, 0.6),
-          metalness: material.texture === "metal" ? 1 : 0,
+          metalness: clamp(finite(material.metalness, material.texture === "metal" ? 1 : 0)),
         },
         geometryAnalysis: analysis,
       };

@@ -562,6 +562,7 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(main, /Reading the model/);
   assert.match(main, /closest physical result/);
   assert.match(main, /refreshCurrentDiy/);
+  assert.match(main, /Ways PDF/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
   assert.doesNotMatch(main, /Finding hardware|hardware build plan|hardware lines/);

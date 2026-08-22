@@ -43,12 +43,48 @@ test("model signatures change and old piece plans remain in history", () => {
   const first = modelSignature([component]);
   const changed = modelSignature([{ ...component, dimsMm: { ...component.dimsMm, x: 700 } }]);
   assert.notEqual(first, changed);
+  const reshaped = modelSignature([
+    {
+      ...component,
+      finish: { texture: "wood", roughness: 0.45, metalness: 0 },
+      geometryAnalysis: { geometryFingerprint: "mesh-edited", silhouette: "rectilinear" },
+    },
+  ]);
+  assert.notEqual(first, reshaped);
 
   const project = emptyProject();
   appendDiyBuild(project, { id: "old", signature: first, bom: { lines: [{ id: "top-a" }] } });
   appendDiyBuild(project, { id: "current", signature: changed, bom: { lines: [{ id: "top-b" }] } });
   assert.deepEqual(project.diyHistory.map((entry) => entry.id), ["old", "current"]);
   assert.equal(project.diyHistory[0].bom.lines[0].id, "top-a");
+});
+
+test("a generated rectangular table becomes a top-and-leg cut list", () => {
+  const plan = pieceBomForProject(
+    { name: "Current modeled object", pieces: [] },
+    {
+      model: [
+        {
+          id: "ai-table",
+          partId: "ai-mesh",
+          name: "Custom table",
+          shape: "generated-mesh",
+          dimsMm: { x: 1200, y: 700, z: 740 },
+          material: { texture: "wood", roughness: 0.5, metalness: 0 },
+          geometryAnalysis: {
+            geometryFingerprint: "mesh-table-a",
+            topShape: "rectangular",
+            supportStyle: "distributed",
+            silhouette: "rectilinear",
+          },
+        },
+      ],
+    },
+  );
+  assert.equal(plan.profile.tableLike, true);
+  assert.deepEqual(plan.cutList.map((line) => [line.role, line.qty]), [["top", 1], ["leg", 4]]);
+  assert.equal(plan.ways[0].id, "top-and-ready-legs");
+  assert.equal(plan.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
 });
 
 test("LACK-sized model yields a tabletop and legs without a fastener list", () => {

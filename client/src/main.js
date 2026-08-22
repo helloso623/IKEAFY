@@ -314,11 +314,11 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Piece PDF</button>
+              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Ways PDF</button>
             </li>`,
           )
           .join("")
-      : `<li class="hint">No DIY revisions yet.</li>`;
+      : `<li class="hint">No ways-to-make revisions yet.</li>`;
   }
   const current = active || liveDiy || builds.at(-1);
   if (out && current) {

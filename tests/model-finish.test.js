@@ -17,6 +17,7 @@ function roundPedestalPoints() {
 test("local triangle analysis identifies a round top and central pedestal", () => {
   const analysis = analyzeMeshGeometry(roundPedestalPoints(), { x: 900, y: 900, z: 740 });
   assert.equal(analysis.source, "local-triangle-analysis");
+  assert.match(analysis.geometryFingerprint, /^mesh-[0-9a-f]{8}-72$/);
   assert.equal(analysis.topShape, "round");
   assert.equal(analysis.supportStyle, "central");
   assert.equal(analysis.silhouette, "round-pedestal");
@@ -32,10 +33,20 @@ test("finish snapshot sends shape and finish traits, not triangle data", () => {
         positions: roundPedestalPoints(),
       },
     ],
-    () => ({ color: "#a06030", texture: "wood", roughness: 0.45 }),
+    () => ({ color: "#a06030", texture: "wood", roughness: 0.45, metalness: 0.35 }),
   );
   assert.equal(snapshot[0].shape, "round-pedestal-table");
   assert.equal(snapshot[0].material.texture, "wood");
+  assert.equal(snapshot[0].material.metalness, 0.35);
   assert.equal(snapshot[0].geometryAnalysis.supportStyle, "central");
   assert.equal("positions" in snapshot[0], false);
+});
+
+test("the local fingerprint changes when geometry changes inside the same bounds", () => {
+  const original = roundPedestalPoints();
+  const edited = new Float32Array(original);
+  edited[4] += 0.05;
+  const before = analyzeMeshGeometry(original, { x: 900, y: 900, z: 740 });
+  const after = analyzeMeshGeometry(edited, { x: 900, y: 900, z: 740 });
+  assert.notEqual(before.geometryFingerprint, after.geometryFingerprint);
 });

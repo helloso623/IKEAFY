@@ -122,11 +122,18 @@ export function modelDimensionsMm(components = []) {
 export function modelSignature(components = []) {
   const source = [...components]
     .sort((a, b) => String(a.pieceId).localeCompare(String(b.pieceId)))
-    .map(
-      (component) =>
-        `${component.partId}:${dimsText(component.dimsMm)}@` +
-        `${component.poseM.x.toFixed(3)},${component.poseM.y.toFixed(3)},${component.poseM.z.toFixed(3)}`,
-    )
+    .map((component) => {
+      const finish = component.finish || {};
+      const analysis = component.geometryAnalysis || {};
+      return (
+        `${component.partId}:${component.shape || ""}:${dimsText(component.dimsMm)}@` +
+        `${component.poseM.x.toFixed(3)},${component.poseM.y.toFixed(3)},${component.poseM.z.toFixed(3)}#` +
+        `${component.material || ""}:${finish.color || ""}:${finish.texture || ""}:` +
+        `${Number(finish.roughness) || 0}:${Number(finish.metalness) || 0}:` +
+        `${analysis.geometryFingerprint || ""}:${analysis.silhouette || ""}:` +
+        `${analysis.topShape || ""}:${analysis.supportStyle || ""}`
+      );
+    })
     .join("|");
   let hash = 2166136261;
   for (let index = 0; index < source.length; index += 1) {
@@ -139,6 +146,7 @@ export function modelSignature(components = []) {
 function profileFor(components) {
   const wholeTable =
     components.find((item) => /table/i.test(item.shape)) ||
+    components.find((item) => /\b(table|desk|console)\b/i.test(`${item.name || ""} ${item.partId || ""}`)) ||
     components.find((item) => item.geometryAnalysis?.silhouette === "round-pedestal") ||
     null;
   const slabs = components.filter((item) => item.shape === "slab");
