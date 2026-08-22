@@ -101,7 +101,7 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="upload-form"/);
   assert.match(html, /Get the Reel/);
   assert.match(html, /New manual/);
-  assert.match(html, /process-icon/);
+  assert.match(html, /feature-icon/);
   assert.doesNotMatch(html, /Build the reel/);
   assert.doesNotMatch(html, /New build/);
   assert.doesNotMatch(html, /Or paste the guide/);
@@ -430,13 +430,12 @@ test("askShop applies creative-desk add, camera, label, and isolate", () => {
   assert.match(main, /photoName/);
 });
 
-test("Lab AI is a bottom-right orb, not a header Ask", () => {
+test("Lab AI is a bottom-right orb, alongside the header search", () => {
   for (const id of ["ai-orb", "ai-dock", "ai-mic", "ai-history", "ai-status", "chat-log", "chat-in"]) {
     assert.ok(markupIds.has(id), `Lab AI markup is missing #${id}`);
   }
   assert.match(html, /id="omnibox"/);
   const css = read("client/src/styles.css");
-  assert.match(css.replace(/\s+/g, " "), /\.omnibox-form \{ display: none !important/);
   assert.match(css, /#ai-orb/);
   assert.match(css, /#app\.mode-ikeafy #ai-orb/);
   assert.match(main, /bindVoice/);
@@ -527,9 +526,6 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
 });
 
 test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {
-  const header = html.slice(html.indexOf('class="top"'), html.indexOf("</header>"));
-  assert.doesNotMatch(header, /omnibox/);
-  assert.doesNotMatch(header, /id="omnibox-ask"/);
   assert.match(html, /id="ai-orb"/);
   assert.match(html, /id="ai-dock"/);
   assert.match(html, /id="ai-scene"/);
