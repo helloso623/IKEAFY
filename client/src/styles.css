@@ -826,8 +826,8 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .landing.landing-split {
   max-width: 82rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 5rem;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 4rem;
   align-items: start;
 }
 .landing-copy { padding-top: 0.25rem; }
