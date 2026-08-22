@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as THREE from "three";
 import {
   ROSTER,
   chat,
@@ -14,7 +15,9 @@ import {
   runFurnitureDesks,
   shouldEscalate,
 } from "../server/lib/agents.js";
+import { getPart } from "../server/lib/catalog.js";
 import { emptyProject } from "../server/lib/project.js";
+import { makeRoundPedestalTable } from "../client/src/generic-table.js";
 
 function withoutHosted(fn) {
   return async () => {
@@ -27,6 +30,28 @@ function withoutHosted(fn) {
       else process.env.OPENAI_API_KEY = previous;
     }
   };
+}
+
+function assertRoundTableAction(reply) {
+  const action = reply.actions.find(
+    (candidate) => candidate.type === "add" && candidate.partId === "generic-round-pedestal-table",
+  );
+  assert.ok(action, "the steward should add the persisted round table");
+  assert.equal(action.geometry.type, "round-pedestal-table");
+  assert.deepEqual(action.geometry.tabletop, {
+    type: "cylinder",
+    radiusMm: 450,
+    heightMm: 36,
+    radialSegments: 64,
+  });
+  assert.equal(action.geometry.pedestal.type, "cylinder");
+  assert.equal(action.geometry.pedestal.count, 1);
+  assert.equal(action.geometry.pedestal.radiusTopMm, 55);
+  assert.equal(action.geometry.pedestal.radiusBottomMm, 85);
+  assert.equal(action.geometry.base.type, "cylinder");
+  assert.equal(reply.actions.some((candidate) => candidate.type === "catalog"), false);
+  assert.equal(reply.actions.some((candidate) => candidate.type === "creative"), false);
+  return action;
 }
 
 test("ten agents sit on the bench", () => {
@@ -75,6 +100,52 @@ test(
     assert.doesNotMatch(reply.text, /arduino|firmware|sketch/i);
   }),
 );
+
+test(
+  "round-table descriptions spawn circular geometry instead of catalog or square-table results",
+  withoutHosted(async () => {
+    for (const message of ["make a round table", "circular top with one central leg"]) {
+      const project = emptyProject();
+      const reply = await chat(message, { project });
+      assert.equal(reply.backend, "local-steward");
+      assertRoundTableAction(reply);
+      assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-round-pedestal-table"]);
+      assert.doesNotMatch(reply.text, /on the shelf|LACK|Creative staged/i);
+    }
+  }),
+);
+
+test(
+  "spawn it reuses recent circular-table context",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const reply = await chat("spawn it", {
+      project,
+      history: [
+        { role: "user", content: "I want a circular top table" },
+        { role: "assistant", content: "A single central pedestal will keep the form clean." },
+      ],
+    });
+    assertRoundTableAction(reply);
+    assert.deepEqual(project.pieces.map((piece) => piece.partId), ["generic-round-pedestal-table"]);
+  }),
+);
+
+test("round-table renderer builds one editable THREE cylinder pedestal under a cylinder top", () => {
+  const part = getPart("generic-round-pedestal-table");
+  assert.equal(part.shape, "round-pedestal-table");
+  const group = makeRoundPedestalTable(THREE, { geometry: part.specs.geometry, color: part.color });
+  const byRole = Object.fromEntries(group.children.map((mesh) => [mesh.userData.roundTableRole, mesh]));
+  assert.equal(group.userData.editable, true);
+  assert.deepEqual(Object.keys(byRole).sort(), ["base", "pedestal", "tabletop"]);
+  assert.equal(byRole.tabletop.geometry.type, "CylinderGeometry");
+  assert.equal(byRole.tabletop.geometry.parameters.radiusTop, 0.45);
+  assert.equal(byRole.pedestal.geometry.type, "CylinderGeometry");
+  assert.equal(byRole.pedestal.geometry.parameters.radiusTop, 0.055);
+  assert.equal(byRole.pedestal.geometry.parameters.radiusBottom, 0.085);
+  assert.equal(group.children.filter((mesh) => mesh.userData.roundTableRole === "pedestal").length, 1);
+  assert.equal(byRole.base.geometry.type, "CylinderGeometry");
+});
 
 test(
   "put four legs drops four legs on the bench",

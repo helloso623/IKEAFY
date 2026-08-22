@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { makeRoundPedestalTable } from "./generic-table.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -1002,6 +1003,12 @@ function makeBracket(part, mat) {
 
 function bodyFor(shape, part, mat) {
   if (shape === "table") return makeTable(part, mat);
+  if (shape === "round-pedestal-table") {
+    return makeRoundPedestalTable(THREE, {
+      geometry: part.specs?.geometry,
+      color: part.color,
+    });
+  }
   if (shape === "slab")
     return makeSlab(part.dimsMm.x * MM, part.dimsMm.z * MM, part.dimsMm.y * MM, mat, {
       inserts: insertsFromPorts(part),

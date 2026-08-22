@@ -116,7 +116,7 @@ const HARD_HINTS = /stress|break|aero|flow|weather|rain|heat|cold|firmware|ardui
 const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
 const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
-const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create /i;
+const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create |spawn /i;
 const CATALOG_ASK =
   /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon|leg|lamp)\b/i;
 const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
@@ -127,19 +127,28 @@ const SMALL_QUESTION =
 const COMPLEX_QUESTION =
   /fix|broken|regenerate|redesign|calculate|rewrite|rebuild|why (is|does|did)|stuck for|explain how to|design a|optim/i;
 const BENCH_COMMAND =
-  /\b(add|put|drop|place|generate|make|model|build|create|move|rotate|label|isolate)\b/i;
-const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop )\b/i;
+  /\b(add|put|drop|place|generate|make|model|build|create|spawn|move|rotate|label|isolate)\b/i;
+const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop |spawn )\b/i;
 const ROOM_CREATE_ASK =
   /\b(make|model|build|create|design|furnish|generate)\b[\s\S]*\b(living\s+room|bedroom|dining\s+room|office|room|space|interior)\b/i;
 const GENERIC_TABLE_ASK =
   /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
 const MAKE_TABLE_ASK =
-  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\btables?\b/i;
+  /\b(make|model|build|create|design|generate|add|place|put|drop|spawn|get)\b[\s\S]*\btables?\b/i;
 const MAKE_STOOL_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
 const MAKE_SHELF_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
 const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "studio", "scan", "move"]);
+const ROUND_TABLE_PART_ID = "generic-round-pedestal-table";
+const ROUND_FORM_HINT = /\b(round(?:ed)?|circular|circle|disc(?:-shaped)?|disk(?:-shaped)?)\b/i;
+const ROUND_TABLE_OBJECT_HINT = /\b(tables?|table[\s-]*tops?|tops?|pedestals?)\b/i;
+const CENTRAL_PEDESTAL_HINT =
+  /\bpedestals?\b|\b(?:one|single|central|center|centre)(?:\s+central)?\s+(?:legs?|supports?|columns?)\b/i;
+const ROUND_TABLE_EDIT_HINT =
+  /\b(spawn|add|place|put|drop|make|model|build|create|generate|get)\b/i;
+const ROUND_TABLE_FOLLOW_UP =
+  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one|the\s+table)\s*[.!]?$/i;
 const QTY_WORDS = {
   one: 1,
   two: 2,
@@ -210,6 +219,7 @@ export function routeAgent(text) {
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
+  if (isRoundTableDescription(t)) return ROSTER.find((a) => a.id === "creative");
   if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");
   if (ROOM_HINTS.test(t) && !isCatalogAsk(t) && !benchCmd) return ROSTER.find((a) => a.id === "stylist");
   if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
@@ -266,6 +276,73 @@ function expandPart(part) {
 function positiveNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function isRoundTableDescription(message) {
+  const text = String(message || "");
+  if (/\black\b/i.test(text)) return false;
+  if (/\b(square|rectangular)\b/i.test(text) && !/\bnot\s+(?:a\s+)?(?:square|rectangular)\b/i.test(text)) {
+    return false;
+  }
+  if (
+    /\b(?:round|rounded)\s+(?:off\s+)?(?:the\s+)?(?:corners?|edges?)\b/i.test(text) &&
+    !/\bcircular\b|\bpedestal\b|\b(?:round|rounded)\s+tables?\b/i.test(text)
+  ) {
+    return false;
+  }
+  const hasForm = ROUND_FORM_HINT.test(text);
+  const hasObject = ROUND_TABLE_OBJECT_HINT.test(text);
+  if (!hasForm || !hasObject) return false;
+  return (
+    ROUND_TABLE_EDIT_HINT.test(text) ||
+    CENTRAL_PEDESTAL_HINT.test(text) ||
+    /\b(?:round|rounded|circular)\s+(?:top(?:ped)?\s+)?tables?\b/i.test(text) ||
+    /\bcircular\s+(?:table[\s-]*)?top\b/i.test(text) ||
+    /^\s*like\b/i.test(text)
+  );
+}
+
+function hasRoundTableContext(ctx = {}) {
+  const scenePieces = Array.isArray(ctx.scene?.pieces) ? ctx.scene.pieces : [];
+  if (
+    ctx.scene?.selected?.partId === ROUND_TABLE_PART_ID ||
+    scenePieces.some((piece) => piece?.partId === ROUND_TABLE_PART_ID) ||
+    ctx.project?.pieces?.some((piece) => piece?.partId === ROUND_TABLE_PART_ID)
+  ) {
+    return true;
+  }
+  return (Array.isArray(ctx.history) ? ctx.history : [])
+    .slice(-12)
+    .some((entry) => entry && isRoundTableDescription(entry.content));
+}
+
+function isRoundTableIntent(message, ctx = {}) {
+  const text = String(message || "").trim();
+  if (/\black\b/i.test(text)) return false;
+  if (isRoundTableDescription(text)) return true;
+  if (!hasRoundTableContext(ctx)) return false;
+  return ROUND_TABLE_FOLLOW_UP.test(text) || CENTRAL_PEDESTAL_HINT.test(text);
+}
+
+function geometryForPart(part) {
+  const geometry = part?.specs?.geometry;
+  return geometry && typeof geometry === "object" ? JSON.parse(JSON.stringify(geometry)) : undefined;
+}
+
+function roundTablePlan() {
+  const part = getPart(ROUND_TABLE_PART_ID);
+  if (!part) return null;
+  return {
+    part,
+    label: "round pedestal table",
+    specs: `${Math.round(part.dimsMm.x)} mm diameter × ${Math.round(part.dimsMm.z)} mm high`,
+    action: {
+      type: "add",
+      partId: part.id,
+      pose: { x: 0, y: 0, z: 0 },
+      geometry: geometryForPart(part),
+    },
+  };
 }
 
 function roomFromDescription(message, ctx = {}) {
@@ -523,13 +600,16 @@ export function planCreativeActions(message, ctx = {}) {
   if (ROOM_CREATE_ASK.test(lower)) {
     const room = roomFromDescription(message, ctx);
     actions.push({ type: "room", room });
-    if (/\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
-      const table = genericTablePlan();
+    const wantsRoundTable = isRoundTableIntent(message, ctx);
+    if (wantsRoundTable || /\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
+      const table = wantsRoundTable ? roundTablePlan() : genericTablePlan();
       if (table) {
         actions.push(table.action);
         return {
           handles: true,
-          text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
+          text: wantsRoundTable
+            ? `Spawned an editable ${table.specs} round table with a circular top, one central tapered pedestal, and a disc base in the ${room.widthM}×${room.depthM} m ${room.kind}.`
+            : `Using ${table.specs} side-table proportions for a neutral editable placeholder. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and the table.`,
           actions,
         };
       }
@@ -539,6 +619,17 @@ export function planCreativeActions(message, ctx = {}) {
       text: `Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor and four walls.`,
       actions,
     };
+  }
+
+  if (isRoundTableIntent(message, ctx)) {
+    const table = roundTablePlan();
+    if (table) {
+      return {
+        handles: true,
+        text: `Spawned an editable ${table.specs} round table: circular cylinder top, one central tapered pedestal, and a disc base.`,
+        actions: [table.action],
+      };
+    }
   }
 
   if (
@@ -736,10 +827,12 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
       const part = getPart(action.partId);
       if (!part) continue;
       if (!isLabShelfPart(part)) continue;
+      const geometry = geometryForPart(part);
       out.push({
         type: "add",
         partId: part.id,
         pose: action.pose && typeof action.pose === "object" ? action.pose : {},
+        ...(geometry ? { geometry } : {}),
       });
       continue;
     }
