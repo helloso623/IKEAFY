@@ -9,11 +9,14 @@ const $ = (id) => document.getElementById(id);
 const view = $("view");
 const shop = createWorkshop(view);
 const partsById = {};
-let project = { pieces: [], cables: [], tapes: [], chrome: null };
+let project = { pieces: [], cables: [], tapes: [], chrome: null, netlist: null, erc: null };
 let selectedIds = [];
 let costBarrier = "";
 let studio = null;
 let house = null;
+// KiCad bench: half-drawn wire and the net lit up from the netlist panel.
+let pendingPort = null;
+let highlightedNet = null;
 
 function hud(text) {
   $("hud").textContent = text;
@@ -431,6 +434,35 @@ shop.onPoseCommit((pose) => {
   commitPose(pose);
 });
 
+// Lab CAD: a committed sketch-extrude becomes a real piece through api.add;
+// a joint mate lands as api.move (plus a joint record) so undo covers both.
+shop.onSketch?.(async ({ partId, pose, label }) => {
+  try {
+    const piece = await api.add(partId, pose);
+    await refreshProject();
+    if (piece?.id) {
+      selectedIds = [piece.id];
+      shop.select(piece.id);
+      const part = partsById[partId];
+      if (part) showPart(part, piece);
+    }
+    hud(`${label}. Ctrl+Z undoes it.`);
+  } catch (err) {
+    hud(err.message || "The lab could not build that body.");
+  }
+});
+
+shop.onJoint?.(async ({ moves, joint, label }) => {
+  try {
+    for (const move of moves) await api.move({ id: move.id, ...move.pose, snap: false });
+    if (joint) await api.joint(joint);
+    await refreshProject();
+    hud(`${label}.`);
+  } catch (err) {
+    hud(err.message || "The joint did not take.");
+  }
+});
+
 $("lab-btns").addEventListener("click", async (ev) => {
   const test = ev.target.dataset.test;
   if (!test) return;
@@ -578,6 +610,7 @@ async function duplicateSelected() {
 async function undoLastEdit() {
   const result = await api.undo();
   if (result?.ok === false) return hud(result.error || "Nothing to undo.");
+  shop.noteHistory?.("undo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
   hud("Undid the last edit.");
@@ -586,6 +619,7 @@ async function undoLastEdit() {
 async function redoLastEdit() {
   const result = await api.redo();
   if (result?.ok === false) return hud(result.error || "Nothing to redo.");
+  shop.noteHistory?.("redo");
   selectedIds = result.selection ? [result.selection] : selectedIds;
   await refreshProject();
   hud("Redid the last edit.");

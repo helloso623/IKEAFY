@@ -35,6 +35,7 @@ export const api = {
   remove: (id) => post("/api/project/remove", { id }),
   move: (body) => post("/api/project/move", body),
   duplicate: (id, offset) => post("/api/project/duplicate", { id, offset }),
+  joint: (body) => post("/api/project/joint", body),
   undo: () => post("/api/project/undo"),
   redo: () => post("/api/project/redo"),
   tape: (tapeId, pieceIds) => post("/api/project/tape", { tapeId, pieceIds }),
