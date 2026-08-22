@@ -26,19 +26,21 @@
       data-interface="upload"
     >
       <header class="top">
-        <a class="brand" href="#upload" data-go-interface="upload">
-          <strong>IKEAlive</strong>
-        </a>
-        <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
-          <button data-mode="ikeafy" class="on">IKEAlive</button>
-          <button data-mode="lab">Lab</button>
-        </nav>
-        <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
-          <button type="button" data-lab="desk" class="on">Bench</button>
-          <button type="button" data-lab="house">House</button>
-          <button type="button" data-lab="ar">AR</button>
-          <button type="button" id="scan-btn">Scan</button>
-        </nav>
+        <div class="top-left">
+          <a class="brand" href="#upload" data-go-interface="upload">
+            <strong>IKEAlive</strong>
+          </a>
+          <nav class="modes" id="modes" aria-label="IKEAlive and Lab">
+            <button data-mode="ikeafy" class="on">IKEAlive</button>
+            <button data-mode="lab">Lab</button>
+          </nav>
+          <nav class="lab-spaces lab-only hidden" id="lab-spaces" aria-label="Lab spaces">
+            <button type="button" data-lab="desk" class="on">Bench</button>
+            <button type="button" data-lab="house">House</button>
+            <button type="button" data-lab="ar">AR</button>
+            <button type="button" id="scan-btn">Scan</button>
+          </nav>
+        </div>
         <form id="omnibox-form" class="omnibox-form" role="search">
           <input
             id="omnibox"
@@ -48,6 +50,7 @@
             aria-label="Search the catalog or ask the shop"
           />
         </form>
+        <div class="top-right">
         <button type="button" id="omnibox-ask">Ask</button>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
@@ -58,6 +61,7 @@
           <button id="reset-sim" class="bench-only hidden">Reset</button>
           <button id="print-btn" class="bench-only hidden">3D print</button>
           <button type="button" class="quiet lab-only hidden" id="back-ikealive">Back</button>
+        </div>
         </div>
       </header>
 

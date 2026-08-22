@@ -89,12 +89,15 @@ a { color: inherit; text-decoration: none; }
 
 .top {
   grid-area: top;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
   align-items: center;
   gap: 1.25rem;
   padding: 0.85rem 1.75rem;
   background: transparent;
 }
+.top-left { display: flex; align-items: center; gap: 1.25rem; min-width: 0; }
+.top-right { display: flex; align-items: center; gap: 0.45rem; min-width: 0; justify-self: end; }
 .brand { display: flex; align-items: center; gap: 0.65rem; }
 .mark { display: none; }
 .brand strong {
@@ -126,11 +129,12 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
   height: 2.1rem;
-  padding: 0 0.85rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  padding: 0 0.95rem;
+  font-family: var(--type);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--card);
   background: var(--ink);
   box-sizing: border-box;
@@ -174,7 +178,8 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   position: relative;
   gap: 0.4rem;
-  flex: 0 1 40rem;
+  width: 100%;
+  max-width: 26rem;
   margin: 0 auto;
 }
 .omnibox-form input {
@@ -185,6 +190,8 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   box-sizing: border-box;
+  font-family: var(--type);
+  font-size: 0.9rem;
 }
 .omnibox-form::before {
   content: "";
@@ -213,10 +220,10 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  margin-left: auto;
   height: 2.1rem;
-  padding: 0 1.15rem;
-  font-size: 0.95rem;
+  padding: 0 1.05rem;
+  font-family: var(--type);
+  font-size: 0.9rem;
   background: var(--ink);
   border-color: var(--ink);
   color: var(--card);
