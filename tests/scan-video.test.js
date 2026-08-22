@@ -185,7 +185,7 @@ test("the API proxies scan video and Lab Scan accepts camera, URL, or frames", (
   assert.match(house, /room-scale-kind/);
   assert.match(house, /applyRoomFrames/);
   assert.match(house, /scan-phone-url/);
-  assert.match(readme, /Phone upload \(LAN\)/);
+  assert.match(readme, /Phone upload \(Tailscale or LAN\)/);
   assert.match(readme, /Send from phone/);
   assert.match(readme, /phone-upload/);
   assert.match(readme, /\/api\/scan\/video/);
