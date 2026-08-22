@@ -1423,7 +1423,8 @@ export function createWorkshop(canvas) {
       if (!quiet) onSelect(null);
       return false;
     }
-    transform.attach(mesh);
+    if (sculptMode || cadTool) transform.detach();
+    else transform.attach(mesh);
     markSelected(mesh);
     if (!quiet) onSelect(mesh.userData);
     return true;
@@ -1531,6 +1532,305 @@ export function createWorkshop(canvas) {
         if (mat.roughness !== undefined) mat.roughness = override.roughness;
       });
     }
+  }
+
+  /* ---- Sculpt-lite: grab / smooth / inflate + one-shot subdivide ---------
+     Blender-flavored vertex editing on the selected body. Deformed geometry
+     is client-side dressing: sculptStore keeps the edited BufferGeometry per
+     piece so sync() rebuilds put it back, exactly like matOverrides. */
+  const sculptStore = new Map(); // pieceId -> [geometry per sculptable child]
+  let sculptMode = null; // null | "grab" | "smooth" | "inflate"
+  let sculptStroke = null;
+  let onSculpt = () => {};
+
+  function sculptTargets(root) {
+    const out = [];
+    root?.traverse((child) => {
+      if (!child.isMesh || child.isSprite) return;
+      if (!child.geometry?.getAttribute?.("position")) return;
+      out.push(child);
+    });
+    return out;
+  }
+
+  // Non-indexed geometry keeps subdivide and the weld map trivial; boxes
+  // are flat-shaded anyway so the lost index costs nothing visually.
+  function sculptGeometry(child) {
+    let geo = child.geometry;
+    if (geo.index) {
+      geo = geo.toNonIndexed();
+      child.geometry = geo;
+    }
+    return geo;
+  }
+
+  // Corner vertices are split per face; weld co-located verts so a brush
+  // stroke moves the surface, not one face of it.
+  function weldGroups(geo) {
+    const pos = geo.getAttribute("position");
+    const byKey = new Map();
+    for (let i = 0; i < pos.count; i += 1) {
+      const key = `${pos.getX(i).toFixed(5)}|${pos.getY(i).toFixed(5)}|${pos.getZ(i).toFixed(5)}`;
+      let list = byKey.get(key);
+      if (!list) byKey.set(key, (list = []));
+      list.push(i);
+    }
+    return [...byKey.values()];
+  }
+
+  function brushRadius(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    if (box.isEmpty()) return 0.08;
+    const size = box.getSize(new THREE.Vector3());
+    return Math.max(0.025, size.length() * 0.16);
+  }
+
+  function sculptHit(ev) {
+    if (!selected) return null;
+    pointAt(ev);
+    const hits = ray.intersectObject(selected, true).filter((h) => !h.object.isSprite);
+    return hits.length ? hits[0].point.clone() : null;
+  }
+
+  function prepSculptTarget(child) {
+    const geo = sculptGeometry(child);
+    child.updateMatrixWorld(true);
+    const pos = geo.getAttribute("position");
+    const world = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 1) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(child.matrixWorld);
+      world[i * 3] = v.x;
+      world[i * 3 + 1] = v.y;
+      world[i * 3 + 2] = v.z;
+    }
+    return {
+      child,
+      geo,
+      groups: weldGroups(geo),
+      world,
+      inverse: child.matrixWorld.clone().invert(),
+    };
+  }
+
+  function writeSculptTarget(target) {
+    const pos = target.geo.getAttribute("position");
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 1) {
+      v.set(target.world[i * 3], target.world[i * 3 + 1], target.world[i * 3 + 2]).applyMatrix4(target.inverse);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    pos.needsUpdate = true;
+    target.geo.computeVertexNormals();
+    target.geo.computeBoundingBox();
+    target.geo.computeBoundingSphere();
+  }
+
+  function groupCenter(target, group, out) {
+    out.set(0, 0, 0);
+    for (const i of group) {
+      out.x += target.world[i * 3];
+      out.y += target.world[i * 3 + 1];
+      out.z += target.world[i * 3 + 2];
+    }
+    return out.divideScalar(group.length);
+  }
+
+  function saveSculpt() {
+    const id = selected?.userData?.piece?.id;
+    if (!id) return;
+    sculptStore.set(id, sculptTargets(selected).map((child) => child.geometry));
+  }
+
+  function applySculptStore() {
+    for (const [id, geos] of sculptStore) {
+      const mesh = meshes.get(id);
+      if (!mesh) {
+        sculptStore.delete(id);
+        continue;
+      }
+      const targets = sculptTargets(mesh);
+      if (targets.length !== geos.length) {
+        sculptStore.delete(id); // the body was rebuilt differently; drop the dressing
+        continue;
+      }
+      targets.forEach((child, i) => {
+        child.geometry = geos[i];
+      });
+    }
+  }
+
+  function beginSculptStroke(ev) {
+    const hit = sculptHit(ev);
+    if (!hit) return false;
+    const targets = sculptTargets(selected).map(prepSculptTarget);
+    const radius = brushRadius(selected);
+    const stroke = { hit, targets, radius, moved: false };
+    if (sculptMode === "grab") {
+      const planeNormal = camera.getWorldDirection(new THREE.Vector3());
+      stroke.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, hit);
+      const c = new THREE.Vector3();
+      for (const target of targets) {
+        target.grabbed = [];
+        for (const group of target.groups) {
+          const d = groupCenter(target, group, c).distanceTo(hit);
+          if (d >= radius) continue;
+          const w = (1 - d / radius) ** 2;
+          target.grabbed.push({ group, w, base: group.map((i) => [target.world[i * 3], target.world[i * 3 + 1], target.world[i * 3 + 2]]) });
+        }
+      }
+    }
+    sculptStroke = stroke;
+    orbit.enabled = false;
+    return true;
+  }
+
+  function sculptStep(hit) {
+    const stroke = sculptStroke;
+    const { radius } = stroke;
+    const c = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    for (const target of stroke.targets) {
+      const normal = target.geo.getAttribute("normal");
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(target.child.matrixWorld);
+      let touched = false;
+      for (const group of target.groups) {
+        const d = groupCenter(target, group, c).distanceTo(hit);
+        if (d >= radius) continue;
+        const w = (1 - d / radius) ** 2;
+        touched = true;
+        if (sculptMode === "inflate") {
+          n.set(0, 0, 0);
+          for (const i of group) n.add(new THREE.Vector3().fromBufferAttribute(normal, i));
+          n.applyMatrix3(normalMatrix).normalize().multiplyScalar(radius * 0.05 * w);
+        } else {
+          // smooth: relax the welded vertex toward the brush center
+          n.copy(hit).sub(c).multiplyScalar(0.12 * w);
+        }
+        for (const i of group) {
+          target.world[i * 3] += n.x;
+          target.world[i * 3 + 1] += n.y;
+          target.world[i * 3 + 2] += n.z;
+        }
+      }
+      if (touched) {
+        writeSculptTarget(target);
+        stroke.moved = true;
+      }
+    }
+  }
+
+  function sculptGrab(ev) {
+    const stroke = sculptStroke;
+    pointAt(ev);
+    const out = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(stroke.plane, out)) return;
+    const delta = out.sub(stroke.hit);
+    for (const target of stroke.targets) {
+      if (!target.grabbed?.length) continue;
+      for (const { group, w, base } of target.grabbed) {
+        group.forEach((i, k) => {
+          target.world[i * 3] = base[k][0] + delta.x * w;
+          target.world[i * 3 + 1] = base[k][1] + delta.y * w;
+          target.world[i * 3 + 2] = base[k][2] + delta.z * w;
+        });
+      }
+      writeSculptTarget(target);
+      stroke.moved = true;
+    }
+  }
+
+  function moveSculptStroke(ev) {
+    if (!sculptStroke) return;
+    if (sculptMode === "grab") {
+      sculptGrab(ev);
+      return;
+    }
+    const hit = sculptHit(ev);
+    if (hit) sculptStroke.hit = hit;
+    sculptStep(sculptStroke.hit);
+  }
+
+  function endSculptStroke() {
+    if (!sculptStroke) return;
+    const moved = sculptStroke.moved;
+    sculptStroke = null;
+    orbit.enabled = true;
+    if (!moved) return;
+    saveSculpt();
+    const name = selected?.userData?.part?.name || "body";
+    pushOp("S", `Sculpt ${sculptMode} · ${name}`);
+    onSculpt({ mode: sculptMode, name });
+  }
+
+  function setSculptMode(next) {
+    const mode = ["grab", "smooth", "inflate"].includes(next) ? next : null;
+    sculptMode = mode;
+    if (mode) {
+      if (cadTool) setCadTool(null);
+      if (measureOn) setMeasure(false);
+      transform.detach();
+    } else if (selected) {
+      transform.attach(selected);
+    }
+    canvas.classList.toggle("sculpting", Boolean(mode));
+    for (const btn of document.querySelectorAll("[data-sculpt]")) {
+      btn.classList.toggle("on", Boolean(mode) && btn.dataset.sculpt === mode);
+    }
+    return sculptMode;
+  }
+
+  function subdivideSelected() {
+    const id = selected?.userData?.piece?.id;
+    if (!id) return false;
+    const targets = sculptTargets(selected);
+    let total = 0;
+    for (const child of targets) total += sculptGeometry(child).getAttribute("position").count;
+    if (total > 60000) return false; // once around the loop is plenty
+    for (const child of targets) {
+      const geo = child.geometry;
+      const pos = geo.getAttribute("position");
+      const uv = geo.getAttribute("uv");
+      const nextPos = new Float32Array(pos.count * 4 * 3);
+      const nextUv = uv ? new Float32Array(pos.count * 4 * 2) : null;
+      let w = 0;
+      let wUv = 0;
+      const P = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)];
+      const U = (i) => (uv ? [uv.getX(i), uv.getY(i)] : null);
+      const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
+      const push = (p, t) => {
+        nextPos.set(p, w);
+        w += 3;
+        if (nextUv && t) {
+          nextUv.set(t, wUv);
+          wUv += 2;
+        }
+      };
+      for (let i = 0; i < pos.count; i += 3) {
+        const [a, b, cV] = [P(i), P(i + 1), P(i + 2)];
+        const [ta, tb, tc] = [U(i), U(i + 1), U(i + 2)];
+        const ab = mid(a, b);
+        const bc = mid(b, cV);
+        const ca = mid(cV, a);
+        const tab = ta && mid(ta, tb);
+        const tbc = tb && mid(tb, tc);
+        const tca = tc && mid(tc, ta);
+        push(a, ta); push(ab, tab); push(ca, tca);
+        push(ab, tab); push(b, tb); push(bc, tbc);
+        push(ca, tca); push(bc, tbc); push(cV, tc);
+        push(ab, tab); push(bc, tbc); push(ca, tca);
+      }
+      const nextGeo = new THREE.BufferGeometry();
+      nextGeo.setAttribute("position", new THREE.BufferAttribute(nextPos, 3));
+      if (nextUv) nextGeo.setAttribute("uv", new THREE.BufferAttribute(nextUv, 2));
+      nextGeo.computeVertexNormals();
+      child.geometry = nextGeo;
+      geo.dispose();
+    }
+    saveSculpt();
+    const name = selected?.userData?.part?.name || "body";
+    pushOp("S", `Subdivide · ${name}`);
+    return true;
   }
 
   // Blender-style viewport shading: solid and wire share one override material
@@ -1707,6 +2007,7 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && sculptMode) setSculptMode(null);
     if (cadTool && measureOn) {
       measureOn = false;
       clearMeasure();
@@ -1966,6 +2267,10 @@ export function createWorkshop(canvas) {
   }
 
   window.addEventListener("pointermove", (ev) => {
+    if (sculptStroke) {
+      moveSculptStroke(ev);
+      return;
+    }
     if (measureOn && measureA && !measureLocked) {
       const hit = hitWorld(ev);
       if (hit) {
@@ -1988,6 +2293,10 @@ export function createWorkshop(canvas) {
   });
 
   window.addEventListener("pointerup", () => {
+    if (sculptStroke) {
+      endSculptStroke();
+      return;
+    }
     if (!sketch || sketch.phase !== "draw") return;
     const size =
       sketch.kind === "rect"
@@ -2353,6 +2662,7 @@ export function createWorkshop(canvas) {
       if (!meshes.has(id)) matOverrides.delete(id);
     }
     applyMatOverrides();
+    applySculptStore();
     cableGroup.clear();
     const cableNets = project.netlist?.cableNets || {};
     const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
@@ -2455,6 +2765,10 @@ export function createWorkshop(canvas) {
     }
     if (cadTool === "joint") {
       jointPick(ev);
+      return;
+    }
+    if (sculptMode && selected && beginSculptStroke(ev)) {
+      if (sculptMode !== "grab") sculptStep(sculptStroke.hit);
       return;
     }
     pick(ev);
@@ -2790,11 +3104,19 @@ export function createWorkshop(canvas) {
     noteHistory,
     setCadTool,
     getCadTool: () => cadTool,
+    setSculptMode,
+    getSculptMode: () => sculptMode,
+    subdivideSelected,
+    onSculpt: (fn) => {
+      onSculpt = fn;
+    },
     setMode: (mode) => {
       if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
       if (cadTool) setCadTool(null);
+      if (sculptMode) setSculptMode(null);
       editMode = mode;
       transform.setMode(mode);
+      if (selected) transform.attach(selected);
       return editMode;
     },
     getMode: () => editMode,

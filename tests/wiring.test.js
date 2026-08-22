@@ -475,6 +475,22 @@ test("bench editing controls are wired for furniture first", () => {
   assert.match(apiSource, /^\s{2}redo:/m);
 });
 
+test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body", () => {
+  const tools = html.slice(html.indexOf('id="edit-tools"'), html.indexOf("lab-view-meta"));
+  assert.match(tools, /data-sculpt="grab"/);
+  assert.match(tools, /data-sculpt="smooth"/);
+  assert.match(tools, /data-sculpt="inflate"/);
+  assert.match(tools, /data-subdivide/);
+  const workshop = read("client/src/workshop.js");
+  assert.match(workshop, /setSculptMode/);
+  assert.match(workshop, /subdivideSelected/);
+  assert.match(workshop, /applySculptStore\(\)/, "sync() must re-apply sculpted geometry");
+  assert.match(workshop, /weldGroups/, "split corner verts must move together");
+  assert.match(main, /shop\.setSculptMode/);
+  assert.match(main, /shop\.subdivideSelected/);
+  assert.match(main, /data-sculpt/);
+});
+
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {
   const workshop = read("client/src/workshop.js");
   const start = workshop.indexOf("export function createWorkshop");
