@@ -1,5 +1,5 @@
 import { getPart, listParts } from "./catalog.js";
-import { hasTavily, searchFurniturePieceOffers } from "./tavily.js";
+import { hasTavily, searchBuildWayOffers } from "./tavily.js";
 
 function mm(value) {
   const n = Math.round(Math.abs(Number(value) || 0));
@@ -474,7 +474,7 @@ function constructionWays(profile, ikeaMatch, lines) {
 
 export function buildWaysForProject(project = {}) {
   const components = modelComponents(project);
-  if (!components.length) return { ok: false, reason: "Add or model a table before hunting pieces for it." };
+  if (!components.length) return { ok: false, reason: "Add or model a table before finding ways to make it." };
   const profile = profileFor(components);
   const ikeaMatch = matchIkeaArticle(components);
   const cutList = visiblePieceLines(components, profile, ikeaMatch);
@@ -483,7 +483,7 @@ export function buildWaysForProject(project = {}) {
   return {
     ok: true,
     name: String(project.name || "Custom table").trim() || "Custom table",
-    scope: "Furniture pieces matched to the current model by shape and millimetres",
+    scope: "Construction ways, cut stock, tops, legs, and visible table bodies for this exact modeled shape",
     components,
     modelDimensionsMm: modelDimensionsMm(components),
     modelSignature: modelSignature(components),
@@ -503,8 +503,6 @@ export function buildWaysForProject(project = {}) {
       "Piece and cut-size match, not engineering approval. Verify grain, loads, joinery allowances, finished thickness, and retailer dimensions before buying or cutting.",
   };
 }
-
-export const pieceBomForProject = buildWaysForProject;
 
 function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
@@ -531,12 +529,12 @@ export function buildPlanSource(build) {
     })
     .join("\n");
   return [
-    `${build.name} — pieces for this table`,
+    `${build.name} — ways to make the final model`,
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
-    `Piece-list scope: ${build.scope}.`,
+    `Build scope: ${build.scope}.`,
     match,
-    `Furniture pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
-    "Candidate piece routes:",
+    `Cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    "Construction ways:",
     alternatives,
     "",
     ...numberedSteps(build),
@@ -551,8 +549,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
   let liveSources = [];
   if (hasTavily()) {
     try {
-      const optionalPieces = build.ways.flatMap((way) => way.additionalCuts || []);
-      liveSources = await searchFurniturePieceOffers([...build.lines, ...optionalPieces], deps);
+      liveSources = await searchBuildWayOffers(build, deps);
     } catch {
       liveSources = [];
     }
@@ -568,7 +565,7 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
     planSource: buildPlanSource(build),
     pdf: {
       method: "client-print",
-      filename: `${slug(build.name) || "table"}-piece-plan.pdf`,
+      filename: `${slug(build.name) || "table"}-ways-to-make.pdf`,
       note: "The browser creates the PDF locally; no model geometry is uploaded to a PDF service.",
     },
   };
