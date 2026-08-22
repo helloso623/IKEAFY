@@ -339,6 +339,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       applyView(view);
       await renderReviews();
       await bootReel();
+      setInterface("watch");
       announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
       return view;
     } catch (error) {
@@ -346,29 +347,53 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  async function parseCustom() {
+  async function parseCustom(event) {
+    event?.preventDefault();
+    if (state.submitting) return null;
+    state.submitting = true;
     try {
       setMode("custom");
-      const raw = el.guide?.value || "";
-      if (!raw.trim()) {
-        announce("Paste a guide first.");
+      const file = el.pdf?.files?.[0] || null;
+      const pasted = el.guide?.value || "";
+      let pdfBase64 = "";
+      if (file) {
+        showPdfName(file);
+        announce("Reading the PDF…");
+        pdfBase64 = await fileToBase64(file);
+      }
+      if (!pasted.trim() && !pdfBase64) {
+        announce("Drop a PDF or paste a guide first.");
         return null;
       }
-      announce("Turning your guide into a Veed reel…");
+      announce("Parsing the sheet…");
+      let guideText = pasted;
+      if (pdfBase64 && api.parseGuide) {
+        const parsed = await api.parseGuide(pasted, el.notes?.value || "", { pdfBase64 });
+        if (parsed?.ok === false) return fail(new Error(parsed.reason));
+        if (parsed?.raw) {
+          guideText = parsed.raw;
+          if (el.guide) el.guide.value = parsed.raw;
+        }
+      }
+      announce("Starting the run and building the reel…");
       const view = await api.runStart({
         mode: "custom",
-        guide: raw,
+        guide: guideText,
         instructions: el.notes?.value || "",
+        pdfBase64,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(raw);
+      saveCustom(guideText);
       await renderReviews();
       await bootReel();
-      announce("Your guide is a reel now. Play, next, back, or jump to a step.");
+      setInterface("watch");
+      announce("Reel ready. Watch the first step.");
       return view;
     } catch (error) {
       return fail(error);
+    } finally {
+      state.submitting = false;
     }
   }
 
@@ -1143,14 +1168,37 @@ export function initStudio({ api, hud = () => {} } = {}) {
   // --------------------------------------------------------------------- wiring
 
   listen(el.officialMode, "click", startOfficial);
-  listen(el.product, "change", startOfficial);
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Paste a guide, then parse it. This one you can edit and skip.");
+    announce("Drop a PDF or paste a guide, then build the reel.");
   });
+  listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
-  listen(el.clear, "click", clearCustomSession);
+  listen(el.pdf, "change", () => showPdfName(el.pdf?.files?.[0] || null));
+  listen(el.pdfDrop, "dragover", (event) => {
+    event.preventDefault();
+    el.pdfDrop.classList.add("drag");
+  });
+  listen(el.pdfDrop, "dragleave", () => el.pdfDrop.classList.remove("drag"));
+  listen(el.pdfDrop, "drop", (event) => {
+    event.preventDefault();
+    el.pdfDrop.classList.remove("drag");
+    const file = [...(event.dataTransfer?.files || [])].find(
+      (item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name),
+    );
+    if (!file || !el.pdf) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    el.pdf.files = transfer.files;
+    showPdfName(file);
+  });
+  listen(el.clear, "click", () => {
+    if (el.pdf) el.pdf.value = "";
+    showPdfName(null);
+    clearCustomSession();
+    setInterface("upload");
+  });
   listen(el.steps, "click", (event) => {
     if (event.target.isContentEditable) return;
     const row = event.target.closest("[data-step]");
@@ -1170,11 +1218,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);
 
-  setMode("official");
-  fillProducts().then(startOfficial);
+  setMode("custom");
+  setInterface("upload");
+  fillProducts();
 
   return {
     state,
+    setInterface,
     startOfficial,
     parseCustom,
     nextStep,

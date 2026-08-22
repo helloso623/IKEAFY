@@ -114,21 +114,17 @@
         <canvas id="ar-photo" class="hidden"></canvas>
         <div id="hud"></div>
         <div id="film" class="film hidden">
-          <canvas id="film-frame"></canvas>
-          <p id="film-caption"></p>
-          <label class="confirm" id="step-confirm-row">
-            <input type="checkbox" id="step-confirm" />
-            <span id="step-confirm-label">Confirm this step before the next plate.</span>
-          </label>
-          <div class="row wrap film-actions">
-            <button id="film-wait" class="primary" disabled>I did this</button>
-            <button id="film-back" class="quiet">Back</button>
-            <button id="step-skip" class="quiet">Skip</button>
-            <button id="film-stuck" class="quiet">I’m stuck</button>
-            <span class="film-spacer" aria-hidden="true"></span>
-            <button id="colorize" class="quiet">Colour in</button>
-            <button id="render-video" class="quiet">Replay film</button>
+          <div class="film-stage">
+            <canvas id="film-frame"></canvas>
+            <video id="film-video" class="hidden" playsinline></video>
           </div>
+          <p id="film-caption"></p>
+          <div class="row wrap film-actions" role="group" aria-label="Watch transport">
+            <button id="film-back" type="button">Back</button>
+            <button id="film-play" type="button" class="primary" aria-pressed="false">Play</button>
+            <button id="film-wait" type="button">Next</button>
+          </div>
+          <nav id="film-scrub" class="film-scrub" aria-label="Jump to a step"></nav>
           <p class="hint" id="render-video-out"></p>
           <div id="step-detail" class="copy"></div>
         </div>
