@@ -7,7 +7,6 @@ import {
   matchIkeaArticle,
   modelComponents,
   modelSignature,
-  pieceBomForProject,
 } from "../server/lib/build-plan.js";
 import { addPiece, appendDiyBuild, emptyProject } from "../server/lib/project.js";
 
@@ -51,7 +50,7 @@ test("model signatures change and old ways remain in history", () => {
 });
 
 test("LACK-sized model yields a tabletop and legs without a fastener list", () => {
-  const plan = pieceBomForProject({
+  const plan = buildWaysForProject({
     name: "My side table",
     pieces: [piece("generic-side-table", "table-1")],
   });
@@ -120,7 +119,7 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.equal(plan.hardwareLines, undefined);
 });
 
-test("ways-to-make source is numbered for the IKEAlive parser", () => {
+test("piece-plan source is numbered for the IKEAlive parser", () => {
   const plan = buildWaysForProject({
     name: "Shelf",
     pieces: [piece("generic-shelf-board", "shelf")],
