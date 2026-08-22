@@ -87,6 +87,16 @@ test("the studio starts on input, then progress, then instruction/material resul
   assert.match(html, /id="tab-material"/);
   assert.match(html, /id="step-scheme"/);
   assert.match(html, /id="see-guide"/);
+  assert.match(html, /id="film-video"/);
+});
+
+test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
+  assert.equal(
+    /Unpack the pieces in the photos/.test(studio),
+    false,
+    "studio.js must not invent a placeholder guide when the user drops photos",
+  );
+  assert.match(studio, /images/, "dropped photos need to travel with runStart");
 });
 
 test("electronics stays a bench feature of the main Ikeafy app", () => {

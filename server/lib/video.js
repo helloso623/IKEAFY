@@ -1,43 +1,19 @@
 import { storyboardForStep } from "./ikeafy.js";
 
-const PARTNER = "Veed";
-const MODEL = "veed/fabric-1.0";
-const ENDPOINT = `https://fal.run/${MODEL}`;
+export const MODEL = "bytedance/seedance-2.5/text-to-video";
+export const PARTNER = "Seedance";
+const MODEL_ROOT = "https://queue.fal.run/bytedance/seedance-2.5";
+const QUEUE = `${MODEL_ROOT}/text-to-video`;
+const POLL_MS = 1500;
+const DEADLINE_MS = 180_000;
 
-function makePlaceholderImage() {
-  const svg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">',
-    '<rect width="640" height="480" fill="#f3efe6"/>',
-    '<rect x="70" y="330" width="500" height="32" rx="4" fill="#d7b98e"/>',
-    '<rect x="105" y="362" width="24" height="88" fill="#b88b58"/>',
-    '<rect x="511" y="362" width="24" height="88" fill="#b88b58"/>',
-    '<circle cx="320" cy="190" r="64" fill="#ffda1a"/>',
-    '<text x="320" y="275" text-anchor="middle" font-family="sans-serif" font-size="28" fill="#292929">Birch workshop</text>',
-    "</svg>",
-  ].join("");
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+export function hasFal() {
+  return typeof process.env.FAL_KEY === "string" && process.env.FAL_KEY.trim().length > 0;
 }
 
-function makeSilentWav() {
-  const sampleRate = 8000;
-  const sampleCount = 800;
-  const wav = Buffer.alloc(44 + sampleCount, 128);
-
-  wav.write("RIFF", 0);
-  wav.writeUInt32LE(36 + sampleCount, 4);
-  wav.write("WAVE", 8);
-  wav.write("fmt ", 12);
-  wav.writeUInt32LE(16, 16);
-  wav.writeUInt16LE(1, 20);
-  wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(sampleRate, 24);
-  wav.writeUInt32LE(sampleRate, 28);
-  wav.writeUInt16LE(1, 32);
-  wav.writeUInt16LE(8, 34);
-  wav.write("data", 36);
-  wav.writeUInt32LE(sampleCount, 40);
-
-  return `data:audio/wav;base64,${wav.toString("base64")}`;
+/** Kept so older health/tests still read as "is the fal key present". */
+export function hasVeed() {
+  return hasFal();
 }
 
 function videoUrlFrom(response) {
@@ -51,11 +27,80 @@ function videoUrlFrom(response) {
   );
 }
 
-export function hasVeed() {
-  return typeof process.env.FAL_KEY === "string" && process.env.FAL_KEY.trim().length > 0;
+function falHeaders() {
+  return {
+    Authorization: `Key ${process.env.FAL_KEY}`,
+    "Content-Type": "application/json",
+  };
 }
 
-export async function renderStepVideo({ guide, stepNumber, imageDataUrl } = {}) {
+export function promptForStep(guide, stepNumber, extra = "") {
+  const step =
+    guide?.steps?.find((s) => Number(s.number) === Number(stepNumber)) || guide?.steps?.[0] || {};
+  const theme = guide?.theme || {};
+  const title = guide?.title || "this build";
+  const body = String(step.body || "").trim();
+  const parts = (step.partsUsed || []).join(", ") || "the parts named in the instruction";
+  const tool = step.toolRequired ? `Use a ${step.toolRequired}.` : "Hands only.";
+  return [
+    "Photoreal IKEA-style assembly tutorial, one continuous shot.",
+    `Setting: ${theme.setting || "birch workshop"}, ${theme.light || "soft north window light"}, ${
+      theme.material || "particleboard foil and steel fittings"
+    }, yellow #ffda1a accent.`,
+    "Same workshop, same materials, same lighting as the rest of this film.",
+    "No on-screen text, no logos, no subtitles, no brand marks.",
+    "Show adult hands performing one clear assembly move at IKEA-manual pace.",
+    `This is step ${step.number || stepNumber || 1} of "${title}": ${body || "Follow the plate."}`,
+    `Parts in this shot: ${parts}. ${tool}`,
+    extra ? `Additional direction from the builder: ${String(extra).slice(0, 400)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function falQueue(payload, { fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const headers = falHeaders();
+  const submitted = await fetchFn(QUEUE, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!submitted.ok) {
+    const detail = await submitted.text().catch(() => "");
+    throw new Error(`fal submit ${submitted.status} ${detail.slice(0, 180)}`);
+  }
+  const ticket = await submitted.json();
+  const immediate = videoUrlFrom(ticket);
+  if (immediate) return ticket;
+
+  const requestId = ticket.request_id;
+  if (!requestId) throw new Error("fal submit returned no request_id");
+  const statusUrl = ticket.status_url || `${MODEL_ROOT}/requests/${requestId}/status`;
+  const resultUrl = ticket.response_url || `${MODEL_ROOT}/requests/${requestId}`;
+
+  const deadline = Date.now() + DEADLINE_MS;
+  while (Date.now() < deadline) {
+    const statusRes = await fetchFn(statusUrl, { headers });
+    if (!statusRes.ok) throw new Error(`fal status ${statusRes.status}`);
+    const status = await statusRes.json();
+    const state = String(status.status || "").toUpperCase();
+    if (state === "COMPLETED") {
+      const done = await fetchFn(resultUrl, { headers });
+      if (!done.ok) throw new Error(`fal result ${done.status}`);
+      return done.json();
+    }
+    if (state === "FAILED" || state === "CANCELED") {
+      throw new Error(`fal ${state.toLowerCase()}`);
+    }
+    await sleep(POLL_MS);
+  }
+  throw new Error("fal timeout");
+}
+
+export async function renderStepVideo(
+  { guide, stepNumber, extra = "" } = {},
+  deps = {},
+) {
   let frames = [];
   let theme = {
     setting: "birch workshop",
@@ -71,40 +116,37 @@ export async function renderStepVideo({ guide, stepNumber, imageDataUrl } = {}) 
     // An unusable guide still yields a safe local result.
   }
 
+  const prompt = promptForStep(guide, stepNumber, extra);
   const local = {
     provider: "local-storyboard",
     partner: PARTNER,
     model: MODEL,
+    prompt,
     videoUrl: null,
     frames,
     continuous: true,
     theme,
   };
 
-  if (!hasVeed()) return local;
+  if (!hasFal()) return local;
 
   try {
-    const response = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${process.env.FAL_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        image_url: imageDataUrl || makePlaceholderImage(),
-        audio_url: makeSilentWav(),
+    const result = await falQueue(
+      {
+        prompt,
         resolution: "480p",
-      }),
-    });
-
-    if (!response.ok) return local;
-
-    const videoUrl = videoUrlFrom(await response.json());
+        duration: "5",
+        aspect_ratio: "16:9",
+        generate_audio: true,
+        bitrate_mode: "standard",
+      },
+      deps,
+    );
+    const videoUrl = videoUrlFrom(result);
     if (!videoUrl) return local;
-
     return {
       ...local,
-      provider: "veed-fabric",
+      provider: "seedance-2.5",
       videoUrl,
     };
   } catch {

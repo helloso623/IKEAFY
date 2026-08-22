@@ -265,7 +265,7 @@ input, textarea {
     linear-gradient(#0000, #0006),
     repeating-linear-gradient(90deg, #1a1814 0 24px, #17150f 24px 48px);
 }
-#view, #ar-photo, #film-frame { width: 100%; height: 100%; display: block; }
+#view, #ar-photo, #film-frame, #film-video { width: 100%; height: 100%; display: block; }
 #ar-photo { position: absolute; inset: 0; pointer-events: none; }
 #hud {
   position: absolute; left: 0.9rem; bottom: 0.9rem;
@@ -280,7 +280,8 @@ input, textarea {
   border: 2px solid var(--yellow);
   padding: 0.6rem;
 }
-.film canvas { height: 220px; background: #1d1a14; }
+.film canvas,
+.film video { height: 220px; background: #1d1a14; }
 #film-caption { font-family: var(--serif); font-size: 1.15rem; margin: 0.4rem 0; }
 
 .more-tools {
@@ -561,7 +562,8 @@ button.refuses { border-style: dashed; opacity: 0.75; }
   overflow: auto;
 }
 :is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film canvas,
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #film-frame {
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #film-frame,
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) #film-video {
   flex: 1 1 auto;
   width: 100%;
   height: auto;
@@ -765,7 +767,20 @@ button.refuses { border-style: dashed; opacity: 0.75; }
   gap: 0.55rem;
   min-height: 0;
 }
-:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film-stage canvas {
+.film-shot {
+  display: grid;
+  min-height: 0;
+}
+.film-shot > * {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  object-fit: cover;
+  background: #1d1a14;
+}
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film-stage canvas,
+:is(#app.mode-ikeafy, #app:has(#modes [data-mode="ikeafy"].on)) .film-stage video {
   min-height: 220px;
   max-height: 42vh;
 }
