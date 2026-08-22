@@ -99,13 +99,13 @@ Lab → **Scan** accepts aligned front, side, and top photos, the live browser/E
 Polygonization uses Mikola Lysenko's zero-dependency [`isosurface`](https://github.com/mikolalysenko/isosurface) package fetched through npm. It is **MIT licensed**; the copyright and full license text are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The pipeline uses no paid API, uploaded model, or model weights.
 
 
-### Phone upload (LAN)
+### Phone upload (Tailscale or LAN)
 
-Same Wi-Fi as the Lab computer. Lab → **Scan** → **Send from phone** shows a LAN URL and QR:
+Lab → **Scan** → **Send from phone** shows a selectable URL, **Copy** button, and QR. When the app is opened through Tailscale HTTPS, that secure phone-ready address is primary:
 
-`http://<lan-ip>:5173/phone-upload`
+`https://<machine>.<tailnet>.ts.net/phone-upload`
 
-(or `http://<lan-ip>:8787/phone-upload` if you open the API directly). Open that link in the phone browser, then record or pick a room walk of up to 30 seconds. The page POSTs the clip to `/api/scan/video`. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Finish / Find a way** ranks methods and finds boards plus connection hardware for that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
+The panel also keeps `http://<lan-ip>:5173/phone-upload` (or API port `8787`) as a same-Wi-Fi fallback. Open either link in the phone browser, then use the single **Record / Send ~30s video** button. The page POSTs the clip to `/api/scan/video`; `.ts.net`, localhost, and private-LAN browser origins are accepted by the API. Lab pulls stills locally, rebuilds binary room occupancy, cuts the old table footprint, and auto-fits the current table. **Finish / Find a way** ranks methods and finds boards plus connection hardware for that final table; **Scan current model + scene** bakes the fit into an IKEAlive plan. `npm run dev` already binds Vite on `0.0.0.0:5173` (and the API on `0.0.0.0:8787`).
 
 
 ## Social preview
