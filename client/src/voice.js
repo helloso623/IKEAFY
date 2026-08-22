@@ -1,5 +1,5 @@
 /**
- * Lab / shop mic: Web Speech API → transcript → existing /api/agents/chat.
+ * Lab / shop / watch mic: Web Speech API → transcript → existing /api/agents/chat.
  * No paid voice vendor. Missing speech APIs fail visibly; type instead.
  */
 
@@ -21,6 +21,7 @@ export function bindVoice({
     if (status) status.textContent = message;
     button.setAttribute("aria-pressed", "false");
     button.classList.remove("on");
+    console.warn("[ikealive:voice]", message);
   };
 
   if (!Ctor) {
@@ -48,7 +49,10 @@ export function bindVoice({
     rec.lang = "en-US";
     rec.interimResults = false;
     rec.maxAlternatives = 1;
-    rec.onstart = () => setListening(true);
+    rec.onstart = () => {
+      setListening(true);
+      console.log("[ikealive:voice]", "listen");
+    };
     rec.onerror = (event) => {
       setListening(false);
       fail(
@@ -60,6 +64,7 @@ export function bindVoice({
     rec.onend = () => setListening(false);
     rec.onresult = (event) => {
       const text = String(event.results?.[0]?.[0]?.transcript || "").trim();
+      console.log("[ikealive:voice]", "transcript", { text, length: text.length });
       if (status) status.textContent = text ? `Heard: ${text}` : "";
       if (input && text) input.value = text;
       if (text && typeof onHear === "function") onHear(text);

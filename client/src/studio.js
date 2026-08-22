@@ -1,12 +1,16 @@
 /**
- * IKEAlive watch: a Veed reel of every step, driven by Back / Play-Stop / Next.
+ * IKEAlive watch: a Seedance 2.5 reel of every step, driven by Back / Play-Stop / Next.
  * Click a step in #steps or the scrub list to jump there. Upload (or Start)
  * builds the reel; this UI plays it.
  */
 
 import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
+import { bindVoice } from "./voice.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
+const FAL_REQUIRED =
+  "Set FAL_KEY for ByteDance Seedance 2.5 films. The watch reel is a live MP4, not a canvas storyboard.";
 
 const first = (...selectors) => selectors.map((s) => document.querySelector(s)).find(Boolean) || null;
 
@@ -23,7 +27,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     officialSource: first("#official-source"),
     customSource: first("#custom-source"),
     product: first("#official-product"),
-    guide: first("#guide-in"),
     notes: first("#guide-notes"),
     parse: first("#parse-guide"),
     clear: first("#clear-custom-session"),
@@ -46,9 +49,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
     render: first("#render-video"),
     scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
+    filmStatus: first("#film-status"),
+    progress: first("#upload-progress"),
     pdf: first("#pdf-upload"),
     pdfName: first("#pdf-name"),
     pdfDrop: first("#pdf-drop", ".upload-drop"),
+    productName: first("#product-name"),
+    productLookup: first("#product-lookup"),
     uploadForm: first("#upload-form"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
@@ -63,6 +70,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     chatForm: first("#ikea-chat-form", "#chat-form"),
     chatInput: first("#ikea-chat-in", "#chat-in"),
     chatLog: first("#ikea-chat-log", "#chat-log"),
+    voice: first("#ikea-voice"),
+    voiceStatus: first("#ikea-voice-status"),
   };
 
   const listeners = [];
@@ -95,6 +104,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   function announce(message) {
     hud(text(message));
+    if (el.progress) el.progress.textContent = text(message);
+  }
+
+  function setBusy(on) {
+    state.submitting = Boolean(on);
+    if (el.parse) {
+      el.parse.disabled = state.submitting;
+      el.parse.textContent = state.submitting ? "Getting…" : "Get the Reel";
+    }
+  }
+
+  function showFilmStatus(message) {
+    if (el.filmStatus) {
+      el.filmStatus.textContent = message || "";
+      el.filmStatus.classList.toggle("hidden", !message);
+    }
+    if (message) setOut(el.renderOut, message);
   }
 
   function fail(error) {
@@ -135,21 +161,65 @@ export function initStudio({ api, hud = () => {} } = {}) {
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
   }
 
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const comma = result.indexOf(",");
-        resolve(comma >= 0 ? result.slice(comma + 1) : result);
-      };
-      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
-      reader.readAsDataURL(file);
-    });
-  }
-
   function showPdfName(file) {
     if (el.pdfName) el.pdfName.textContent = file?.name || "";
+  }
+
+  function fileFromPdfBase64(base64, filename) {
+    const binary = atob(String(base64 || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], filename || "ikea-manual.pdf", { type: "application/pdf" });
+  }
+
+  function attachPdfFile(file) {
+    if (!file || !el.pdf) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    el.pdf.files = transfer.files;
+    showPdfName(file);
+  }
+
+  async function fetchNamedManual() {
+    if (!api.lookupManual) return null;
+    const name = String(el.productName?.value || "").trim();
+    if (!name) {
+      announce("Type an IKEA product name.");
+      return null;
+    }
+    announce(`Looking up “${name}” with Tavily…`);
+    console.log("[ikealive:tavily]", "lookup", { productName: name });
+    const found = await api.lookupManual(name);
+    if (!found?.ok || !found.pdfBase64) {
+      console.log("[ikealive:tavily]", "no pdf", {
+        partner: found?.partner || null,
+        catalog: (found?.catalog || []).map((row) => row.id),
+        reason: found?.reason || null,
+      });
+      announce(found?.reason || "Could not find that manual.");
+      return null;
+    }
+    const file = fileFromPdfBase64(found.pdfBase64, found.filename);
+    attachPdfFile(file);
+    console.log("[ikealive:tavily]", "pdf attached", {
+      filename: file.name,
+      bytes: found.bytes || file.size,
+      url: found.pdfUrl || null,
+    });
+    announce(`Found ${file.name}. Reading the plates…`);
+    return file;
+  }
+
+  async function lookupProductManual() {
+    if (state.submitting) return null;
+    try {
+      const file = await fetchNamedManual();
+      if (!file) return null;
+      return parseCustom();
+    } catch (error) {
+      console.warn("[ikealive:tavily]", "lookup failed", error?.message || error);
+      return fail(error);
+    }
   }
 
   async function fillProducts() {
@@ -366,13 +436,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("official");
       announce("Opening the official sheet…");
+      console.log("[ikealive:parse]", "official start", { article: el.product?.value || "304.499.08" });
       const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      await bootReel();
       setInterface("watch");
-      announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
+      announce("Rendering Seedance 2.5…");
+      console.log("[ikealive:parse]", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      await bootReel();
       return view;
     } catch (error) {
       return fail(error);
@@ -382,70 +454,74 @@ export function initStudio({ api, hud = () => {} } = {}) {
   async function parseCustom(event) {
     event?.preventDefault();
     if (state.submitting) return null;
-    state.submitting = true;
+    setBusy(true);
     try {
       setMode("custom");
-      const file = el.pdf?.files?.[0] || null;
-      const pasted = el.guide?.value || "";
-      let pdfBase64 = "";
+      let file = el.pdf?.files?.[0] || null;
+      if (!file && String(el.productName?.value || "").trim()) {
+        file = await fetchNamedManual();
+      }
       let images = [];
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
-        pdfBase64 = await fileToBase64(file);
-        if (isPdfFile(file)) {
-          try {
-            const plates = await pagesFromPdf(file);
-            images = plates.images || [];
-            if (plates.text && el.guide && !pasted.trim()) el.guide.value = plates.text;
-          } catch {
-            announce("Could not rasterize the PDF plates — trying extracted text.");
-          }
+        console.log("[ikealive:parse]", "rasterize", { name: file.name, type: file.type, bytes: file.size });
+        if (!isPdfFile(file)) {
+          return fail(new Error("Drop a PDF — IKEA manuals are drawings, not plain text."));
+        }
+        try {
+          const plates = await pagesFromPdf(file);
+          images = plates.images || [];
+          console.log("[ikealive:parse]", "plates", {
+            name: file.name,
+            pageCount: plates.pageCount,
+            usedPages: plates.usedPages,
+            imageCount: images.length,
+          });
+        } catch (error) {
+          console.warn("[ikealive:parse]", "rasterize failed", error?.message || error);
+          return fail(new Error(error?.message || "Could not read that PDF as plates."));
+        }
+        if (!images.length) {
+          return fail(new Error("That PDF has no readable plates."));
         }
       }
-      if (!pasted.trim() && !pdfBase64 && !images.length) {
-        announce("Drop a PDF or paste a guide first.");
+      if (!images.length) {
+        announce("Drop a PDF or type an IKEA product name first.");
         return null;
       }
-      announce("Parsing the sheet…");
-      let guideText = el.guide?.value || pasted;
-      if ((pdfBase64 || images.length) && api.parseGuide) {
-        const parsed = await api.parseGuide(guideText, el.notes?.value || "", { pdfBase64, images });
-        if (parsed?.ok === false) return fail(new Error(parsed.reason));
-        if (parsed?.raw) {
-          guideText = parsed.raw;
-          if (el.guide) el.guide.value = parsed.raw;
-        }
-      }
-      announce("Starting the run and building the reel…");
+      announce("Reading the plates with vision…");
+      console.log("[ikealive:parse]", "assembly start", { plates: images.length, notes: Boolean(el.notes?.value) });
       const view = await api.runStart({
         mode: "custom",
-        guide: guideText,
         instructions: el.notes?.value || "",
-        pdfBase64,
         images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(guideText);
+      saveCustom();
       await renderReviews();
-      await bootReel();
       setInterface("watch");
-      announce("Reel ready. Watch the first step.");
+      announce("Rendering Seedance 2.5…");
+      console.log("[ikealive:parse]", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      await bootReel();
+      if (state.reel.some((clip) => clip.videoUrl)) {
+        announce("Reel ready. Watch the first step.");
+      }
       return view;
     } catch (error) {
       return fail(error);
     } finally {
-      state.submitting = false;
+      setBusy(false);
     }
   }
 
-  function saveCustom(raw) {
+  function saveCustom() {
     if (state.mode !== "custom") return;
     try {
       localStorage.setItem(
         CUSTOM_SESSION_KEY,
-        JSON.stringify({ raw: raw ?? el.guide?.value ?? "", notes: el.notes?.value || "" }),
+        JSON.stringify({ notes: el.notes?.value || "" }),
       );
     } catch {
       // Storage is unavailable in private windows; the session just will not persist.
@@ -455,8 +531,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function restoreCustom() {
     try {
       const saved = JSON.parse(localStorage.getItem(CUSTOM_SESSION_KEY) || "null");
-      if (!saved?.raw) return false;
-      if (el.guide) el.guide.value = saved.raw;
+      if (!saved) return false;
       if (el.notes) el.notes.value = saved.notes || "";
       return true;
     } catch {
@@ -474,7 +549,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.reel = [];
     state.clipIndex = 0;
     state.frameIndex = 0;
-    if (el.guide) el.guide.value = "";
     if (el.notes) el.notes.value = "";
     for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
@@ -494,12 +568,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
   // ------------------------------------------------------------------- playback
 
   function hideVideo() {
-    if (!el.video) return;
-    el.video.pause();
-    el.video.removeAttribute("src");
-    el.video.load();
-    el.video.classList.add("hidden");
-    el.frame?.classList.remove("hidden");
+    if (el.video) {
+      el.video.pause();
+      el.video.removeAttribute("src");
+      el.video.load();
+      el.video.classList.add("hidden");
+    }
+    el.frame?.classList.add("hidden");
   }
 
   function stopPlayback({ keepFrame = false } = {}) {
@@ -791,58 +866,51 @@ export function initStudio({ api, hud = () => {} } = {}) {
   }
 
   function clipFromPlan(step) {
-    const frames = Array.isArray(step?.frames) ? step.frames : [];
     return {
       number: Number(step?.number) || 0,
-      frames,
+      frames: [],
       videoUrl: step?.videoUrl || null,
-      provider: step?.provider || "local-storyboard",
+      provider: step?.provider || "seedance-2.5",
     };
   }
 
-  async function loadReel() {
-    if (!state.run) return [];
-    const body = {
-      runId: state.run.id,
-      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-    };
-    if (api.renderReel) {
-      try {
-        const result = await api.renderReel(body);
-        const clips = (result.steps || [])
-          .map((step) =>
-            clipFromPlan({
-              number: step.number,
-              frames: step.frames || step.plan,
-              videoUrl: step.videoUrl,
-              provider: step.provider,
-            }),
-          )
-          .filter((clip) => clip.number);
-        if (clips.length) return clips;
-      } catch (error) {
-        fail(error);
-      }
-    }
-    try {
-      const plan = api.video ? await api.video(body) : { steps: [] };
-      const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
-      if (clips.length) return clips;
-    } catch (error) {
-      fail(error);
-    }
+  function clipsFromOutline() {
     return (state.outline || []).map((item) => ({
       number: item.number,
-      frames: [
-        {
-          frame: 0,
-          durationMs: 1200,
-          caption: item.body || item.preview || `Step ${item.number}`,
-        },
-      ],
+      frames: [],
       videoUrl: null,
-      provider: "local-storyboard",
+      provider: "seedance-2.5",
     }));
+  }
+
+  async function falIsLive() {
+    if (!api.health) return false;
+    try {
+      const health = await api.health();
+      return Boolean(health?.video?.live);
+    } catch {
+      return false;
+    }
+  }
+
+  async function renderClipVideo(clip) {
+    if (!clip || !api.renderVideo || !state.run) {
+      ikealiveWarn("video", "render skipped", { step: clip?.number || null, hasRun: Boolean(state.run) });
+      throw new Error(FAL_REQUIRED);
+    }
+    ikealiveLog("video", "render step", { runId: state.run.id, step: clip.number });
+    const result = await api.renderVideo({
+      runId: state.run.id,
+      stepNumber: clip.number,
+    });
+    clip.videoUrl = result.videoUrl || null;
+    clip.provider = result.provider || clip.provider;
+    if (!clip.videoUrl) {
+      ikealiveWarn("video", "no video url", { step: clip.number, error: result.error || result.reason || FAL_REQUIRED });
+      throw new Error(result.error || result.reason || FAL_REQUIRED);
+    }
+    ikealiveLog("video", "step ready", { step: clip.number, videoUrl: clip.videoUrl, provider: clip.provider });
+    return clip;
   }
 
   async function upgradeReel(clips) {
@@ -851,26 +919,22 @@ export function initStudio({ api, hud = () => {} } = {}) {
     let live = 0;
     for (const clip of clips) {
       if (state.destroyed || token !== state.reelToken) return;
+      if (clip.videoUrl) {
+        live += 1;
+        continue;
+      }
       try {
-        const result = await api.renderVideo({
-          runId: state.run.id,
-          stepNumber: clip.number,
-          guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-        });
-        if (token !== state.reelToken) return;
-        clip.frames = result.frames || result.plan || clip.frames;
-        clip.videoUrl = result.videoUrl || null;
-        clip.provider = result.provider || clip.provider;
-        if (clip.videoUrl) live += 1;
-        setOut(
-          el.renderOut,
-          live
-            ? `Veed reel · ${live}/${clips.length} clips`
-            : `${result.provider || "local-storyboard"} · canvas storyboard (set FAL_KEY for Veed)`,
-        );
+        const status = `Rendering Seedance 2.5 · step ${clip.number} of ${clips.length}…`;
+        announce(status);
+        if (!state.reel[state.clipIndex]?.videoUrl) showFilmStatus(status);
+        await renderClipVideo(clip);
+        live += 1;
+        setOut(el.renderOut, `Seedance 2.5 · ${live}/${clips.length} films`);
         if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
-      } catch {
-        // Keep the local storyboard clip if Veed is down.
+      } catch (error) {
+        fail(error);
+        showFilmStatus(error?.message || FAL_REQUIRED);
+        return;
       }
     }
   }
@@ -879,7 +943,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!state.run) return;
     stopPlayback();
     el.film?.classList.remove("hidden");
-    state.reel = await loadReel();
+    hideVideo();
+    state.reel = clipsFromOutline();
     state.clipIndex = Math.max(
       0,
       state.reel.findIndex((clip) => clip.number === state.run.cursor),
@@ -888,6 +953,28 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.frameIndex = 0;
     renderSteps();
     renderTransport();
+    showFilmStatus("Rendering Seedance 2.5…");
+
+    if (!(await falIsLive())) {
+      showFilmStatus(FAL_REQUIRED);
+      announce(FAL_REQUIRED);
+      ikealiveWarn("video", "fal not live — reel is not a canvas storyboard");
+      return;
+    }
+
+    const first = state.reel[state.clipIndex];
+    try {
+      if (first) {
+        announce(`Rendering Seedance 2.5 · step ${first.number}…`);
+        showFilmStatus(`Rendering Seedance 2.5 · step ${first.number}…`);
+        await renderClipVideo(first);
+      }
+    } catch (error) {
+      fail(error);
+      showFilmStatus(error?.message || FAL_REQUIRED);
+      return;
+    }
+
     showClip(state.clipIndex, { play: true, restart: true });
     if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
@@ -895,6 +982,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function showVideo(url, { play = false } = {}) {
     if (!el.video || !url) return false;
     el.frame?.classList.add("hidden");
+    showFilmStatus("");
     el.video.classList.remove("hidden");
     if (el.video.src !== url) {
       el.video.src = url;
@@ -907,31 +995,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
       el.video.pause();
     }
     return true;
-  }
-
-  function playCanvasClip(clip, token) {
-    const frames = clip.frames || [];
-    const tick = () => {
-      if (state.destroyed || token !== state.playGen || !state.playingOn) return;
-      if (state.frameIndex >= frames.length) {
-        finishClip();
-        return;
-      }
-      const frame = frames[state.frameIndex];
-      drawFrame(frame);
-      setOut(el.caption, frame?.caption || state.step?.body || clipCaption(clip));
-      state.frameIndex += 1;
-      if (state.frameIndex >= frames.length) {
-        state.timer = setTimeout(finishClip, Math.max(120, Number(frame?.durationMs) || 1000));
-        return;
-      }
-      state.timer = setTimeout(tick, Math.max(120, Number(frame?.durationMs) || 1000));
-    };
-    if (!frames.length) {
-      finishClip();
-      return;
-    }
-    tick();
   }
 
   function showClip(index, { play = false, restart = true } = {}) {
@@ -963,10 +1026,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
 
     hideVideo();
-    const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
-    drawFrame(frame);
-    renderTransport();
-    if (play) playCanvasClip(clip, state.playGen);
+    showFilmStatus(
+      play
+        ? `Rendering Seedance 2.5 · step ${clip.number}…`
+        : `No Seedance film for step ${clip.number} yet.`,
+    );
   }
 
   function finishClip() {
@@ -1210,6 +1274,26 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.chatLog.scrollTop = el.chatLog.scrollHeight;
   }
 
+  async function applyStudioActions(actions) {
+    for (const action of actions || []) {
+      if (action?.type !== "studio") continue;
+      console.log("[ikealive:voice]", "studio action", action.action);
+      if (action.action === "start") await parseCustom();
+      else if (action.action === "official") await startOfficial();
+      else if (action.action === "next") await nextStep();
+      else if (action.action === "back") await backStep();
+      else if (action.action === "play") togglePlay();
+      else if (action.action === "spare") await requestFittings();
+      else if (action.action === "clear") {
+        if (el.pdf) el.pdf.value = "";
+        if (el.productName) el.productName.value = "";
+        showPdfName(null);
+        clearCustomSession();
+        setInterface("upload");
+      }
+    }
+  }
+
   async function sendChat(event) {
     event?.preventDefault();
     const message = el.chatInput?.value?.trim();
@@ -1219,6 +1303,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
       addChatLine(reply?.agent?.name || "shop", reply?.text || "");
+      if (typeof window.__ikeafyApplyShop === "function") await window.__ikeafyApplyShop(reply.actions);
+      else await applyStudioActions(reply.actions);
       return reply;
     } catch (error) {
       addChatLine("shop", error?.message || "Chat failed");
@@ -1232,11 +1318,16 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Drop a PDF or paste a guide, then build the reel.");
+    announce("Drop a PDF or type a product name, then get the reel.");
   });
   listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
-  listen(el.pdf, "change", () => showPdfName(el.pdf?.files?.[0] || null));
+  listen(el.productLookup, "click", lookupProductManual);
+  listen(el.pdf, "change", () => {
+    const file = el.pdf?.files?.[0] || null;
+    showPdfName(file);
+    if (file) parseCustom();
+  });
   listen(el.pdfDrop, "dragover", (event) => {
     event.preventDefault();
     el.pdfDrop.classList.add("drag");
@@ -1253,9 +1344,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
     transfer.items.add(file);
     el.pdf.files = transfer.files;
     showPdfName(file);
+    parseCustom();
   });
   listen(el.clear, "click", () => {
     if (el.pdf) el.pdf.value = "";
+    if (el.productName) el.productName.value = "";
     showPdfName(null);
     clearCustomSession();
     setInterface("upload");
@@ -1278,6 +1371,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
   listen(el.broken, "click", attachBroken);
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);
+  bindVoice({
+    button: el.voice,
+    status: el.voiceStatus,
+    input: el.chatInput,
+    onHear: (text) => {
+      if (el.chatInput) el.chatInput.value = text;
+      sendChat();
+    },
+  });
 
   setMode("custom");
   setInterface("upload");
@@ -1288,6 +1390,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     setInterface,
     startOfficial,
     parseCustom,
+    lookupProductManual,
+    applyActions: applyStudioActions,
     nextStep,
     backStep,
     skipStep,

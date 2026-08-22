@@ -441,8 +441,8 @@ export function persistLabTool(project, tool, value) {
 }
 
 /**
- * Lab is furniture-only for now. Catalog hides boards and cables,
- * and ports, nets, isolate-as-board and firmware stay off the inspect panel.
+ * Lab is furniture-first. The shelf hides boards and cables;
+ * search can still find them. Ports, nets, isolate-as-board and firmware stay off the inspect panel.
  */
 export function benchChrome(project) {
   const parts = (project.pieces || []).map((piece) => getPart(piece.partId)).filter(Boolean);

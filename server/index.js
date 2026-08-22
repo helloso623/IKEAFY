@@ -27,7 +27,6 @@ import {
   reviewsForGuide,
   searchOfficialProducts,
   shoppingListAsync,
-  storyboardForStep,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
 import {
@@ -49,8 +48,8 @@ import {
   listFreeFittings,
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
-import { hasFal, renderStepVideo } from "./lib/video.js";
-import { hasTavily } from "./lib/tavily.js";
+import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
+import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
@@ -95,7 +94,7 @@ const VIDEO_PARTNERS = {
     name: "ByteDance Seedance 2.5",
     model: "bytedance/seedance-2.5/text-to-video",
     status: "optional",
-    note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
+    note: "Rendered through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not play a canvas stand-in.",
   },
   fal: {
     name: "fal.ai",
@@ -123,7 +122,7 @@ app.get("/api/health", (_req, res) => {
     partners: PARTNERS,
     video: {
       partners: VIDEO_PARTNERS,
-      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "local-storyboard",
+      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "none",
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
@@ -232,15 +231,24 @@ app.post("/api/cables/bundle", (req, res) => {
 });
 
 app.post("/api/ikeafy/parse", async (req, res) => {
+  const images = req.body?.images || [];
+  const hasPlates = images.some((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
+  console.log("[ikealive:parse]", "POST /api/ikeafy/parse", {
+    plates: images.length,
+    hasGuideText: Boolean(req.body?.guide),
+    hasPdfBase64: Boolean(req.body?.pdfBase64),
+  });
   let raw = req.body?.guide || "";
-  if (req.body?.pdfBase64) {
+  if (!hasPlates && req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
   const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
-    images: req.body?.images || [],
+    images,
   });
   state.guide = guide;
   res.json(guide);
@@ -262,6 +270,21 @@ app.get("/api/ikeafy/official/products", (req, res) => {
     locked: true,
     policy: SPARES_POLICY.free,
   });
+});
+
+app.post("/api/ikeafy/manual", async (req, res) => {
+  const productName = req.body?.productName || req.body?.q || "";
+  console.log("[ikealive:tavily]", "POST /api/ikeafy/manual", { productName: String(productName).slice(0, 80) });
+  try {
+    const found = await findIkeaManual(productName);
+    res.json({
+      ...found,
+      pdfBase64: found.pdfBase64 || null,
+    });
+  } catch (err) {
+    console.warn("[ikealive:tavily]", "manual lookup error", err?.message || err);
+    res.status(502).json({ ok: false, reason: String(err.message || err) });
+  }
 });
 
 app.post("/api/ikeafy/official/verify", (req, res) => {
@@ -289,6 +312,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   const stored = body.runId ? getAssembly(body.runId) : null;
   const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
   try {
     const result = await renderStepVideo({
       guide,
@@ -296,15 +320,27 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       extra: body.instructions || body.extra || "",
     });
     if (stored?.guide) state.guide = stored.guide;
+    if (!result.videoUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_REQUIRED,
+        videoUrl: null,
+        partners: VIDEO_PARTNERS,
+      });
+    }
     res.json({
       ok: true,
       stepNumber,
-      live: result.provider !== "local-storyboard",
+      live: true,
       partners: VIDEO_PARTNERS,
-      plan: result.frames.length ? result.frames : storyboardForStep(guide, stepNumber),
-      ...result,
+      videoUrl: result.videoUrl,
+      provider: result.provider,
+      prompt: result.prompt,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "render error", { stepNumber, error: String(err.message || err) });
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
@@ -312,31 +348,55 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
+  if (!hasFal()) {
+    console.warn("[ikealive:video]", "missing FAL_KEY — reel skipped");
+    return res.status(503).json({
+      ok: false,
+      reel: true,
+      live: false,
+      error: FAL_REQUIRED,
+      videoUrl: null,
+      steps: [],
+      partners: VIDEO_PARTNERS,
+    });
+  }
   const steps = [];
   try {
     for (const step of guide?.steps || []) {
       const result = await renderStepVideo({
         guide,
         stepNumber: step.number,
-        imageDataUrl: body.imageDataUrl,
+        extra: body.instructions || body.extra || "",
       });
+      if (!result.videoUrl) {
+        return res.status(503).json({
+          ok: false,
+          reel: true,
+          live: false,
+          error: result.reason || FAL_REQUIRED,
+          videoUrl: null,
+          steps,
+          partners: VIDEO_PARTNERS,
+        });
+      }
       steps.push({
         number: step.number,
-        live: result.provider !== "local-storyboard",
-        plan: result.frames.length ? result.frames : storyboardForStep(guide, step.number),
-        ...result,
+        live: true,
+        videoUrl: result.videoUrl,
+        provider: result.provider,
       });
     }
-    const live = steps.find((step) => step.videoUrl);
     res.json({
       ok: true,
       reel: true,
-      live: Boolean(live),
+      live: true,
       partners: VIDEO_PARTNERS,
-      videoUrl: live?.videoUrl || null,
+      videoUrl: steps[0]?.videoUrl || null,
       steps,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });
@@ -404,6 +464,13 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  * the confirmations and the refusals all live here.
  */
 app.post("/api/assembly/start", async (req, res) => {
+  const body = req.body || {};
+  console.log("[ikealive:parse]", "POST /api/assembly/start", {
+    mode: body.mode || "official",
+    article: body.article || null,
+    plates: Array.isArray(body.images) ? body.images.length : 0,
+    hasGuideText: Boolean(body.guide),
+  });
   const result = await startAssemblyAsync(req.body || {});
   if (result.ok && getAssembly(result.run?.id)?.guide) {
     state.guide = getAssembly(result.run.id).guide;

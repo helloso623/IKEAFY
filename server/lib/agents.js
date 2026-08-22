@@ -345,6 +345,40 @@ function isSceneAsk(text) {
   );
 }
 
+const STUDIO_ACTIONS = new Set(["start", "official", "next", "back", "play", "spare", "clear"]);
+
+/**
+ * Spoken / typed IKEAlive watch commands. Checked before bench generation so
+ * "get the reel" is not treated as "generate furniture".
+ */
+export function planStudioActions(message) {
+  const lower = String(message || "").toLowerCase().trim();
+  if (!lower) return { handles: false, text: "", actions: [] };
+
+  if (/\bstart\s+(the\s+)?official(\s+(lack\s+)?sheet)?\b|\bstart\s+(the\s+)?lack\b/.test(lower)) {
+    return { handles: true, text: "Starting the official LACK sheet.", actions: [{ type: "studio", action: "official" }] };
+  }
+  if (/\b(get|build|start|make)\s+(the\s+)?reel\b/.test(lower)) {
+    return { handles: true, text: "Getting the reel.", actions: [{ type: "studio", action: "start" }] };
+  }
+  if (/\bnext(\s+step)?\b/.test(lower) && !/\b(which|what|where)\b/.test(lower)) {
+    return { handles: true, text: "Next step.", actions: [{ type: "studio", action: "next" }] };
+  }
+  if (/\bprevious step\b|\bgo back\b|\bback( a)? step\b/.test(lower)) {
+    return { handles: true, text: "Back a step.", actions: [{ type: "studio", action: "back" }] };
+  }
+  if (/^\s*(play|pause|stop)(\s+the\s+(reel|film))?\s*[.!]?\s*$/.test(lower) || /\b(play|stop) the reel\b/.test(lower)) {
+    return { handles: true, text: "Toggling play.", actions: [{ type: "studio", action: "play" }] };
+  }
+  if (/\b(request|order)\s+(a\s+)?spare\b|\bsmall parts\b/.test(lower)) {
+    return { handles: true, text: "Requesting a spare.", actions: [{ type: "studio", action: "spare" }] };
+  }
+  if (/\bstart over\b|\bnew manual\b/.test(lower)) {
+    return { handles: true, text: "Starting over.", actions: [{ type: "studio", action: "clear" }] };
+  }
+  return { handles: false, text: "", actions: [] };
+}
+
 /**
  * Lab creative desk: turn a spoken request into bench actions the client
  * can apply with api.add / camera / move / scan / label / isolate.
@@ -486,7 +520,7 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "scan"]);
+  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
@@ -501,6 +535,11 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
         if (action[key] !== undefined) pose[key] = Number(action[key]);
       }
       out.push({ type: "move", id: String(action.id), ...pose });
+      continue;
+    }
+    if (action.type === "studio") {
+      const name = String(action.action || "");
+      if (STUDIO_ACTIONS.has(name)) out.push({ type: "studio", action: name });
       continue;
     }
     if (action.type === "add" || action.type === "add_part") {
@@ -551,6 +590,15 @@ function withSceneNote(text, ctx, message) {
 
 function localReply(message, ctx) {
   const agent = routeAgent(message);
+  const studio = planStudioActions(message);
+  if (studio.handles) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: `${agent.name} (${agent.model}, local steward): ${studio.text}`,
+      actions: studio.actions,
+    };
+  }
   const sceneNote = describeScene(ctx);
   if (isSceneAsk(message) && sceneNote) {
     return {
@@ -700,7 +748,11 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics.`,
+        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
+          electronics
+            ? "Electronics were requested — nano, LED, and button are fair."
+            : "Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics."
+        }`,
       },
       { role: "user", content: [message, sceneNote && `[bench scene] ${sceneNote}`].filter(Boolean).join("\n") },
     ],
@@ -720,6 +772,10 @@ async function hostedReply(message, ctx, agent) {
   const rawText = parsed?.text || json.choices?.[0]?.message?.content;
   if (!rawText && !parsed) return null;
   let actions = sanitizeActions(parsed?.actions, { electronics });
+  if (!actions.length) {
+    const studio = planStudioActions(message);
+    if (studio.handles) actions = studio.actions.map((action) => ({ ...action }));
+  }
   if (!actions.length && isCreativeAsk(message)) {
     const local = planCreativeActions(message, ctx);
     if (local.handles) actions = local.actions.map((action) => ({ ...action }));

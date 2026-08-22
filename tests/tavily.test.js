@@ -6,6 +6,8 @@ import {
   missingTools,
   neededTools,
   ownedTools,
+  pickManualPdfHit,
+  findIkeaManual,
   searchToolOffers,
 } from "../server/lib/tavily.js";
 
@@ -95,6 +97,71 @@ test("shoppingListAsync fills live retailers when Tavily is keyed", async () => 
     const extra = list.extra.find((line) => line.id === "allen-key") || list.missing.find((line) => line.id === "allen-key");
     assert.ok(extra, "allen-key should be to purchase when it is not in a kit");
     assert.ok(extra.retailers.some((o) => o.live && o.url));
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("pickManualPdfHit prefers an IKEA assembly PDF", () => {
+  const hit = pickManualPdfHit([
+    { title: "BILLY bookcase", url: "https://www.ikea.com/gb/en/p/billy-bookcase/" },
+    { title: "BILLY assembly instructions", url: "https://www.ikea.com/gb/en/assembly_instructions/billy.pdf" },
+  ]);
+  assert.match(hit.url, /\.pdf$/);
+});
+
+test("findIkeaManual uses a catalog stand-in without a Tavily key", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  delete process.env.TAVILY_API_KEY;
+  try {
+    const found = await findIkeaManual("lack table");
+    assert.equal(found.ok, false);
+    assert.equal(found.partner, "tavily-standin");
+    assert.equal(found.pdfBase64, null);
+    assert.ok(found.catalog.some((row) => row.id === "lack-table"));
+    assert.match(found.reason, /TAVILY_API_KEY/);
+  } finally {
+    if (previous === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previous;
+  }
+});
+
+test("findIkeaManual fetches the PDF Tavily returned, not a side scrape", async () => {
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "tvly-test";
+  const calls = [];
+  const fetchFn = async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method || "GET" });
+    if (String(url).includes("api.tavily.com")) {
+      return {
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              title: "MALM assembly instructions",
+              url: "https://www.ikea.com/assembly_instructions/malm.pdf",
+              content: "IKEA PDF",
+            },
+          ],
+        }),
+      };
+    }
+    return {
+      ok: true,
+      arrayBuffer: async () => Buffer.from("%PDF-1.4 fake manual"),
+    };
+  };
+  try {
+    const found = await findIkeaManual("MALM dresser", { fetchFn });
+    assert.equal(found.ok, true);
+    assert.equal(found.partner, "tavily");
+    assert.equal(found.pdfUrl, "https://www.ikea.com/assembly_instructions/malm.pdf");
+    assert.ok(found.pdfBase64);
+    assert.equal(Buffer.from(found.pdfBase64, "base64").subarray(0, 5).toString(), "%PDF-");
+    assert.equal(calls[0].method, "POST");
+    assert.match(calls[0].url, /api\.tavily\.com\/search/);
+    assert.equal(calls[1].url, found.pdfUrl);
   } finally {
     if (previous === undefined) delete process.env.TAVILY_API_KEY;
     else process.env.TAVILY_API_KEY = previous;
