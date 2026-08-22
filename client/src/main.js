@@ -1,5 +1,7 @@
 import { api } from "./api.js";
-import { bindOmnibox, catalogNeedle, ensureOmnibox, parseBudget } from "./omnibox.js";
+import { bindAiDock } from "./ai-dock.js";
+import { catalogNeedle, parseBudget } from "./omnibox.js";
+import { sceneContext } from "./scene-context.js";
 import { initHouse } from "./house.js";
 import { initLabStrip } from "./lab.js";
 import { initLabLayout } from "./lab-layout.js";
@@ -17,6 +19,7 @@ let selectedIds = [];
 let costBarrier = "";
 let studio = null;
 let house = null;
+let aiDock = null;
 // KiCad bench: half-drawn wire and the net lit up from the netlist panel.
 let pendingPort = null;
 let highlightedNet = null;
@@ -124,8 +127,9 @@ function sizePlain(part) {
 }
 
 /**
- * Lab is furniture-only for now. Electronics chrome (Arduino, nets, isolate)
- * stays off the panel even if catalog parts still exist on the server.
+ * Lab is furniture/hardware by default. Electronics chrome (Arduino, nets,
+ * isolate) stays off the panel. Boards only land on the shelf when #search /
+ * shop chat asks for them, or the Show electronics toggle is on.
  */
 function applyChrome(chrome) {
   void chrome?.electronics;
@@ -186,6 +190,7 @@ async function refreshProject() {
   syncEditButtons();
   renderBenchPieces();
   syncFunctionStrip();
+  aiDock?.refreshScene();
 }
 
 function renderBenchPieces() {
@@ -218,12 +223,39 @@ function escapeHtml(value) {
 }
 
 function searchBoxes() {
-  return [$("omnibox"), $("search")].filter(Boolean);
+  return [$("chat-in"), $("search")].filter(Boolean);
 }
 
 function activeQuery() {
   const focused = searchBoxes().find((node) => node === document.activeElement);
-  return String(focused?.value ?? $("omnibox")?.value ?? $("search")?.value ?? "");
+  return String(focused?.value ?? $("chat-in")?.value ?? $("search")?.value ?? "");
+}
+
+function currentScene() {
+  const app = $("app");
+  const picked = selectedPiece() || shop.getSelected?.();
+  const pieces = (project.pieces || []).map((piece) => ({
+    id: piece.id,
+    partId: piece.partId,
+    name: partsById[piece.partId]?.name || piece.partId,
+  }));
+  return sceneContext({
+    mode: app?.dataset.mode || "ikeafy",
+    interfaceName: app?.dataset.interface || "upload",
+    lab: app?.dataset.lab || "desk",
+    product: studio?.state?.guide?.product || $("product-name")?.value || "",
+    step: studio?.state?.run?.cursor || studio?.state?.step?.number,
+    partId: picked?.part?.id || picked?.piece?.partId || "",
+    partName: picked?.part?.name || "",
+    pieceCount: pieces.length,
+    pieces,
+    room: {
+      widthM: Number($("room-w")?.value),
+      depthM: Number($("room-d")?.value),
+      budget: Number($("room-budget")?.value),
+    },
+    costBarrier: $("cost")?.value || costBarrier,
+  });
 }
 
 function updateCatalogHint(parts) {
@@ -321,17 +353,24 @@ async function applyShopActions(actions) {
 async function askShop(message) {
   const text = String(message || "").trim();
   if (!text) return;
+  void loadCatalog(text);
   appendChat("you", text);
+  aiDock?.remember(text);
+  aiDock?.setOpen(true);
   hud("Asking the shop…");
   try {
+    const scene = currentScene();
     const reply = await api.chat(text, {
-      costBarrier: $("cost")?.value || parseBudget(text) || costBarrier,
-      step: studio?.state?.run?.cursor,
-      partId: shop.getSelected()?.part?.id,
+      costBarrier: $("cost")?.value || parseBudget(text) || scene.costBarrier || costBarrier,
+      step: scene.step,
+      partId: scene.partId,
+      room: scene.room,
+      scene,
     });
     appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
     await applyShopActions(reply.actions);
     await refreshProject();
+    aiDock?.refreshScene();
     hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
   } catch (err) {
     appendChat("shop", err.message || "The shop could not answer.");
@@ -339,19 +378,21 @@ async function askShop(message) {
   }
 }
 
-const omnibox = ensureOmnibox();
-bindOmnibox({
-  boxes: searchBoxes(),
-  form: omnibox.form || $("omnibox-form"),
-  askButton: omnibox.ask || $("omnibox-ask"),
-  onFilter: (query) => loadCatalog(query),
-  onAsk: (query) => {
+aiDock = bindAiDock({
+  orb: $("ai-orb"),
+  dock: $("ai-dock"),
+  close: $("ai-dock-close"),
+  sceneNode: $("ai-scene"),
+  historyNode: $("ai-history"),
+  input: $("chat-in"),
+  getScene: () => currentScene(),
+  onReplay: (query) => {
     loadCatalog(query);
     askShop(query);
   },
 });
 
-$("catalog").addEventListener("click", async (ev) => {
+$("catalog")?.addEventListener("click", async (ev) => {
   const ask = ev.target.closest("[data-ask]");
   if (ask) {
     askShop(ask.dataset.ask || activeQuery());
@@ -389,6 +430,10 @@ $("cost")?.addEventListener("change", () => {
 $("show-electronics")?.addEventListener("change", () => {
   loadCatalog(activeQuery());
 });
+
+for (const box of searchBoxes()) {
+  box.addEventListener("input", () => loadCatalog(box.value));
+}
 
 function selectedPiece() {
   const id = selectedPieceId();
@@ -432,6 +477,7 @@ function showPart(part, piece) {
   inspect(lines.join("\n"));
   syncEditButtons();
   syncFunctionStrip();
+  aiDock?.refreshScene();
 }
 
 shop.onSelect((data) => {
@@ -717,6 +763,7 @@ function setLabSpace(space) {
   if (isLab()) hud(labHud(space));
   shop.resize();
   if (isLab()) console.log("[ikealive:lab]", "space", space);
+  aiDock?.refreshScene();
 }
 
 function setMode(mode) {
@@ -753,6 +800,7 @@ function setMode(mode) {
   }
   shop.resize();
   console.log("[ikealive:lab]", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });
+  aiDock?.refreshScene();
 }
 
 for (const btn of document.querySelectorAll("#modes button")) {

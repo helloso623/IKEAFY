@@ -621,7 +621,7 @@ export function labShelfParts(parts = PARTS) {
   return parts.filter(isLabShelfPart).map((p) => ({ ...p }));
 }
 
-/** Typed in #search / #omnibox — boards stay hidden until one of these hits. */
+/** Typed in shop chat — boards stay hidden until one of these hits. */
 export const ELECTRONICS_SEARCH =
   /\b(arduino|leds?|nano|esp(?:32)?|resistors?|breadboards?|jumpers?|solder(?:ing)?)\b/i;
 

@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROSTER, chat, planCreativeActions, planStudioActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
+import {
+  ROSTER,
+  chat,
+  describeScene,
+  mergeChatContext,
+  planCreativeActions,
+  planStudioActions,
+  routeAgent,
+  shouldEscalate,
+} from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
 
 function withoutHosted(fn) {

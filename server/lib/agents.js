@@ -641,7 +641,7 @@ async function hostedReply(message, ctx, agent) {
             : "Furniture, tables, or catalog parts only — no Arduino, ports, firmware, or boards."
         }`,
       },
-      { role: "user", content: message },
+      { role: "user", content: describeScene(ctx.scene) ? `${message}\n\nScene: ${describeScene(ctx.scene)}` : message },
     ],
   };
   const fetchFn = ctx.fetchFn || fetch;

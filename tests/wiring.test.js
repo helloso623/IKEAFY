@@ -80,7 +80,10 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(html, /data-watch-card="reviews"/);
   assert.match(html, /data-watch-card="broken"/);
   assert.match(html, /data-watch-card="spare"/);
-  assert.match(html, /id="omnibox"/);
+  assert.doesNotMatch(html, /id="omnibox"/);
+  assert.doesNotMatch(html, /id="omnibox-form"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-dock"/);
   const side = html.slice(html.indexOf('class="studio-side"'), html.indexOf('class="studio-side"') + 220);
   assert.match(side, /Assembly inventory|IKEAlive watch|part ID/i);
 });
@@ -114,6 +117,9 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(html, /id="ikea-chat-form"/);
   assert.match(html, /id="ikea-voice"/);
   assert.match(html, /id="lab-voice"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-history"/);
+  assert.match(html, /id="ai-scene"/);
   assert.equal(/<details class="studio-chat">/.test(html), false);
   assert.match(studio, /bindVoice/);
   assert.match(main, /bindVoice/);
@@ -360,4 +366,25 @@ test("Lab chrome is a CAD browser, viewport, and inspector", () => {
   assert.match(html, /data-lab-split="left"/);
   assert.match(html, /data-lab-toggle="right"/);
   assert.match(css, /--lab-left/);
+});
+
+test("the shop is a bottom-right AI circle with chat, voice, history, and scene", () => {
+  const header = html.slice(html.indexOf('class="top"'), html.indexOf("</header>"));
+  assert.doesNotMatch(header, /omnibox/);
+  assert.doesNotMatch(header, /id="omnibox-ask"/);
+  assert.match(html, /id="ai-orb"/);
+  assert.match(html, /id="ai-dock"/);
+  assert.match(html, /id="ai-scene"/);
+  assert.match(html, /id="ai-history"/);
+  assert.match(html, /id="chat-form"/);
+  assert.match(html, /id="lab-voice"/);
+  const inspector = html.slice(html.indexOf("lab-inspector"), html.indexOf("ai-orb"));
+  assert.doesNotMatch(inspector, /id="chat-form"/);
+  const css = read("client/src/styles.css");
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*right:/);
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*bottom:/);
+  assert.match(css.replace(/\s+/g, " "), /\.ai-orb[^}]*border-radius:\s*50%/);
+  assert.match(main, /bindAiDock/);
+  assert.match(main, /sceneContext/);
+  assert.match(main, /scene,/);
 });

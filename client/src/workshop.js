@@ -1147,6 +1147,7 @@ export function createWorkshop(canvas) {
 
   const timelineEl = document.getElementById("cad-timeline");
   const dimsEl = document.getElementById("cad-dims");
+  const measureEl = document.getElementById("cad-measure");
   const benchPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const sketchFx = new THREE.Group();
   scene.add(sketchFx);
@@ -1207,9 +1208,15 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && measureOn) {
+      measureOn = false;
+      clearMeasure();
+      canvas.classList.remove("measuring");
+      emitViewport();
+    }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected) transform.attach(selected);
+    else if (selected && !measureOn) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -1235,7 +1242,7 @@ export function createWorkshop(canvas) {
   const dimBox = new THREE.Box3();
   const dimCenter = new THREE.Vector3();
   function updateDims() {
-    if (!dimsEl || sketch) return;
+    if (!dimsEl || sketch || measureOn) return;
     const data = selected?.userData;
     if (!data?.part || !selected.parent) {
       dimsEl.classList.remove("on");
@@ -1253,6 +1260,133 @@ export function createWorkshop(canvas) {
     const dep = Math.max(1, Math.round(d.y * selected.scale.z));
     const h = Math.max(1, Math.round(d.z * selected.scale.y));
     placeDims(dimCenter, `<strong>${w} × ${dep} × ${h} mm</strong><small>${escText(data.part.name)}</small>`);
+  }
+
+  /* ---- Measure: click two world points, read millimetres (Blender ruler) ---- */
+  const measureFx = new THREE.Group();
+  scene.add(measureFx);
+  const measureDotGeo = new THREE.SphereGeometry(0.006, 14, 12);
+  const measureDotMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const measureLineMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  let measureA = null;
+  let measureB = null;
+  let measureLocked = false;
+  let measureDown = null;
+
+  function snapMeasure(point) {
+    const step = snapOn ? 0.001 : 0.0001;
+    return new THREE.Vector3(
+      Math.round(point.x / step) * step,
+      Math.round(point.y / step) * step,
+      Math.round(point.z / step) * step,
+    );
+  }
+
+  function hitWorld(ev) {
+    pointAt(ev);
+    const hits = ray.intersectObjects([group, bench, floor], true);
+    if (hits.length) return hits[0].point.clone();
+    const out = new THREE.Vector3();
+    return ray.ray.intersectPlane(benchPlane, out) ? out : null;
+  }
+
+  function clearMeasure() {
+    measureA = null;
+    measureB = null;
+    measureLocked = false;
+    measureFx.clear();
+    measureEl?.classList.remove("on");
+  }
+
+  function drawMeasure() {
+    measureFx.clear();
+    if (!measureA) return;
+    const a = new THREE.Mesh(measureDotGeo, measureDotMat);
+    a.position.copy(measureA);
+    measureFx.add(a);
+    if (!measureB) return;
+    const b = new THREE.Mesh(measureDotGeo, measureDotMat);
+    b.position.copy(measureB);
+    measureFx.add(b);
+    measureFx.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([measureA, measureB]), measureLineMat));
+  }
+
+  function fmtMm(meters) {
+    const rounded = Math.round(meters * 1000 * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded} mm` : `${rounded.toFixed(1)} mm`;
+  }
+
+  function placeMeasure(world, html) {
+    if (!measureEl) return;
+    dimVec.copy(world).project(camera);
+    if (dimVec.z > 1) {
+      measureEl.classList.remove("on");
+      return;
+    }
+    measureEl.style.left = `${(dimVec.x * 0.5 + 0.5) * canvas.clientWidth}px`;
+    measureEl.style.top = `${(-dimVec.y * 0.5 + 0.5) * canvas.clientHeight}px`;
+    if (measureEl.dataset.body !== html) {
+      measureEl.dataset.body = html;
+      measureEl.innerHTML = html;
+    }
+    measureEl.classList.add("on");
+  }
+
+  function updateMeasureLabel() {
+    if (!measureEl || !measureOn || !measureA || !measureB) {
+      measureEl?.classList.remove("on");
+      return;
+    }
+    const mid = measureA.clone().lerp(measureB, 0.5);
+    const dx = Math.round(Math.abs(measureB.x - measureA.x) * 1000);
+    const dy = Math.round(Math.abs(measureB.y - measureA.y) * 1000);
+    const dz = Math.round(Math.abs(measureB.z - measureA.z) * 1000);
+    placeMeasure(
+      mid,
+      `<strong>${fmtMm(measureA.distanceTo(measureB))}</strong><small>Δ ${dx} × ${dy} × ${dz} mm</small>`,
+    );
+  }
+
+  function measureClick(ev) {
+    const hit = hitWorld(ev);
+    if (!hit) return;
+    const point = snapMeasure(hit);
+    if (!measureA || measureLocked) {
+      measureA = point;
+      measureB = null;
+      measureLocked = false;
+      drawMeasure();
+      return;
+    }
+    measureB = point;
+    measureLocked = true;
+    drawMeasure();
+  }
+
+  function setMeasure(on) {
+    const next = Boolean(on);
+    if (next === measureOn) return measureOn;
+    measureOn = next;
+    canvas.classList.toggle("measuring", measureOn);
+    if (measureOn) {
+      if (cadTool) setCadTool(null);
+      transform.detach();
+    } else {
+      clearMeasure();
+      if (selected && !cadTool) transform.attach(selected);
+    }
+    emitViewport();
+    return measureOn;
   }
 
   function sketchCenter(s) {
@@ -1785,6 +1919,10 @@ export function createWorkshop(canvas) {
 
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0 || transform.dragging) return;
+    if (measureOn) {
+      measureDown = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
     if (cadTool === "sketch-rect" || cadTool === "sketch-circle") {
       sketchDown(ev);
       return;
@@ -1794,6 +1932,15 @@ export function createWorkshop(canvas) {
       return;
     }
     pick(ev);
+  });
+
+  canvas.addEventListener("pointerup", (ev) => {
+    if (!measureOn || !measureDown || ev.button !== 0) return;
+    const dx = ev.clientX - measureDown.x;
+    const dy = ev.clientY - measureDown.y;
+    measureDown = null;
+    if (dx * dx + dy * dy > 25) return;
+    measureClick(ev);
   });
 
   function resize() {
@@ -1901,6 +2048,7 @@ export function createWorkshop(canvas) {
     if (boxHelper && selected) boxHelper.update();
     if (jointMark && jointFirstMesh) jointMark.update();
     updateDims();
+    updateMeasureLabel();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
