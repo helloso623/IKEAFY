@@ -84,7 +84,7 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(html, /id="ai-orb"/);
   assert.match(html, /id="ai-dock"/);
   const side = html.slice(html.indexOf('class="studio-side"'), html.indexOf('class="studio-side"') + 220);
-  assert.match(side, /Assembly inventory|IKEAlive watch|part ID/i);
+  assert.match(side, /Components|IKEAlive watch|part ID/i);
 });
 
 test("the css does not hide the custom notes while the studio is open", () => {
@@ -592,9 +592,10 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(html, /Listing components/);
   assert.match(html, /Writing steps/);
   assert.match(styles, /\.finish-progress\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
-  assert.match(styles, /\.lab-view-tools,\s*\.lab-view-meta\s*\{\s*pointer-events:\s*auto;/);
-  assert.match(html, /visual and dimensional similarity/);
-  assert.match(html, /Ways-to-make history/);
+  assert.match(styles, /\.lab-view-tools,\s*\.lab-view-meta\s*\{[^}]*pointer-events:\s*auto;/);
+  assert.match(html, /sized component list, build method, PDF, and playable IKEAlive DIY guide/);
+  assert.match(html, /DIY plan history/);
+  assert.match(html, /id="guide-title"/);
   assert.match(apiSource, /^\s{2}startFinishProject:/m);
   assert.match(apiSource, /^\s{2}finishJob:/m);
   assert.match(apiSource, /^\s{2}diyCurrent:/m);
@@ -605,9 +606,9 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(main, /api\.finishJob\(id\)/);
   assert.match(main, /finishModelSnapshot/);
   assert.match(main, /Reading the model/);
-  assert.match(main, /closest physical result/);
+  assert.match(main, /DIY plan ready/);
   assert.match(main, /refreshCurrentDiy/);
-  assert.match(main, /Ways PDF/);
+  assert.match(main, /DIY PDF/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
   assert.match(studio, /function installGuideReel/);
@@ -616,7 +617,8 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(studio, /clip\.kind === "guide"/);
   assert.match(main, /shop\.onSculpt[\s\S]*refreshCurrentDiy/);
   assert.match(main, /shop\.onMeshEdit[\s\S]*refreshCurrentDiy/);
-  assert.match(main, /connection-hardware lines/);
+  assert.match(studio, /Components to buy/);
+  assert.match(studio, /Estimated total/);
 });
 
 test("workshop floor is one surface — no GridHelper, no shadow fight", () => {

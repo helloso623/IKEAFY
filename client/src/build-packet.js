@@ -33,6 +33,8 @@ export function buildPacketHtml(packet = {}) {
   const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || bom.researchResults || [];
+  const dims = bom.modelDimensionsMm || {};
+  const finishedSize = `${Number(dims.x) || 0} × ${Number(dims.y) || 0} × ${Number(dims.z) || 0} mm`;
   const rows = lines
     .map(
       (line) => `<tr>
@@ -108,7 +110,7 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Object"} DIY plan`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -132,17 +134,17 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive build packet · closest way to make this model</p>
+  <p class="kicker">IKEAlive DIY plan</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
-  <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated materials: $${Number(
+  <div class="meta"><span>Finished size: ${escapeHtml(finishedSize)}</span><span>Estimated components: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
   <p class="match"><strong>Closest physical result:</strong> ${escapeHtml(bom.similarityScore || 0)}% visual / dimensional similarity.
     ${escapeHtml(bom.similarity?.reason || "")}</p>
-  <h2>Ways to make the final model</h2>
+  <h2>Build method</h2>
   ${wayRows}
-  <h2>Geometry-derived pieces and cut list</h2>
+  <h2>Shaped pieces to buy or cut</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -156,8 +158,8 @@ export function buildPacketHtml(packet = {}) {
   </table>`
       : ""
   }
-  ${liveRows ? `<h2>Live piece and hardware matches</h2><ul>${liveRows}</ul>` : ""}
-  <h2>IKEAlive watch / plan / todo</h2>
+  ${liveRows ? `<h2>Live component sources</h2><ul>${liveRows}</ul>` : ""}
+  <h2>Numbered build steps</h2>
   <ol>${stepRows}</ol>
   <p class="warning">${escapeHtml(bom.disclaimer || "")}</p>
 </body>
@@ -166,7 +168,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the construction-way PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the DIY plan PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();

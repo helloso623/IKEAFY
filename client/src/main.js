@@ -344,7 +344,7 @@ async function refreshCurrentDiy() {
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Reading geometry and refreshing boards, connection hardware, and construction routes…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Refreshing the DIY plan for the current geometry…</span>`;
   try {
     const packet = await api.diyCurrent(meshModel);
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
@@ -378,31 +378,32 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">Ways PDF</button>
+              <button type="button" class="quiet" data-piece-plan="${escapeHtml(entry.id)}">DIY PDF</button>
             </li>`,
           )
           .join("")
-      : `<li class="hint">No ways-to-make revisions yet.</li>`;
+      : `<li class="hint">No saved DIY plans yet.</li>`;
   }
   const current = active || liveDiy || builds.at(-1);
   if (out && current) {
     const bom = current.bom || {};
+    const route = bom.ways?.find((way) => way.recommended) || bom.ways?.[0];
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${escapeHtml(bom.similarityScore ?? 0)}% closest result · ${bom.ways?.length || 0} construction ways · ${
-        bom.cutList?.length || 0
-      } geometry-derived pieces · ${bom.hardwareLines?.length || 0} hardware lines · estimated $${Number(
+      <span>${escapeHtml(bom.similarityScore ?? 0)}% visual match · ${escapeHtml(
+        route?.title || "custom construction",
+      )} · ${bom.lines?.length || 0} components · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
-        bom.live ? " · live piece matches" : " · catalog and cut links"
+        bom.live ? " · live sources" : " · buying and cut links"
       }</span>
       <div class="row wrap">
         ${
           current.id
-            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print way + cut list</button>`
+            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print DIY plan</button>`
             : `<span class="hint">Live current design · Finish / Find a way to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
-          current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
+          current.planSteps ? `${current.planSteps} playable IKEAlive DIY steps` : current.current ? "updates when the mesh changes" : "IKEAlive DIY plan ready",
         )}</span>
       </div>`;
   }
@@ -410,7 +411,7 @@ function renderDiyHistory(active = null) {
 
 function openPiecePlanPrint(build) {
   const bom = build?.bom;
-  if (!bom?.lines?.length) return hud("That saved revision has no table-piece list.");
+  if (!bom?.lines?.length) return hud("That saved revision has no DIY component list.");
   try {
     openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
   } catch (error) {
@@ -1495,8 +1496,9 @@ $("finish-model")?.addEventListener("click", async () => {
     await studio?.openAssemblyView?.(packet.assembly, { label: "researched build tutorial" });
     paintFinishProgress({ percent: 100, text: "Tutorial ready.", status: "complete" });
     hud(
-      `${packet.bom?.similarityScore || 0}% closest physical result · ${packet.bom?.ways?.length || 0} scored ways · ` +
-        `${packet.bom?.cutList?.length || 0} geometry-derived pieces · ${packet.bom?.hardwareLines?.length || 0} connection-hardware lines · PDF and IKEAlive todo ready.`,
+      `DIY plan ready · ${packet.bom?.similarityScore || 0}% visual match · ${
+        packet.bom?.lines?.length || 0
+      } sized components · ${packet.assembly?.outline?.length || 0} playable IKEAlive steps.`,
     );
   } catch (error) {
     printWindow?.close();
@@ -2081,13 +2083,6 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
   if (!message) return;
   $("chat-in").value = "";
   await askShop(message);
-});
-
-bindVoice({
-  button: $("lab-voice"),
-  status: $("lab-voice-status"),
-  input: $("chat-in"),
-  onHear: (text) => askShop(text),
 });
 
 window.__ikeafyApplyShop = applyShopActions;

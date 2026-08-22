@@ -551,6 +551,14 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   padding: 0 1.75rem 1.25rem;
 }
 
+.guide-title {
+  margin: 0 0 0.45rem;
+  font-family: "Clash Display", var(--type);
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
 /* ----------------------------------------------------------- details folds */
 
 /* -------------------------------------------------------------------- chat */
@@ -822,6 +830,12 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .bom-group .offers a {
   font-size: 0.78rem;
   color: #0b5c4a;
+}
+.bom-total {
+  margin: 0.85rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
 }
 
 .review-notes {
@@ -2648,10 +2662,6 @@ body.lab-resizing * {
   display: flex;
   align-items: center;
   gap: 0.2rem;
-}
-
-.lab-view-tools,
-.lab-view-meta {
   pointer-events: auto;
 }
 

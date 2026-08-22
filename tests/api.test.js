@@ -127,8 +127,11 @@ test("finish starts a progress job, scores the current model, and preserves prio
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
+  assert.match(packet.assembly.guide.title, /^DIY Plan — /);
+  assert.match(packet.planSource, /COMPONENTS TO BUY[\s\S]*NUMBERED STEPS/);
   assert.equal(packet.assembly.guide.bom.extra.length, packet.bom.lines.length);
   assert.ok(packet.assembly.guide.bom.extra.every((line) => line.name && line.qty && line.dimensions));
+  assert.ok(packet.assembly.guide.bom.extra.every((line) => Number.isFinite(line.estimatedCost)));
   assert.ok(
     packet.assembly.guide.bom.extra.every((line) =>
       line.retailers.every((retailer) => !/mcmaster/i.test(`${retailer.store} ${retailer.url}`)),

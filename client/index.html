@@ -222,6 +222,7 @@
           <div id="step-detail" class="copy"></div>
         </div>
         <div class="step-transport" data-pane="ikeafy">
+          <h2 id="guide-title" class="guide-title hidden" aria-live="polite"></h2>
           <div id="lock-banner" class="lock-banner"></div>
           <div id="steps" class="list step-list" data-editable="false"></div>
         </div>
@@ -229,16 +230,16 @@
 
       <!-- ============ WATCH — four Finley-style cards ============ -->
       <aside class="rail cards" data-pane="ikeafy" data-watch-card="bom" aria-label="IKEAlive watch">
-        <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
+        <section class="studio-side" aria-label="Components, build help, part identification and small parts">
           <nav class="watch-picks" aria-label="Watch cards">
-            <button type="button" class="watch-pick on" data-watch-card="bom">Assembly inventory</button>
+            <button type="button" class="watch-pick on" data-watch-card="bom">Components</button>
             <button type="button" class="watch-pick" data-watch-card="reviews">Where people had troubles</button>
             <button type="button" class="watch-pick" data-watch-card="broken">Part identification desk</button>
             <button type="button" class="watch-pick" data-watch-card="spare">Small parts service</button>
           </nav>
           <div class="panel watch bom">
-            <h2>Assembly inventory</h2>
-            <p class="hint">Kit in the box, then anything extra to pick up.</p>
+            <h2>Components</h2>
+            <p class="hint">Every included part or item to buy, with sizes and prices when known.</p>
             <div id="bom" class="copy bom-list"></div>
           </div>
 
@@ -559,7 +560,7 @@
               <div id="design-issues" class="design-issues" aria-live="polite">
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
-              <p class="hint">The scan control under the room view bakes this fit. Finish / Find a way scores physical methods and finds boards plus connection hardware for the current model.</p>
+              <p class="hint">The scan control under the room view bakes this fit. Finish / Find a way creates a sized DIY component list and numbered tutorial for the current model.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -685,9 +686,9 @@
             </div>
           </details>
           <details class="lab-sheet" id="diy-build-sheet">
-            <summary class="lab-sheet-sum">Ways-to-make history</summary>
+            <summary class="lab-sheet-sum">DIY plan history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, sources pieces and stock, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
+              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, then creates a sized component list, build method, PDF, and playable IKEAlive DIY guide. Older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>
@@ -715,9 +716,9 @@
       >
         3D
       </button>
-      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Editable 3D generator">
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Generate editable 3D">
         <header class="ai-dock-head">
-          <strong>3D Generator</strong>
+          <strong>Generate 3D</strong>
           <div class="ai-dock-head-actions">
             <button type="button" id="ai-dock-max" class="quiet" aria-pressed="false" title="Maximize the 3D generator">Maximize</button>
             <button type="button" id="ai-dock-close" class="quiet">Close</button>

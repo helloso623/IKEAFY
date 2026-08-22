@@ -219,11 +219,14 @@ test("piece-plan source is numbered for the IKEAlive parser", () => {
     pieces: [piece("generic-shelf-board", "shelf")],
   });
   const source = buildPlanSource(plan);
-  assert.match(source, /Construction ways:/);
-  assert.match(source, /Closest construction similarity:/);
-  assert.match(source, /Geometry-derived pieces:/);
-  assert.match(source, /Connection hardware:/);
+  assert.match(source, /^DIY Plan — Shelf/m);
+  assert.match(source, /Recommended method:.*visual match/);
+  assert.match(source, /COMPONENTS TO BUY/);
+  assert.match(source, /Estimated component total: \$\d+\.\d{2} USD/);
+  assert.match(source, /BUILD METHOD/);
+  assert.match(source, /NUMBERED STEPS/);
   assert.match(source, /shelf support brackets/i);
-  assert.match(source, /^1\. Freeze this model revision/m);
-  assert.match(source, /^6\. Place the object/m);
+  assert.match(source, /^1\. Check the saved model/m);
+  assert.match(source, /^8\. Compare the finished object/m);
+  assert.doesNotMatch(source, /Build scope:|Geometry-derived pieces:/);
 });

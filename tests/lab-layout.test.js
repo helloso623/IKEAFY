@@ -201,6 +201,6 @@ test("IKEAlive watch rail stays a fixed two-column page", () => {
   assert.match(watchCss, /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(280px, 340px\)/);
   assert.match(html, /class="studio-side"/);
   assert.match(html, /class="panel watch bom"/);
-  assert.match(html, /Assembly inventory/);
+  assert.match(html, />Components</);
   assert.doesNotMatch(html.slice(html.indexOf('class="studio-side"'), html.indexOf("LAB — outliner")), /data-lab-split/);
 });

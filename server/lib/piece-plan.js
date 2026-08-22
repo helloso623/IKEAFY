@@ -809,45 +809,53 @@ export function pieceBomForProject(project = {}, options = {}) {
 export const buildWaysForProject = pieceBomForProject;
 
 function numberedSteps(build) {
-  const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
-  const hardware = build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
+  const route = build.ways.find((way) => way.recommended) || build.ways[0];
+  const pieces = build.cutList.map((line) => `${line.name} (${line.dimensions})`).join(", ");
+  const hardware = build.hardwareLines.map((line) => `${line.qty} × ${line.name}`).join(", ");
   return [
-    `1. Freeze this model revision at ${dimsText(build.modelDimensionsMm)} and verify its piece list: ${pieces}.`,
-    `2. Choose the ${build.similarityScore}% closest construction route, then buy or cut every shaped piece to the listed finished millimetres.`,
-    `3. Source the connection hardware for this revision: ${hardware}.`,
-    "4. Lay out the shaped pieces in the same positions as the current 3D model and dry-fit the complete object.",
-    "5. Assemble the selected pieces with the listed connection hardware and joinery appropriate to their real material and thickness, preserving the modeled overhang and offsets.",
-    "6. Place the object in its intended orientation, compare its silhouette and dimensions with this saved revision, and check stability before loading it.",
+    `1. Check the saved model against the ${dimsText(build.modelDimensionsMm)} finished size, then review the component list before buying or cutting anything.`,
+    `2. Buy the sized pieces and connection items listed above. Confirm the real material thickness before leaving the store.`,
+    `3. Mark and cut the shaped pieces to their finished dimensions: ${pieces}. Sand or deburr every cut edge.`,
+    `4. Prepare the ${route?.title || "recommended construction"} joints. ${route?.joinery || "Use joinery appropriate to the listed material and thickness."}`,
+    "5. Lay every component out in its modeled position and dry-fit the complete object. Check offsets, overhangs, and orientation before fastening.",
+    `6. Assemble the supports and base first using ${hardware || "the listed joinery"}, keeping the structure square and level.`,
+    "7. Attach the remaining shaped pieces and top, working from the center outward so the modeled silhouette and spacing stay consistent.",
+    "8. Compare the finished object with the saved model, tighten each connection, and test stability on a level floor before applying load.",
   ];
 }
 
 export function buildPlanSource(build) {
-  const match = build.ikeaMatch
-    ? `IKEA dimension match: ${build.ikeaMatch.name}, article ${build.ikeaMatch.article}. ${build.ikeaMatch.note}`
-    : "No IKEA article matched the current modeled dimensions closely enough.";
-  const alternatives = build.ways
-    .map((way) => {
-      const additions = way.additionalPieces?.length
-        ? ` Additional pieces: ${way.additionalPieces.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ")}.`
-        : "";
-      return `${way.title} — ${way.similarity?.score || 0}% similar: ${way.summary} Construction: ${way.joinery}${additions}`;
-    })
-    .join("\n");
+  const route = build.ways.find((way) => way.recommended) || build.ways[0];
+  const componentLines = build.lines.map((line) => {
+    const material = line.material ? ` — ${line.material}` : "";
+    const price = Number(line.estimatedCost) > 0 ? ` — est. $${Number(line.estimatedCost).toFixed(2)}` : "";
+    return `- ${line.qty} × ${line.name} — ${line.dimensions}${material}${price}`;
+  });
+  const dimensionMatch = build.ikeaMatch
+    ? `Dimension-matched option: ${build.ikeaMatch.name}, article ${build.ikeaMatch.article}.`
+    : null;
   return [
-    `${build.name} — ways to make the current model`,
-    `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
-    `Build scope: ${build.scope}.`,
-    `Closest construction similarity: ${build.similarityScore}% (${build.similarity?.reason || "geometry-derived route"}).`,
-    match,
-    `Geometry-derived pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
-    `Connection hardware: ${build.hardwareLines.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ")}`,
-    "Construction ways:",
-    alternatives,
+    `DIY Plan — ${build.name}`,
+    `Finished size: ${dimsText(build.modelDimensionsMm)}.`,
+    `Recommended method: ${route?.title || "Piece-for-piece construction"} — ${build.similarityScore}% visual match.`,
+    `Why it matches: ${build.similarity?.reason || "The route follows the current geometry and dimensions."}`,
+    dimensionMatch,
     "",
+    "COMPONENTS TO BUY",
+    ...componentLines,
+    `Estimated component total: $${Number(build.estimatedTotal || 0).toFixed(2)} ${build.currency}.`,
+    "",
+    "BUILD METHOD",
+    route?.summary || "Build each visible body to the current model dimensions.",
+    route?.joinery || "Choose joinery suitable for the listed materials and finished thicknesses.",
+    "",
+    "NUMBERED STEPS",
     ...numberedSteps(build),
     "",
     `Safety: ${build.disclaimer}`,
-  ].join("\n");
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 }
 
 export async function finishFurnitureBuild(project = {}, deps = {}) {

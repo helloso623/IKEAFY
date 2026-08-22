@@ -64,17 +64,18 @@ test("print packet contains furniture pieces and parsed todo steps", () => {
   });
 
   assert.match(html, /Table &lt;one&gt;/);
-  assert.match(html, /Ways to make the final model/);
+  assert.match(html, /IKEAlive DIY plan/);
+  assert.match(html, /Build method/);
   assert.match(html, /Cut top \+ ready-made legs/);
   assert.match(html, /96% similar/);
   assert.match(html, /dimensions 100%.*silhouette 100%/);
-  assert.match(html, /Geometry-derived pieces and cut list/);
+  assert.match(html, /Shaped pieces to buy or cut/);
   assert.match(html, /birch plywood/);
   assert.match(html, /Connection hardware/);
   assert.match(html, /Table-leg mounting plate/);
-  assert.match(html, /Live piece and hardware matches/);
+  assert.match(html, /Live component sources/);
   assert.match(html, /Cut-to-size table plan/);
-  assert.match(html, /IKEAlive watch \/ plan \/ todo/);
+  assert.match(html, /Numbered build steps/);
   assert.match(html, /Cut the top to its modeled size/);
   assert.doesNotMatch(html, /McMaster/i);
   assert.match(html, /@page/);

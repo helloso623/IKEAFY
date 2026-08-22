@@ -37,6 +37,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     notes: first("#guide-notes"),
     parse: first("#parse-guide"),
     clear: first("#clear-custom-session"),
+    guideTitle: first("#guide-title"),
     lockBanner: first("#lock-banner"),
     steps: first("#steps"),
     bom: first("#bom"),
@@ -372,10 +373,17 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       return;
     }
     const { locked, cursor, total, confirmed } = state.run;
+    const diy = String(state.guide?.title || "").startsWith("DIY Plan");
     el.lockBanner.classList.toggle("locked", locked);
     el.lockBanner.textContent = locked
       ? `Official sheet · step ${cursor} of ${total} · ${confirmed.length} confirmed · read-only, in order`
-      : `Your guide · step ${cursor} of ${total} · edit or skip as you like`;
+      : `${diy ? "DIY plan" : "Your guide"} · ${total} numbered steps · Back / Play / Next`;
+  }
+
+  function renderGuideTitle() {
+    if (!el.guideTitle) return;
+    el.guideTitle.textContent = state.guide?.title || "";
+    el.guideTitle.classList.toggle("hidden", !state.guide?.title);
   }
 
   function currentStepNumber() {
@@ -415,7 +423,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       row.append(body);
 
       const meta = document.createElement("small");
-      meta.textContent = item.confirmed ? "done" : item.toolRequired || "jump";
+      meta.textContent = item.confirmed ? "Done" : item.toolRequired ? `Tool · ${item.toolRequired}` : "Step";
       row.append(meta);
       el.steps.append(row);
     }
@@ -426,11 +434,12 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     const bom = state.guide?.bom;
     el.bom.replaceChildren();
     if (!bom) return;
+    const diy = /researched component|current model revision/i.test(bom.scope || "");
 
     if (bom.live) {
       const note = document.createElement("p");
       note.className = "hint";
-      note.textContent = "Missing tools: live shop links from Tavily.";
+      note.textContent = diy ? "Live component sources from Tavily." : "Missing tools: live shop links from Tavily.";
       el.bom.append(note);
     }
 
@@ -451,7 +460,9 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
         const row = document.createElement("p");
         const shops = withShops ? line.retailers || line.offers || [] : [];
         const dimensions = line.dimensions ? ` · ${line.dimensions}` : "";
-        row.textContent = `${line.qty || 1}× ${line.name}${dimensions}${line.why ? ` — ${line.why}` : ""}`;
+        const cost = Number(line.estimatedCost ?? line.cost);
+        const price = Number.isFinite(cost) && cost > 0 ? ` · est. $${cost.toFixed(2)}` : "";
+        row.textContent = `${line.qty || 1}× ${line.name}${dimensions}${price}${line.why ? ` — ${line.why}` : ""}`;
         wrap.append(row);
         if (shops.length) {
           const list = document.createElement("div");
@@ -471,12 +482,16 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
       el.bom.append(wrap);
     };
 
-    group("Kit", bom.included || []);
-    group("You have this", bom.owned || []);
-    group("To purchase", bom.extra || [], true);
+    if (diy) group("Components to buy", bom.extra || [], true);
+    else {
+      group("Kit", bom.included || []);
+      group("You have this", bom.owned || []);
+      group("To purchase", bom.extra || [], true);
+    }
     if (bom.total != null) {
       const total = document.createElement("p");
-      total.textContent = `List total $${bom.total}`;
+      total.className = "bom-total";
+      total.textContent = `Estimated total · $${Number(bom.total || 0).toFixed(2)} ${bom.currency || "USD"}`;
       el.bom.append(total);
     }
   }
@@ -545,6 +560,7 @@ export function initStudio({ api, hud = () => {}, shop = null, getParts = () => 
     state.step = view.step || null;
     state.outline = view.outline || [];
     state.guide = view.guide || state.guide;
+    renderGuideTitle();
     renderLockBanner();
     renderSteps();
     renderBom();

@@ -1016,6 +1016,7 @@ function tutorialPurchaseBom(bom = {}) {
     material: line.material,
     category: line.category,
     why: line.why,
+    estimatedUnitCost: line.estimatedUnitCost,
     estimatedCost: line.estimatedCost,
     retailers: (line.sources || [])
       .filter((source) => !/mcmaster/i.test(`${source.store || ""} ${source.url || ""}`))
@@ -1050,7 +1051,7 @@ async function runFinishJob(job, projectSnapshot, model) {
     const assembly = await startAssemblyAsync({
       mode: "custom",
       guide: packet.planSource,
-      instructions: "Follow the highest-similarity construction way and geometry-derived cut list for this saved model revision.",
+      instructions: "Follow this DIY plan, its exact component sizes, and its numbered build sequence for the saved model revision.",
     });
     if (!assembly.ok) throw new Error(assembly.reason || "Could not parse the custom build plan.");
     const stored = getAssembly(assembly.run?.id);
