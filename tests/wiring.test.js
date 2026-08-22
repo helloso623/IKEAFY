@@ -500,7 +500,11 @@ test("retail links never fall back to a bare Shop label", () => {
 });
 
 test("askShop applies creative-desk add, camera, label, and isolate", () => {
+  const chatActions = read("client/src/chat-actions.js");
   assert.match(main, /applyShopActions/);
+  assert.match(main, /applyGeneratedAction\(action, shop\)/);
+  assert.match(chatActions, /action\.type !== "mesh" && action\.type !== "generate"/);
+  assert.match(chatActions, /shop\?\.addGeneratedMesh/);
   assert.match(main, /api\.add\(/);
   assert.match(main, /api\.label\(/);
   assert.match(main, /api\.isolate\(/);
@@ -704,6 +708,14 @@ test("the shop is a bottom-right editable 3D generator with chat context", () =>
   assert.match(main, /bindAiDock/);
   assert.match(main, /sceneContext/);
   assert.match(main, /scene,/);
+});
+
+test("shape summon buttons are present and wired directly to editable meshes", () => {
+  for (const shape of ["cube", "sphere", "cylinder", "cone", "torus", "plane"]) {
+    assert.match(html, new RegExp(`data-summon-shape="${shape}"`));
+  }
+  assert.match(main, /bindShapeSummonButtons\(document/);
+  assert.match(main, /shop\.addGeneratedMesh\?\.\(spec\)/);
 });
 
 test("physics preview is an overlay by Finish that never edits the bodies", () => {

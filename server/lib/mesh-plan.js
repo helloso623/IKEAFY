@@ -1,8 +1,8 @@
 const GENERATE_VERB =
-  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate)\b/i;
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|summon|draw|render|craft|produce|construct|fabricate)\b/i;
 const PLACE_VERB = /\b(add|place|put|drop|insert)\b/i;
 const CREATE_VERB =
-  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate|add|place|put|drop|insert)\b/i;
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|summon|draw|render|craft|produce|construct|fabricate|add|place|put|drop|insert)\b/i;
 const REQUEST_OBJECT = /\b(?:want|need|would\s+like)\b[\s\S]*\b(?:a|an|the|some)\b/i;
 const NON_MODEL_ASK =
   /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|photo)\b|(?:\b(?:watch|play|upload|record)\b[\s\S]*\bvideo\b)/i;
@@ -12,14 +12,15 @@ const CATALOG_DROP_NOUN =
   /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
 const EDIT_EXISTING =
   /\b(?:make|scale|resize)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b|\b(?:make|scale|resize)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b/i;
+const SHAPE_NOUN = /\b(cube|box|sphere|ball|orb|cylinder|cone|torus|donut|plane|prism)\b/i;
 const MODEL_NOUN =
-  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner)\b/i;
+  /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture|leg|monster|creature|alien|robot|artifact|sculpture|object|scene|room|interior|corner|cube|box|sphere|ball|orb|cylinder|cone|torus|donut|plane|prism)\b/i;
 const NON_GENERATION_COMMAND =
   /^(?:what|why|how|where|when|which|who|can|could|should|would|do|does|did|is|are|show|tell|explain|help|run|test|simulate|analy[sz]e|calculate|move|rotate|scale|label|isolate|select|delete|remove|undo|redo|next|back|play|scan|reconstruct)\b/i;
 const CONVERSATION_ONLY = /^(?:hi|hello|hey|thanks|thank you|cheers|good (?:morning|afternoon|evening))\b/i;
 const GUIDE_CONTEXT = /\b(?:step\s+\d+|stuck|manual|guide|assembly|assemble|tool required)\b/i;
 const SPAWN_FOLLOW_UP =
-  /^(?:please\s+)?(?:spawn|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one)\s*[.!]?$/i;
+  /^(?:please\s+)?(?:spawn|summon|add|place|put|drop|make|model|build|create|generate)\s+(?:it|that|this|one)\s*[.!]?$/i;
 
 export const AI_MESH_SHAPES = Object.freeze([
   "box",
@@ -27,6 +28,8 @@ export const AI_MESH_SHAPES = Object.freeze([
   "cone",
   "sphere",
   "torus",
+  "plane",
+  "prism",
   "capsule",
   "lathe",
   "extrude",
@@ -145,16 +148,18 @@ export function sanitizeMeshSpec(raw = {}) {
 }
 
 export function sanitizeMeshAction(raw = {}) {
-  const mesh = sanitizeMeshSpec(raw.mesh || raw.object || raw);
+  const mesh = sanitizeMeshSpec(raw.mesh || raw.spec || raw.geometry || raw.object || raw);
   return mesh ? { type: "mesh", mesh } : null;
 }
 
 export function isMeshBuildAsk(message) {
   const source = String(message || "").trim();
-  if (!source || CONVERSATION_ONLY.test(source) || NON_GENERATION_COMMAND.test(source)) return false;
+  if (!source || CONVERSATION_ONLY.test(source)) return false;
   if (EDIT_EXISTING.test(source)) return false;
   if (GUIDE_CONTEXT.test(source) || NON_MODEL_ASK.test(source)) return false;
   if (BRANDED_CATALOG_ASK.test(source) && !BRANDED_STYLE_ASK.test(source)) return false;
+  if (SHAPE_NOUN.test(source)) return true;
+  if (NON_GENERATION_COMMAND.test(source)) return false;
   if (PLACE_VERB.test(source) && CATALOG_DROP_NOUN.test(source)) return false;
   const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
   const createsMesh = GENERATE_VERB.test(source) || REQUEST_OBJECT.test(source) || PLACE_VERB.test(source);
@@ -212,6 +217,13 @@ function measurement(message, label, fallback) {
   return unitMm(match[1], match[2]);
 }
 
+function firstMeasurement(message, fallback) {
+  const match = String(message || "").match(
+    /\b(\d+(?:\.\d+)?)\s*(mm|millimet(?:re|er)s?|cm|centimet(?:re|er)s?|m|met(?:re|er)s?|in|inches?)\b/i,
+  );
+  return match ? unitMm(match[1], match[2]) : fallback;
+}
+
 function component(shape, name, sizeMm, positionMm, extra = {}) {
   return {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
@@ -225,6 +237,82 @@ function component(shape, name, sizeMm, positionMm, extra = {}) {
     metalness: extra.metalness ?? 0.04,
     segments: extra.segments || 40,
     ...extra,
+  };
+}
+
+function primitivePlan(message) {
+  const source = String(message || "");
+  const colorValue = /\bred\b/i.test(source)
+    ? "#b84f48"
+    : /\bblue\b/i.test(source)
+      ? "#4f78a8"
+      : /\bgreen\b/i.test(source)
+        ? "#62855f"
+        : "#c99a62";
+  const scalar = firstMeasurement(source, 400);
+  const width = measurement(source, "(?:width|wide)", scalar);
+  const height = measurement(source, "(?:height|high|tall)", scalar);
+  const depth = measurement(source, "(?:depth|deep|length|long)", scalar);
+  const radius = measurement(source, "(?:radius)", Number.NaN);
+  const diameter = measurement(
+    source,
+    "(?:diameter|dia)",
+    Number.isFinite(radius) ? radius * 2 : scalar,
+  );
+  let shape = "box";
+  let label = "box";
+  let sizeMm = [width, height, depth];
+  let extra = {};
+
+  if (/\bcube\b/i.test(source)) {
+    const side = measurement(source, "(?:side|size)", scalar);
+    label = "cube";
+    sizeMm = [side, side, side];
+  } else if (/\b(sphere|ball|orb)\b/i.test(source)) {
+    shape = "sphere";
+    label = "sphere";
+    sizeMm = [diameter, diameter, diameter];
+    extra = { segments: 48 };
+  } else if (/\bcylinder\b/i.test(source)) {
+    shape = "cylinder";
+    label = "cylinder";
+    sizeMm = [diameter, height, diameter];
+    extra = { segments: 48 };
+  } else if (/\bcone\b/i.test(source)) {
+    shape = "cone";
+    label = "cone";
+    sizeMm = [diameter, height, diameter];
+    extra = { segments: 48 };
+  } else if (/\b(torus|donut)\b/i.test(source)) {
+    shape = "torus";
+    label = "torus";
+    const outerDiameter = diameter;
+    const tubeDiameter = measurement(source, "(?:tube\\s+diameter|thickness|thick)", outerDiameter * 0.22);
+    sizeMm = [outerDiameter, tubeDiameter, outerDiameter];
+    extra = {
+      majorRadiusMm: Math.max(1, (outerDiameter - tubeDiameter) / 2),
+      tubeRadiusMm: Math.max(0.5, tubeDiameter / 2),
+      segments: 56,
+    };
+  } else if (/\bplane\b/i.test(source)) {
+    shape = "plane";
+    label = "plane";
+    sizeMm = [width, 1, depth];
+  } else if (/\bprism\b/i.test(source)) {
+    shape = "prism";
+    label = "triangular prism";
+    sizeMm = [width, height, depth];
+  }
+
+  return {
+    name: `Generated ${label}`,
+    kind: "primitive",
+    components: [
+      component(shape, label[0].toUpperCase() + label.slice(1), sizeMm, [0, shape === "plane" ? 0 : sizeMm[1] / 2, 0], {
+        color: colorValue,
+        ...extra,
+      }),
+    ],
   };
 }
 
@@ -557,6 +645,7 @@ function objectPlanFromDescription(source) {
   if (/\b(cabinet|bookcase|bookshelf|dresser|wardrobe)\b/i.test(source)) return cabinetPlan(source);
   if (/\b(lamp|light)\b/i.test(source)) return lampPlan(source);
   if (/\b(shelf|shelves)\b/i.test(source)) return shelfPlan(source);
+  if (SHAPE_NOUN.test(source)) return primitivePlan(source);
   if (/\blegs?\b/i.test(source)) return legsPlan(source);
   if (/\b(monster|creature|alien)\b/i.test(source)) return creaturePlan(source);
   return sculptedFallback(source);
