@@ -682,7 +682,32 @@ async function hostedReply(message, ctx, agent) {
   return { agent, backend: `hosted:${model}`, text, actions };
 }
 
+export function mergeChatContext(ctx = {}) {
+  const scene = ctx.scene && typeof ctx.scene === "object" ? ctx.scene : {};
+  return {
+    ...ctx,
+    scene,
+    costBarrier: ctx.costBarrier ?? scene.costBarrier,
+    step: ctx.step ?? scene.step,
+    partId: ctx.partId || scene.partId,
+    room: ctx.room || scene.room,
+  };
+}
+
+export function describeScene(scene = {}) {
+  if (!scene || typeof scene !== "object") return "";
+  const bits = [];
+  if (scene.mode === "lab") bits.push(`Lab ${scene.lab || "bench"}`);
+  else if (scene.interface === "watch") bits.push(scene.step ? `Watch step ${scene.step}` : "Watch");
+  else if (scene.mode || scene.interface) bits.push("Upload");
+  if (scene.product) bits.push(String(scene.product));
+  if (scene.partName || scene.partId) bits.push(`selected ${scene.partName || scene.partId}`);
+  if (scene.pieceCount) bits.push(`${scene.pieceCount} pieces on the bench`);
+  return bits.join(" · ");
+}
+
 export async function chat(message, ctx = {}) {
+  ctx = mergeChatContext(ctx);
   const agent = routeAgent(message);
   const escalate = shouldEscalate(message);
   const creative = isCreativeAsk(message);
