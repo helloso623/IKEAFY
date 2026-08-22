@@ -11,7 +11,7 @@ import {
   searchParts,
 } from "./lib/catalog.js";
 import { manageBundle, routeCable } from "./lib/cables.js";
-import { engineeringReport, runSuite } from "./lib/physics.js";
+import { engineeringReport, runSuite, stackSim } from "./lib/physics.js";
 import {
   attachBroken,
   colorizePlate,
@@ -52,12 +52,14 @@ import { hasFal, renderStepVideo } from "./lib/video.js";
 import { hasTavily } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
+import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
 import { usableOpenAiKey } from "./lib/secrets.js";
 import { orderInRoom, planRoom } from "./lib/adaptation.js";
 import {
   addCable,
+  addJoint,
   addPiece,
   addTape,
   benchChrome,
@@ -66,6 +68,8 @@ import {
   isolateAsBoard,
   labelFunction,
   movePiece,
+  persistLabTool,
+  removeJoint,
   removePiece,
   resetSim,
   rescale,
@@ -172,7 +176,7 @@ app.post("/api/physics/run", (req, res) => {
   const tape = req.body?.tapeId ? getPart(req.body.tapeId) : getPart("tape-gaffer");
   if (!part) return res.status(404).json({ error: "Unknown part" });
   const report = runSuite(part, tape, req.body || {});
-  state.project.sim.lastReport = report;
+  persistLabTool(state.project, "sim", report);
   res.json(report);
 });
 
@@ -181,7 +185,24 @@ app.post("/api/physics/system", (req, res) => {
     .map((id) => getPart(id))
     .filter(Boolean);
   const tape = getPart(req.body?.tapeId || "tape-gaffer");
-  res.json(engineeringReport(parts, { tapePart: tape, ...req.body }));
+  const report = engineeringReport(parts, { tapePart: tape, ...req.body });
+  persistLabTool(state.project, "sim", report);
+  res.json(report);
+});
+
+/**
+ * Lab strip: one Run sim that stacks strength / weather / heat / rain / tape /
+ * force over everything on the bench and reads the function graph back
+ * (a piece labeled "light" tells the client to blink the LED).
+ */
+app.post("/api/physics/sim", (req, res) => {
+  const rows = state.project.pieces
+    .map((piece) => ({ piece, part: getPart(piece.partId) }))
+    .filter((row) => row.part);
+  const tape = getPart(req.body?.tapeId || "tape-gaffer");
+  const report = stackSim(rows, tape, req.body || {});
+  state.project.sim.lastReport = report;
+  res.json(report);
 });
 
 app.post("/api/cables/route", (req, res) => {
@@ -467,7 +488,9 @@ app.post("/api/project/seed", (req, res) => {
 
 app.post("/api/project/add", (req, res) => {
   try {
-    const piece = addPiece(state.project, req.body?.partId, req.body?.pose || {});
+    const pose = { ...(req.body?.pose || {}) };
+    if (req.body?.functionLabel !== undefined) pose.functionLabel = req.body.functionLabel;
+    const piece = addPiece(state.project, req.body?.partId, pose);
     res.json(piece);
   } catch (err) {
     res.status(400).json({ error: String(err.message || err) });
@@ -508,8 +531,32 @@ app.post("/api/project/tape", (req, res) => {
   res.json(addTape(state.project, req.body?.tapeId || "tape-gaffer", req.body?.pieceIds || []));
 });
 
+app.post("/api/project/joint", (req, res) => {
+  try {
+    res.json(addJoint(state.project, req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+});
+
+app.post("/api/project/joint/remove", (req, res) => {
+  const removed = removeJoint(state.project, req.body?.id);
+  if (!removed) return res.status(404).json({ ok: false, error: "No joint with that id." });
+  res.json({ ok: true, removed });
+});
+
+app.get("/api/project/functions", (_req, res) => {
+  res.json({ functions: PIECE_FUNCTIONS });
+});
+
 app.post("/api/project/label", (req, res) => {
-  res.json(labelFunction(state.project, req.body?.id, req.body?.label));
+  const raw = req.body?.label;
+  if (raw != null && raw !== "" && !isPieceFunction(raw)) {
+    return res.status(400).json({ error: "Unknown function", functions: PIECE_FUNCTIONS });
+  }
+  const piece = labelFunction(state.project, req.body?.id, normalizeFunction(raw) ?? raw);
+  if (!piece) return res.status(404).json({ error: "No piece with that id." });
+  res.json(piece);
 });
 
 app.post("/api/project/isolate", (req, res) => {
@@ -524,14 +571,37 @@ app.post("/api/project/sim/reset", (_req, res) => {
   res.json(resetSim(state.project));
 });
 
+app.post("/api/project/sim/behavior", (req, res) => {
+  snapshotSim(state.project);
+  const result = simulateBehavior(state.project, req.body || {});
+  persistLabTool(state.project, "sim", result);
+  res.json(result);
+});
+
+app.get("/api/project/lab", (_req, res) => {
+  res.json(state.project.labTools);
+});
+
+app.post("/api/project/lab/:tool", (req, res) => {
+  try {
+    const value = req.body?.value ?? req.body ?? null;
+    res.json({ tool: req.params.tool, value: persistLabTool(state.project, req.params.tool, value) });
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+});
+
 app.post("/api/export/print", (_req, res) => {
   const parts = state.project.pieces.map((p) => getPart(p.partId)).filter(Boolean);
-  res.json(exportPrintJob(parts));
+  const job = exportPrintJob(parts);
+  persistLabTool(state.project, "generate", { kind: "print", job });
+  res.json(job);
 });
 
 app.post("/api/firmware/generate", (req, res) => {
   const source = sketchFromFunctions(req.body?.functions || ["light", "sense"]);
   state.project.firmware.source = source;
+  persistLabTool(state.project, "generate", { kind: "firmware", source });
   res.json({ source });
 });
 

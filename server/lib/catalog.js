@@ -613,8 +613,10 @@ export function searchParts({
     if (category && part.category !== category) return false;
     if (store && part.store !== store) return false;
     if (q) {
-      const hay = `${part.name} ${part.sku} ${part.ikeaArticle || ""} ${part.brand} ${part.category} ${part.material}`.toLowerCase();
-      if (!hay.includes(q)) return false;
+      const hay = `${part.id} ${part.name} ${part.sku} ${part.ikeaArticle || ""} ${part.brand} ${part.category} ${part.material} ${part.shape || ""}`.toLowerCase();
+      const tokens = q.split(/\s+/).filter(Boolean);
+      const hit = (token) => hay.includes(token) || (token.endsWith("s") && token.length > 3 && hay.includes(token.slice(0, -1)));
+      if (tokens.length ? !tokens.every(hit) : !hay.includes(q)) return false;
     }
     for (const [key, min] of Object.entries(minSpecs || {})) {
       const value = part.specs?.[key];

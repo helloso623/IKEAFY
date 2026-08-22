@@ -37,10 +37,13 @@ export const api = {
   tape: (tapeId, pieceIds) => post("/api/project/tape", { tapeId, pieceIds }),
   isolate: (pieceIds, label) => post("/api/project/isolate", { pieceIds, label }),
   label: (id, label) => post("/api/project/label", { id, label }),
+  functions: () => req("/api/project/functions"),
   simStart: () => post("/api/project/sim/start"),
   simReset: () => post("/api/project/sim/reset"),
+  simBehavior: (body) => post("/api/project/sim/behavior", body),
   physics: (body) => post("/api/physics/run", body),
   system: (body) => post("/api/physics/system", body),
+  simRun: (body) => post("/api/physics/sim", body),
   bundle: (style) => post("/api/cables/bundle", { style }),
 
   // Guides: the official sheet is read-only, a pasted guide is yours to edit.

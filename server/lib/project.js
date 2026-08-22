@@ -1,8 +1,15 @@
 import { getPart, listParts } from "./catalog.js";
 import { routeCable } from "./cables.js";
+import { normalizeFunction } from "./functions.js";
+
+export const LAB_TOOLS = Object.freeze(["fusion", "kicad", "blender", "sim", "generate"]);
 
 function uid(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyLabTools() {
+  return Object.fromEntries(LAB_TOOLS.map((tool) => [tool, null]));
 }
 
 export function emptyProject() {
@@ -11,7 +18,9 @@ export function emptyProject() {
     pieces: [],
     cables: [],
     tapes: [],
+    joints: [],
     abstractions: [],
+    labTools: emptyLabTools(),
     selection: null,
     sim: {
       on: false,
@@ -26,7 +35,7 @@ export function emptyProject() {
 export function seedLampTable() {
   const project = emptyProject();
   project.name = "Lamp table";
-  const top = addPiece(project, "lack-top", { x: 0, y: 0.225, z: 0 });
+  const top = addPiece(project, "lack-top", { x: 0, y: 0.225, z: 0, functionLabel: "support" });
   const offsets = [
     [-0.23, 0, -0.23],
     [0.23, 0, -0.23],
@@ -34,17 +43,18 @@ export function seedLampTable() {
     [0.23, 0, 0.23],
   ];
   for (const [x, , z] of offsets) {
-    addPiece(project, "lack-leg", { x, y: 0, z });
+    addPiece(project, "lack-leg", { x, y: 0, z, functionLabel: "support" });
   }
   const nano = addPiece(project, "arduino-nano", { x: 0.08, y: 0.26, z: 0.04 });
   const led = addPiece(project, "led-5mm", { x: 0.14, y: 0.26, z: 0.04 });
   const btn = addPiece(project, "tactile-btn", { x: 0.02, y: 0.26, z: 0.04 });
   const board = addPiece(project, "breadboard", { x: 0.08, y: 0.248, z: 0.04 });
   addPiece(project, "resistor-220", { x: 0.11, y: 0.255, z: 0.02 });
-  addPiece(project, "enclosure-print", { x: 0.08, y: 0.27, z: 0.08 });
+  const box = addPiece(project, "enclosure-print", { x: 0.08, y: 0.27, z: 0.08 });
   labelFunction(project, nano.id, "control");
   labelFunction(project, led.id, "light");
   labelFunction(project, btn.id, "sense");
+  labelFunction(project, box.id, "decorate");
   isolateAsBoard(project, [nano.id, led.id, btn.id, board.id], "lamp-board");
   addCable(project, nano.id, "d13", led.id, "anode");
   addCable(project, nano.id, "d2", btn.id, "a");
@@ -69,7 +79,7 @@ export function addPiece(project, partId, pose = {}) {
     sz: pose.sz || 1,
     texture: pose.texture || part.texture,
     color: pose.color || part.color,
-    functionLabel: pose.functionLabel || null,
+    functionLabel: pose.functionLabel ?? null,
     isolated: false,
   };
   project.pieces.push(piece);
@@ -82,6 +92,12 @@ export function removePiece(project, id) {
   project.pieces = project.pieces.filter((p) => p.id !== id);
   project.cables = (project.cables || []).filter((c) => c.fromPiece !== id && c.toPiece !== id);
   project.tapes = (project.tapes || []).filter((t) => !(t.pieceIds || []).includes(id));
+  project.joints = (project.joints || []).filter(
+    (joint) =>
+      joint.fromPiece !== id &&
+      joint.toPiece !== id &&
+      !(joint.pieceIds || []).includes(id),
+  );
   if (project.selection === id) project.selection = null;
   return piece;
 }
@@ -134,9 +150,42 @@ export function addTape(project, tapeId, pieceIds, areaMm2 = 400) {
   return tape;
 }
 
+export function addJoint(project, joint = {}) {
+  const pieceIds = [
+    ...(joint.pieceIds || []),
+    joint.fromPiece,
+    joint.toPiece,
+  ].filter(Boolean);
+  const missing = pieceIds.find((id) => !(project.pieces || []).some((piece) => piece.id === id));
+  if (missing) throw new Error(`Unknown joint piece ${missing}`);
+  const stored = {
+    ...joint,
+    id: joint.id || uid("j"),
+    kind: joint.kind || "fixed",
+    pieceIds: [...new Set(pieceIds)],
+  };
+  project.joints ||= [];
+  project.joints.push(stored);
+  return stored;
+}
+
+export function removeJoint(project, id) {
+  const joint = (project.joints || []).find((item) => item.id === id);
+  if (!joint) return null;
+  project.joints = project.joints.filter((item) => item.id !== id);
+  return joint;
+}
+
 export function labelFunction(project, id, label) {
   const piece = project.pieces.find((p) => p.id === id);
-  if (piece) piece.functionLabel = label;
+  if (!piece) return null;
+  if (label == null || label === "") {
+    piece.functionLabel = null;
+    return piece;
+  }
+  const normalized = normalizeFunction(label);
+  if (!normalized) return piece;
+  piece.functionLabel = normalized;
   return piece;
 }
 
@@ -160,6 +209,7 @@ export function snapshotSim(project) {
     JSON.stringify({
       pieces: project.pieces,
       cables: project.cables,
+      joints: project.joints || [],
     }),
   );
   project.sim.on = true;
@@ -170,10 +220,23 @@ export function resetSim(project) {
   if (project.sim.snapshot) {
     project.pieces = JSON.parse(JSON.stringify(project.sim.snapshot.pieces));
     project.cables = JSON.parse(JSON.stringify(project.sim.snapshot.cables));
+    project.joints = JSON.parse(JSON.stringify(project.sim.snapshot.joints || []));
   }
   project.sim.on = false;
   project.sim.lastReport = null;
+  if (project.labTools) project.labTools.sim = null;
   return project;
+}
+
+export function persistLabTool(project, tool, value) {
+  if (!LAB_TOOLS.includes(tool)) throw new Error(`Unknown lab tool ${tool}`);
+  project.labTools ||= emptyLabTools();
+  project.labTools[tool] = value == null ? null : JSON.parse(JSON.stringify(value));
+  if (tool === "sim") {
+    project.sim ||= { on: false, snapshot: null, lastReport: null };
+    project.sim.lastReport = project.labTools[tool];
+  }
+  return project.labTools[tool];
 }
 
 /**
@@ -186,13 +249,17 @@ export function benchChrome(project) {
   const electronics = parts.filter((p) => p.category === "electronics" || p.firmwareRole);
   const cables = parts.filter((p) => p.category === "cable");
   const hasElectronics = electronics.length > 0;
+  const labTools = Object.fromEntries(LAB_TOOLS.map((tool) => [tool, true]));
   return {
     electronics: hasElectronics,
+    lab: true,
+    labTools,
     counts: {
       pieces: parts.length,
       electronics: electronics.length,
       cables: (project.cables || []).length + cables.length,
       tapes: (project.tapes || []).length,
+      joints: (project.joints || []).length,
     },
     show: {
       cablesPanel: hasElectronics || (project.cables || []).length > 0,
@@ -201,6 +268,7 @@ export function benchChrome(project) {
       firmware: parts.some((p) => p.firmwareRole === "mcu"),
       ports: hasElectronics,
       tape: parts.length > 0,
+      ...labTools,
     },
     note: hasElectronics
       ? "Electronics on the bench — ports, nets and firmware are live."
