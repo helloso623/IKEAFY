@@ -15,7 +15,7 @@ function hud(text) {
   $("hud").textContent = text;
 }
 
-const EMPTY_INSPECT = "Pick a piece. Delete takes it off the bench.";
+const EMPTY_INSPECT = "Nothing selected.";
 
 function inspect(text) {
   $("inspect").textContent = text;
