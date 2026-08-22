@@ -12,6 +12,9 @@
 const EYE_LEVEL_M = 1.5;
 const FALLBACK_HORIZON = 0.55;
 
+/** Generic IKEA-vibe test table, metres. Specs needed for an exact IKEA article. */
+export const TEST_TABLE_M = Object.freeze({ w: 0.55, d: 0.55, h: 0.45 });
+
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 const round2 = (value) => Math.round(value * 100) / 100;
@@ -117,6 +120,56 @@ export function cropRegion(region, horizon = FALLBACK_HORIZON) {
   return { x: 0, y: 0, w: 1, h: 1 };
 }
 
+/**
+ * Camera pose that frames the whole room so orbit/walk can see the interior.
+ * Position sits just inside the front-right, looking at the floor centre.
+ */
+export function frameRoomCamera(room) {
+  const w = num(room?.widthM) || 3.2;
+  const d = num(room?.depthM) || 3.8;
+  const h = num(room?.heightM) || 2.7;
+  const target = { x: w / 2, y: h * 0.22, z: d / 2 };
+  const radius = Math.max(w, d) * 0.62;
+  return {
+    target,
+    position: {
+      x: clamp(target.x + radius * 0.42, 0.35, Math.max(0.4, w - 0.2)),
+      y: clamp(h * 0.55, 1.05, h * 0.78),
+      z: clamp(target.z + radius * 0.72, 0.45, Math.max(0.5, d - 0.12)),
+    },
+    minDistance: 0.35,
+    maxDistance: Math.max(w, d, h) * 3.4,
+  };
+}
+
+/** Floor trapezoid in the photo: everything below the vanishing line. */
+export function overlayFloorFromHorizon(photoRect, horizon = FALLBACK_HORIZON) {
+  const h = clamp(num(horizon) || FALLBACK_HORIZON, 0.2, 0.8);
+  const rect = photoRect || { x: 0, y: 0, w: 1, h: 1 };
+  return {
+    x: rect.x,
+    y: rect.y + rect.h * h,
+    w: rect.w,
+    h: rect.h * (1 - h),
+  };
+}
+
+/** Pixel size of a metre footprint on the photo floor. */
+export function overlayFootprintPx(foot, floor, room) {
+  const roomW = Math.max(0.5, num(room?.widthM) || 3.2);
+  const roomD = Math.max(0.5, num(room?.depthM) || 3.8);
+  const w = num(foot?.w) || TEST_TABLE_M.w;
+  const d = num(foot?.d) || TEST_TABLE_M.d;
+  const h = num(foot?.h) || TEST_TABLE_M.h;
+  const scaleX = (floor?.w || 1) / roomW;
+  const scaleZ = (floor?.h || 1) / roomD;
+  return {
+    topW: Math.max(8, w * scaleX),
+    topD: Math.max(6, d * scaleZ * 0.55),
+    height: Math.max(8, h * scaleX * 0.48),
+  };
+}
+
 function dimsToMetres(dimsMm) {
   const x = num(dimsMm?.x) / 1000;
   const y = num(dimsMm?.y) / 1000;
@@ -144,9 +197,9 @@ export function placeFurniture({ plan, pieces = [], room } = {}) {
   });
   const placed = [];
   for (const place of plan?.ordered || []) {
-    const w = num(place.widthM) || num(plan?.pick?.footprintM?.w) || 0.55;
-    const d = num(place.depthM) || num(plan?.pick?.footprintM?.d) || 0.55;
-    const h = num(place.heightM) || num(plan?.pick?.footprintM?.h) || 0.45;
+    const w = num(place.widthM) || num(plan?.pick?.footprintM?.w) || TEST_TABLE_M.w;
+    const d = num(place.depthM) || num(plan?.pick?.footprintM?.d) || TEST_TABLE_M.d;
+    const h = num(place.heightM) || num(plan?.pick?.footprintM?.h) || TEST_TABLE_M.h;
     placed.push(
       inRoom({
         id: place.id || place.partId || "plan-piece",
@@ -163,25 +216,32 @@ export function placeFurniture({ plan, pieces = [], room } = {}) {
     );
   }
   let slotX = 0.4;
+  let scanSlot = 0;
   for (const piece of pieces.slice(0, 8)) {
     const dims = dimsToMetres(piece?.dimsMm);
     if (!dims) continue;
+    const scanned = Boolean(piece.positions) || piece.shape === "scan" || piece.source === "scan";
+    // Scanned meshes land in the open floor for positioning tests; catalog
+    // pieces still line up along the back wall.
+    const x = scanned ? roomW * (0.38 + scanSlot * 0.22) : slotX + dims.w / 2;
+    const z = scanned ? roomD * 0.48 : 0.3 + dims.d / 2;
     placed.push(
       inRoom({
         id: piece.id || `bench-${placed.length}`,
         name: piece.name || "bench piece",
-        source: piece.positions ? "scan" : "bench",
-        shape: piece.shape || "box",
-        color: piece.color || "#e8ded2",
+        source: scanned ? "scan" : "bench",
+        shape: scanned ? "scan" : piece.shape || "table",
+        color: piece.color || (scanned ? "#d8c7a1" : "#ecdfc6"),
         positions: piece.positions || null,
         w: dims.w,
         d: dims.d,
         h: dims.h,
-        x: slotX + dims.w / 2,
-        z: 0.3 + dims.d / 2,
+        x,
+        z,
       }),
     );
-    slotX += dims.w + 0.3;
+    if (scanned) scanSlot += 1;
+    else slotX += dims.w + 0.3;
   }
   return placed;
 }

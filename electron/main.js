@@ -57,6 +57,14 @@ export function distFileUrl(indexPath = DIST_INDEX) {
   return pathToFileURL(indexPath).href;
 }
 
+export function fileClientUrl(indexPath = DIST_INDEX, apiPort = SERVER_PORT) {
+  const fileUrl = distFileUrl(indexPath);
+  if (!fileUrl) return null;
+  const url = new URL(fileUrl);
+  url.searchParams.set("apiPort", String(apiPort));
+  return url.href;
+}
+
 export async function waitForUrl(url, timeoutMs = WAIT_MS) {
   const started = Date.now();
   let lastError = "unreachable";
@@ -110,7 +118,7 @@ export async function clientUrl() {
     return CLIENT_ORIGIN;
   }
   if (await urlReady(CLIENT_ORIGIN)) return CLIENT_ORIGIN;
-  const fileUrl = distFileUrl();
+  const fileUrl = fileClientUrl();
   if (fileUrl) return fileUrl;
   return SERVER_ORIGIN;
 }

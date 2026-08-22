@@ -48,7 +48,7 @@ export const ROSTER = [
   },
   {
     id: "shop",
-    name: "Shop grok",
+    name: "Scene editor",
     model: "grok",
     role: "easy",
     blurb: "Move, rotate, camera, rescale, retexture.",
@@ -96,7 +96,7 @@ const HARD_HINTS = /stress|break|aero|flow|weather|rain|heat|cold|firmware|ardui
 const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
 const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
-const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |build |create /i;
+const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon|put |drop |generate|make |model |build |create /i;
 const CATALOG_ASK =
   /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon|leg|lamp)\b/i;
 const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
@@ -107,8 +107,12 @@ const SMALL_QUESTION =
 const COMPLEX_QUESTION =
   /fix|broken|regenerate|redesign|calculate|rewrite|rebuild|why (is|does|did)|stuck for|explain how to|design a|optim/i;
 const BENCH_COMMAND =
-  /\b(add|put|drop|place|generate|make|build|create|move|rotate|label|isolate)\b/i;
-const CREATIVE_ASK = /\b(generate|make a|build a|create a|design a|invent|add |put |drop )\b/i;
+  /\b(add|put|drop|place|generate|make|model|build|create|move|rotate|label|isolate)\b/i;
+const CREATIVE_ASK = /\b(generate|make a|model a|build a|create a|design a|invent|add |put |drop )\b/i;
+const ROOM_CREATE_ASK =
+  /\b(make|model|build|create|design|furnish|generate)\b[\s\S]*\b(living\s+room|bedroom|dining\s+room|office|room|space|interior)\b/i;
+const GENERIC_TABLE_ASK =
+  /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
 const QTY_WORDS = {
   one: 1,
   two: 2,
@@ -179,6 +183,7 @@ export function routeAgent(text) {
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
+  if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");
   if (ROOM_HINTS.test(t) && !isCatalogAsk(t) && !benchCmd) return ROSTER.find((a) => a.id === "stylist");
   if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
@@ -229,6 +234,52 @@ function expandPart(part) {
     seen[id] += 1;
     return { partId: id, pose: kitPose(id, index) };
   });
+}
+
+function positiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function roomFromDescription(message, ctx = {}) {
+  const text = String(message || "");
+  const pair = text.match(
+    /\b(\d+(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:×|x|by)\s*(\d+(?:\.\d+)?)\s*(?:m|metres?|meters?)?\b/i,
+  );
+  const kind =
+    (text.match(/\b(living\s+room|bedroom|dining\s+room|office|studio|room|space|interior)\b/i)?.[1] ||
+      "room")
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const palette = /\b(dark|moody|charcoal)\b/i.test(text)
+    ? { wallColor: "#525860", floorColor: "#766757" }
+    : /\b(bright|light|airy|white)\b/i.test(text)
+      ? { wallColor: "#e7e3da", floorColor: "#c9b18f" }
+      : /\b(warm|cosy|cozy)\b/i.test(text)
+        ? { wallColor: "#d8c6ae", floorColor: "#9d7954" }
+        : { wallColor: "#d6d2c8", floorColor: "#b89c78" };
+  return {
+    kind,
+    widthM: positiveNumber(pair?.[1], positiveNumber(ctx.room?.widthM, 4.2)),
+    depthM: positiveNumber(pair?.[2], positiveNumber(ctx.room?.depthM, 3.8)),
+    heightM: positiveNumber(ctx.room?.heightM, 2.7),
+    ...palette,
+  };
+}
+
+function genericTablePlan() {
+  const part = getPart("generic-side-table");
+  if (!part) return null;
+  const dims = part.dimsMm || { x: 550, y: 550, z: 450 };
+  return {
+    part,
+    specs: `${Math.round(dims.x)}×${Math.round(dims.y)}×${Math.round(dims.z)} mm`,
+    action: {
+      type: "add",
+      partId: part.id,
+      pose: { x: 0, y: Number(dims.z) / 2000, z: 0 },
+    },
+  };
 }
 
 function furnitureOnlyHits(hits, message) {
@@ -407,6 +458,41 @@ export function planCreativeActions(message, ctx = {}) {
     };
   }
 
+  if (ROOM_CREATE_ASK.test(lower)) {
+    const room = roomFromDescription(message, ctx);
+    actions.push({ type: "room", room });
+    if (/\b(table|side[\s-]*table|coffee[\s-]*table)\b/.test(lower)) {
+      const table = genericTablePlan();
+      if (table) {
+        actions.push(table.action);
+        return {
+          handles: true,
+          text: `Using ${table.specs} IKEA-vibe proportions — specs needed for an exact IKEA article. Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor, four walls, and a generic test table.`,
+          actions,
+        };
+      }
+    }
+    return {
+      handles: true,
+      text: `Created a ${room.widthM}×${room.depthM} m ${room.kind} with a floor and four walls.`,
+      actions,
+    };
+  }
+
+  if (
+    GENERIC_TABLE_ASK.test(lower) &&
+    /\b(make|model|build|create|design|generate|add|place|put|drop)\b/.test(lower)
+  ) {
+    const table = genericTablePlan();
+    if (table) {
+      return {
+        handles: true,
+        text: `Using ${table.specs} IKEA-vibe proportions — specs needed for an exact IKEA article. Placing the generic test table now.`,
+        actions: [table.action],
+      };
+    }
+  }
+
   if (isLampAsk(lower) && /\b(generate|make|build|create|add|put|design|drop)\b/.test(lower)) {
     const table = getPart("lack-table");
     const kit = table ? expandPart(table) : [];
@@ -531,12 +617,27 @@ function parseJsonObject(text) {
 }
 
 export function sanitizeActions(raw, { electronics = false } = {}) {
-  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "scan", "studio"]);
+  const allowed = new Set(["add", "add_part", "camera", "label", "isolate", "move", "room", "scan", "studio"]);
   const out = [];
   for (const action of Array.isArray(raw) ? raw : []) {
     if (!action || !allowed.has(action.type)) continue;
     if (action.type === "scan") {
       out.push({ type: "scan" });
+      continue;
+    }
+    if (action.type === "room") {
+      const room = action.room && typeof action.room === "object" ? action.room : action;
+      out.push({
+        type: "room",
+        room: {
+          kind: String(room.kind || "room").slice(0, 48),
+          widthM: positiveNumber(room.widthM, 4.2),
+          depthM: positiveNumber(room.depthM, 3.8),
+          heightM: positiveNumber(room.heightM, 2.7),
+          wallColor: /^#[\da-f]{6}$/i.test(String(room.wallColor || "")) ? room.wallColor : "#d6d2c8",
+          floorColor: /^#[\da-f]{6}$/i.test(String(room.floorColor || "")) ? room.floorColor : "#b89c78",
+        },
+      });
       continue;
     }
     if (action.type === "move") {
@@ -600,13 +701,38 @@ function withSceneNote(text, ctx, message) {
 }
 
 function localReply(message, ctx) {
+  message = String(message || "").trim();
   const agent = routeAgent(message);
+  if (!message) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: "Tell me what room or object you want to create, or ask about the current scene.",
+      actions: [],
+    };
+  }
+  if (/^(hi|hello|hey|good (morning|afternoon|evening))[!. ]*$/i.test(message)) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: "Hi. Describe a room or piece of furniture and I’ll build a visible 3D starting point you can edit.",
+      actions: [],
+    };
+  }
+  if (/^(thanks|thank you|cheers)[!. ]*$/i.test(message)) {
+    return {
+      agent,
+      backend: "local-steward",
+      text: "You’re welcome. Tell me what you want to change next.",
+      actions: [],
+    };
+  }
   const studio = planStudioActions(message);
   if (studio.handles) {
     return {
       agent,
       backend: "local-steward",
-      text: `${agent.name} (${agent.model}, local steward): ${studio.text}`,
+      text: studio.text,
       actions: studio.actions,
     };
   }
@@ -615,7 +741,7 @@ function localReply(message, ctx) {
     return {
       agent,
       backend: "local-steward",
-      text: `${agent.name} (${agent.model}, local steward): I can see the bench: ${sceneNote}.`,
+      text: `I can see the current scene: ${sceneNote}.`,
       actions: [],
     };
   }
@@ -628,14 +754,14 @@ function localReply(message, ctx) {
     return {
       agent,
       backend: "local-steward",
-      text: withSceneNote(`${agent.name} (${agent.model}, local steward): ${planned.text}`, ctx, message),
+      text: withSceneNote(planned.text, ctx, message),
       actions: planned.actions,
     };
   }
 
   const actions = [];
   const lower = message.toLowerCase();
-  let text = `${agent.name} (${agent.model}, local steward): `;
+  let text = "";
 
   const costMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)\s*(usd|dollar|budget|max)?/);
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
@@ -753,18 +879,27 @@ async function hostedReply(message, ctx, agent) {
     .map((p) => `${p.id} (${p.name}, ${p.category})`)
     .join("; ");
   const sceneNote = describeScene(ctx);
+  const history = (Array.isArray(ctx.history) ? ctx.history : [])
+    .slice(-10)
+    .filter((entry) => entry && (entry.role === "user" || entry.role === "assistant"))
+    .map((entry) => ({
+      role: entry.role,
+      content: String(entry.content || "").slice(0, 1200),
+    }))
+    .filter((entry) => entry.content);
   const body = {
     model,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} at the IKEAFY Lab creative desk, a furniture shop with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
+        content: `You are ${agent.name} in the IKEAFY 3D furniture workspace with an optional electronics bench. Reply as JSON {"text": string, "actions": Action[]}. Action types: add {type:"add", partId, pose?}, room {type:"room", room:{kind,widthM,depthM,heightM,wallColor,floorColor}}, camera {type:"camera", az, el, zoom?}, move {type:"move", id, x?, y?, z?}, scan {type:"scan"}, label {type:"label", partId, label}, isolate {type:"isolate", label}, studio {type:"studio", action:"start"|"official"|"next"|"back"|"play"|"spare"|"clear"}. A room action creates real floor and wall meshes. For a requested side table use generic-side-table as a neutral editable placeholder, never claim it is branded CAD, and state its 550×550×450 mm proportions before other copy. Studio actions drive the IKEAlive reel. Only use these catalog part ids: ${catalogHint}. Be concrete. Never ask for secrets. Keep text under 120 words. ${
           electronics
             ? "Electronics were requested — nano, LED, and button are fair."
             : "Furniture, tables, hardware, tape, or hand tools only — no Arduino, ports, firmware, boards, or robotics."
         }`,
       },
+      ...history,
       { role: "user", content: [message, sceneNote && `[bench scene] ${sceneNote}`].filter(Boolean).join("\n") },
     ],
   };
@@ -776,6 +911,7 @@ async function hostedReply(message, ctx, agent) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: ctx.fetchFn ? undefined : AbortSignal.timeout(25_000),
   });
   if (!res.ok) return null;
   const json = await res.json();
@@ -783,7 +919,15 @@ async function hostedReply(message, ctx, agent) {
   const rawText = parsed?.text || json.choices?.[0]?.message?.content;
   if (!rawText && !parsed) return null;
   let actions = sanitizeActions(parsed?.actions, { electronics });
-  if (!actions.length) {
+  const deterministic = planCreativeActions(message, ctx);
+  const mustCreateModel =
+    deterministic.handles &&
+    deterministic.actions.some(
+      (action) => action.type === "room" || (action.type === "add" && action.partId === "generic-side-table"),
+    );
+  if (mustCreateModel) {
+    actions = sanitizeActions(deterministic.actions, { electronics });
+  } else if (!actions.length) {
     const studio = planStudioActions(message);
     if (studio.handles) actions = studio.actions.map((action) => ({ ...action }));
   }
@@ -792,7 +936,7 @@ async function hostedReply(message, ctx, agent) {
     if (local.handles) actions = local.actions.map((action) => ({ ...action }));
   }
   applyCreativeActions(ctx.project, actions);
-  let text = String(parsed?.text || rawText || "").trim();
+  let text = String(mustCreateModel ? deterministic.text : parsed?.text || rawText || "").trim();
   if (!electronics) {
     const cleaned = stripElectronicsTalk(text);
     if (/arduino|firmware|sketch/i.test(text)) {
@@ -819,15 +963,20 @@ export function mergeChatContext(ctx = {}) {
 }
 
 export async function chat(message, ctx = {}) {
+  message = String(message || "").trim();
   ctx = mergeChatContext(ctx);
   const agent = routeAgent(message);
   const escalate = shouldEscalate(message);
   const creative = isCreativeAsk(message);
-  if (escalate || creative) {
+  if (hasHostedBrain()) {
     try {
       const hosted = await hostedReply(message, ctx, agent);
       if (hosted) {
-        return { ...hosted, escalated: escalate, from: escalate ? "gliner-2-standin" : "creative-desk" };
+        return {
+          ...hosted,
+          escalated: escalate,
+          from: escalate ? "gliner-2-standin" : creative ? "creative-desk" : "conversation",
+        };
       }
     } catch {
       // fall through to local steward — never leak key errors

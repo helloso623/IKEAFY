@@ -317,8 +317,13 @@
                 </label>
               </div>
               <button type="button" id="scan-reconstruct" class="primary">Reconstruct</button>
+              <div class="row wrap scan-after">
+                <button type="button" id="scan-place-room" class="quiet">Place in the room</button>
+                <button type="button" id="scan-bake-plan" class="quiet">Bake IKEAlive plan</button>
+              </div>
               <div id="scan-reconstruct-out" class="scan-reconstruct-out" aria-live="polite">
                 Three silhouettes become a local binary visual hull, then a real triangle mesh.
+                Place it in the 3D room to test position, or bake a custom IKEAlive step plan.
               </div>
             </div>
           </details>
@@ -331,7 +336,7 @@
                 type="search"
                 placeholder="Add a table, generate a lamp, or ask…"
                 autocomplete="off"
-                aria-label="Search the catalog or ask the shop"
+                aria-label="Search the catalog or ask AI"
               />
               <button type="button" id="omnibox-ask">Ask</button>
             </form>
@@ -384,6 +389,7 @@
                 <button id="scan-fits-btn" type="button" class="quiet">What fits this room?</button>
                 <button id="house-view-btn" type="button" class="quiet hidden">View the 3D house</button>
               </div>
+              <p class="hint" id="room-orbit-hint">Drag to orbit · scroll to zoom · WASD to walk · Space to frame</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -549,13 +555,13 @@
         class="ai-orb"
         aria-expanded="false"
         aria-controls="ai-dock"
-        title="Ask the shop"
+        title="Ask AI"
       >
         AI
       </button>
-      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="Shop chat">
+      <aside id="ai-dock" class="ai-dock" hidden aria-hidden="true" aria-label="AI chat">
         <header class="ai-dock-head">
-          <strong>Shop</strong>
+          <strong>AI</strong>
           <button type="button" id="ai-dock-close" class="quiet">Close</button>
         </header>
         <section class="ai-scene" aria-label="Scene context">
@@ -569,7 +575,7 @@
             id="chat-in"
             autocomplete="off"
             placeholder="Add a table, generate a lamp, or ask about this scene…"
-            aria-label="Command the shop"
+            aria-label="Message AI"
           />
           <button type="button" id="ai-mic" class="quiet" aria-pressed="false" title="Voice command">Mic</button>
           <button type="button" id="lab-voice" class="quiet" hidden aria-pressed="false" title="Speak">Mic</button>

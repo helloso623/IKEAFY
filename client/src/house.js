@@ -16,11 +16,16 @@ import {
   assignSurfaces,
   cropRegion,
   estimateHorizon,
+  frameRoomCamera,
   lumaRows,
+  overlayFloorFromHorizon,
+  overlayFootprintPx,
   placeFurniture,
   roomFromPhotos,
+  TEST_TABLE_M,
   wallBoxes,
 } from "./photogram.js";
+import { makeIkeaTestTable } from "./ikea-table.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,9 +46,9 @@ function footprintOf(plan) {
   const overlay = plan?.overlay || {};
   const dims = pick.dimsMm || {};
   return {
-    w: overlay.widthM || place.widthM || pick.footprintM?.w || (Number(dims.x) || 550) / 1000,
-    d: overlay.depthM || place.depthM || pick.footprintM?.d || (Number(dims.y) || 550) / 1000,
-    h: overlay.heightM || place.heightM || pick.footprintM?.h || (Number(dims.z) || 450) / 1000,
+    w: overlay.widthM || place.widthM || pick.footprintM?.w || TEST_TABLE_M.w,
+    d: overlay.depthM || place.depthM || pick.footprintM?.d || TEST_TABLE_M.d,
+    h: overlay.heightM || place.heightM || pick.footprintM?.h || TEST_TABLE_M.h,
   };
 }
 
@@ -145,11 +150,10 @@ function drawPiece(ctx, plan, floor) {
 
   const nx = Math.min(0.92, Math.max(0.04, place.x / room.widthM));
   const nz = Math.min(0.92, Math.max(0.04, place.z / room.depthM));
-  const scaleX = floor.w / room.widthM;
-  const scaleZ = floor.h / room.depthM;
-  const topW = Math.max(28, foot.w * scaleX);
-  const topD = Math.max(16, foot.d * scaleZ * 0.42);
-  const height = Math.max(18, foot.h * scaleX * 0.55);
+  const sized = overlayFootprintPx(foot, floor, room);
+  const topW = sized.topW;
+  const topD = sized.topD;
+  const height = sized.height;
   const x = floor.x + nx * floor.w;
   const y = floor.y + nz * floor.h;
   const skew = topD * 0.45;
@@ -267,12 +271,21 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
   const canvas = $("ar-photo");
   const sceneCanvas = $("room-scene");
   if (!adaptBtn || !canvas) {
-    return { applyPlan() {}, draw() {}, setActive() {}, hasPhoto: () => false, hasScene: () => false };
+    return {
+      applyPlan() {},
+      createRoom() {},
+      draw() {},
+      setActive() {},
+      hasPhoto: () => false,
+      hasScene: () => false,
+      rebuildHouse3d() {},
+    };
   }
 
   let photo = null;
   let extraPhotos = [];
   let lastPlan = null;
+  let describedRoom = null;
   let currentSpace = "desk";
   let active = false;
   let view3d = false;
@@ -305,7 +318,9 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       cameraStream &&
       cameraVideo?.readyState >= (globalThis.HTMLMediaElement?.HAVE_CURRENT_DATA ?? 2);
     const backdrop = live ? cameraVideo : photo || capturedFrames.at(-1);
-    const floor = backdrop ? drawPhoto(ctx, backdrop, width, height) : drawEmptyRoom(ctx, width, height, room);
+    const photoRect = backdrop ? drawPhoto(ctx, backdrop, width, height) : drawEmptyRoom(ctx, width, height, room);
+    const horizon = backdrop ? horizonOf(backdrop) : 0.55;
+    const floor = backdrop ? overlayFloorFromHorizon(photoRect, horizon) : photoRect;
     if (plan?.ordered?.[0]) drawPiece(ctx, plan, floor);
     applyAtmosphere(ctx, width, height);
     if (!view3d) canvas.classList.remove("hidden");
@@ -447,7 +462,13 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     const orbit = new OrbitControls(camera, sceneCanvas);
     orbit.enableDamping = true;
-    orbit.maxPolarAngle = Math.PI * 0.52;
+    orbit.enablePan = true;
+    orbit.screenSpacePanning = true;
+    orbit.minPolarAngle = 0.04;
+    orbit.maxPolarAngle = Math.PI * 0.88;
+    orbit.minDistance = 0.35;
+    orbit.maxDistance = 18;
+    orbit.zoomSpeed = 1.1;
     scene.add(new THREE.HemisphereLight(0xffffff, 0x2c2c34, 1.05));
     const sun = new THREE.DirectionalLight(0xfff2df, 1.1);
     sun.position.set(3, 6, 2);
@@ -455,7 +476,21 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     const roomGroup = new THREE.Group();
     const furnitureGroup = new THREE.Group();
     scene.add(roomGroup, furnitureGroup);
-    three = { scene, camera, renderer, orbit, roomGroup, furnitureGroup, raf: 0, built: false, room: null };
+    three = {
+      scene,
+      camera,
+      renderer,
+      orbit,
+      roomGroup,
+      furnitureGroup,
+      raf: 0,
+      built: false,
+      room: null,
+      framedKey: "",
+      keys: { w: 0, a: 0, s: 0, d: 0, q: 0, e: 0 },
+      lastTick: 0,
+    };
+    bindWalkKeys();
     return three;
   }
 
@@ -470,14 +505,83 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     three.camera.updateProjectionMatrix();
   }
 
+  function bindWalkKeys() {
+    const codeMap = { KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d", KeyQ: "q", KeyE: "e" };
+    const onKey = (ev, down) => {
+      if (!active || !view3d || !three?.built) return;
+      const tag = ev.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+      const axis = codeMap[ev.code];
+      if (axis) {
+        three.keys[axis] = down ? 1 : 0;
+        ev.preventDefault();
+        return;
+      }
+      if (down && ev.code === "Space") {
+        if (three.room) applyFrame(three.room, true);
+        ev.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", (ev) => onKey(ev, true));
+    window.addEventListener("keyup", (ev) => onKey(ev, false));
+  }
+
+  function walkStep(dt) {
+    if (!three?.built || !view3d) return;
+    const { w, a, s, d, q, e } = three.keys;
+    if (!(w || a || s || d || q || e)) return;
+    const speed = 1.7 * Math.min(0.08, dt);
+    const forward = new THREE.Vector3();
+    three.camera.getWorldDirection(forward);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
+    else forward.normalize();
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const move = new THREE.Vector3();
+    move.addScaledVector(forward, w - s);
+    move.addScaledVector(right, d - a);
+    move.y += e - q;
+    if (move.lengthSq() < 1e-8) return;
+    move.normalize().multiplyScalar(speed);
+    const room = three.room || { widthM: 3.2, depthM: 3.8, heightM: 2.7 };
+    const next = three.camera.position.clone().add(move);
+    next.x = Math.min(room.widthM - 0.12, Math.max(0.12, next.x));
+    next.y = Math.min(room.heightM - 0.2, Math.max(0.35, next.y));
+    next.z = Math.min(room.depthM - 0.12, Math.max(0.12, next.z));
+    const delta = next.sub(three.camera.position);
+    three.camera.position.add(delta);
+    three.orbit.target.add(delta);
+    three.orbit.target.y = Math.min(room.heightM * 0.8, Math.max(0.1, three.orbit.target.y));
+  }
+
+  function applyFrame(room, force = false) {
+    if (!three || !room) return;
+    const key = `${room.widthM}:${room.depthM}:${room.heightM}`;
+    if (!force && three.framedKey === key) return;
+    const pose = frameRoomCamera(room);
+    three.camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+    three.orbit.target.set(pose.target.x, pose.target.y, pose.target.z);
+    three.orbit.minDistance = pose.minDistance;
+    three.orbit.maxDistance = pose.maxDistance;
+    three.camera.near = 0.05;
+    three.camera.far = 80;
+    three.camera.updateProjectionMatrix();
+    three.orbit.update();
+    three.framedKey = key;
+  }
+
   function startLoop() {
     if (!three || three.raf) return;
-    const tick = () => {
+    three.lastTick = performance.now();
+    const tick = (now) => {
       three.raf = requestAnimationFrame(tick);
+      const dt = Math.min(0.05, (now - three.lastTick) / 1000 || 0.016);
+      three.lastTick = now;
+      walkStep(dt);
       three.orbit.update();
       three.renderer.render(three.scene, three.camera);
     };
-    tick();
+    tick(performance.now());
   }
 
   function stopLoop() {
@@ -532,9 +636,12 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
 
   function furnitureMesh(item) {
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(item.color || "#f3efe6"), roughness: 0.62 });
     if (item.positions instanceof Float32Array && item.positions.length >= 9) {
       // The scanned visual hull is already metres, centred on its own origin.
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(item.color || "#d8c7a1"),
+        roughness: 0.62,
+      });
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(item.positions.slice(), 3));
       geometry.computeVertexNormals();
@@ -542,22 +649,22 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       mesh.position.y = item.h / 2;
       g.add(mesh);
     } else if (item.shape === "slab" || item.h <= 0.12) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(item.color || "#ecdfc6"),
+        roughness: 0.5,
+      });
       const slab = new THREE.Mesh(new THREE.BoxGeometry(item.w, Math.max(0.03, item.h), item.d), mat);
       slab.position.y = Math.max(0.03, item.h) / 2;
       g.add(slab);
     } else {
-      const topT = Math.min(0.05, item.h * 0.18);
-      const top = new THREE.Mesh(new THREE.BoxGeometry(item.w, topT, item.d), mat);
-      top.position.y = item.h - topT / 2;
-      g.add(top);
-      const legMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(shade(item.color, -34)), roughness: 0.7 });
-      const legT = Math.max(0.03, Math.min(item.w, item.d) * 0.1);
-      const legH = item.h - topT;
-      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(legT, legH, legT), legMat);
-        leg.position.set(sx * (item.w / 2 - legT), legH / 2, sz * (item.d / 2 - legT));
-        g.add(leg);
-      }
+      g.add(
+        makeIkeaTestTable(THREE, {
+          w: item.w || TEST_TABLE_M.w,
+          d: item.d || TEST_TABLE_M.d,
+          h: item.h || TEST_TABLE_M.h,
+          color: item.color || "#ecdfc6",
+        }),
+      );
     }
     g.position.set(item.x, 0, item.z);
     return g;
@@ -574,27 +681,38 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     const room = roomFromPhotos({
       aspect,
       horizon,
-      widthM: lastPlan?.room?.widthM || readNumber("room-w", 0),
-      depthM: lastPlan?.room?.depthM || readNumber("room-d", 0),
+      widthM: describedRoom?.widthM || lastPlan?.room?.widthM || readNumber("room-w", 0),
+      depthM: describedRoom?.depthM || lastPlan?.room?.depthM || readNumber("room-d", 0),
     });
+    if (Number(describedRoom?.heightM) > 0) room.heightM = Number(describedRoom.heightM);
+    if (describedRoom?.kind) room.kind = describedRoom.kind;
 
     clearGroup(ctx3.roomGroup);
     clearGroup(ctx3.furnitureGroup);
     const surfaces = assignSurfaces(imgs.length);
 
-    const floorMat = surfaceMaterial("floor", surfaces, imgs, horizon, "#c5b7a0");
+    const floorMat = surfaceMaterial(
+      "floor",
+      surfaces,
+      imgs,
+      horizon,
+      describedRoom?.floorColor || "#c5b7a0",
+    );
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(room.widthM, room.depthM), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(room.widthM / 2, 0, room.depthM / 2);
     ctx3.roomGroup.add(floor);
 
     for (const box of wallBoxes(room)) {
-      const mat = surfaceMaterial(box.side, surfaces, imgs, horizon, "#9aa8b6");
-      if (box.side === "front") {
-        // The camera-side wall stays see-through so the room reads from orbit.
-        mat.transparent = true;
-        mat.opacity = 0.22;
-      }
+      if (box.side === "front") continue;
+      const mat = surfaceMaterial(
+        box.side,
+        surfaces,
+        imgs,
+        horizon,
+        describedRoom?.wallColor || "#9aa8b6",
+      );
+      mat.side = THREE.DoubleSide;
       const wall = new THREE.Mesh(new THREE.BoxGeometry(box.w, box.h, box.d), mat);
       wall.position.set(box.x, box.h / 2, box.z);
       ctx3.roomGroup.add(wall);
@@ -604,11 +722,19 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       ctx3.furnitureGroup.add(furnitureMesh(item));
     }
 
-    ctx3.camera.position.set(room.widthM * 1.08, room.heightM * 1.2, room.depthM * 1.55);
-    ctx3.orbit.target.set(room.widthM / 2, room.heightM * 0.28, room.depthM / 2);
+    applyFrame(room);
     ctx3.built = true;
     ctx3.room = room;
     return room;
+  }
+
+  function showScene() {
+    if (!three?.built) rebuildHouse3d();
+    if (!three?.built) return null;
+    view3d = true;
+    syncViews();
+    onScene?.(three.room);
+    return three.room;
   }
 
   function syncViews() {
@@ -657,6 +783,31 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
       rebuildHouse3d();
       syncViews();
     }
+  }
+
+  function createRoom(description = {}) {
+    const numberOr = (value, fallback) => {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : fallback;
+    };
+    describedRoom = {
+      kind: String(description.kind || "room"),
+      widthM: numberOr(description.widthM, readNumber("room-w", 4.2)),
+      depthM: numberOr(description.depthM, readNumber("room-d", 3.8)),
+      heightM: numberOr(description.heightM, 2.7),
+      wallColor: description.wallColor || "#d6d2c8",
+      floorColor: description.floorColor || "#b89c78",
+    };
+    if ($("room-w")) $("room-w").value = String(describedRoom.widthM);
+    if ($("room-d")) $("room-d").value = String(describedRoom.depthM);
+    lastPlan = null;
+    currentSpace = "house";
+    active = true;
+    const room = rebuildHouse3d();
+    if (room) applyFrame(room, true);
+    view3d = Boolean(room);
+    syncViews();
+    return room;
   }
 
   function setSpace(space) {
@@ -802,7 +953,7 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
     if (view3d) {
       onScene?.(three.room);
       syncViews();
-      hud("The house in 3D — drag to orbit, scroll to zoom.");
+      hud("The house in 3D — drag to orbit, scroll to zoom, WASD to walk, Space to frame.");
     } else {
       hud("Back to the photo overlay.");
     }
@@ -848,16 +999,19 @@ export function initHouse({ api, hud = () => {}, onPhoto, onPlan, onScene, getSe
 
   window.addEventListener("resize", () => {
     const app = $("app");
-    if (app?.dataset.mode !== "lab" || app?.dataset.lab !== "ar") return;
+    if (app?.dataset.mode !== "lab") return;
+    if (app.dataset.lab !== "ar" && app.dataset.lab !== "house") return;
     if (view3d && three?.built) sizeScene();
     else draw(lastPlan);
   });
 
   return {
     applyPlan,
+    createRoom,
     draw,
     setActive,
     setSpace,
+    showScene,
     hasPhoto: () => allPhotos().length > 0,
     hasScene: () => Boolean(three?.built),
     cameraFrameCount: () => capturedFrames.length,

@@ -154,6 +154,7 @@ async function addPartToBench(partId, pose = { x: 0.25, y: 0.28, z: 0.1 }) {
     showPart(part, piece);
   }
   hud(`Added ${part?.name || partId}.`);
+  if (house?.hasScene?.()) house.rebuildHouse3d?.();
   return piece;
 }
 
@@ -230,7 +231,7 @@ function renderBenchPieces() {
   if (!list) return;
   const scanBodies = shop.getReconstructed?.() || [];
   if (!project.pieces.length && !scanBodies.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask the shop.</p>`;
+    list.innerHTML = `<p class="hint">Nothing on the bench. Scan, sketch, or ask AI.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -353,6 +354,42 @@ function appendChat(who, text, backend) {
   }
 }
 
+const CHAT_HISTORY_KEY = "ikealive.chat.history.v1";
+const COMMAND_HISTORY_KEY = "ikealive.command.history.v1";
+
+function storedList(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistList(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // History is a convenience; private browsing must not break chat.
+  }
+}
+
+const conversationHistory = storedList(CHAT_HISTORY_KEY)
+  .filter((entry) => entry && (entry.role === "user" || entry.role === "assistant") && entry.content)
+  .slice(-24);
+
+function rememberConversation(role, content, extra = {}) {
+  conversationHistory.push({ role, content: String(content || "").trim(), ...extra });
+  if (conversationHistory.length > 24) conversationHistory.splice(0, conversationHistory.length - 24);
+  persistList(CHAT_HISTORY_KEY, conversationHistory);
+}
+
+function restoreConversation() {
+  for (const entry of conversationHistory) {
+    appendChat(entry.role === "user" ? "you" : entry.agent || "AI", entry.content, entry.backend);
+  }
+}
+
 function currentLabSpace() {
   const space = $("app")?.dataset.lab;
   return space === "house" || space === "ar" ? space : "desk";
@@ -417,11 +454,14 @@ function openScanPanel() {
   }
 }
 
-const commandHistory = [];
+const commandHistory = storedList(COMMAND_HISTORY_KEY)
+  .filter((entry) => entry && entry.command)
+  .slice(0, 24);
 
 function recordCommand(command, result) {
   commandHistory.unshift({ command, result: String(result || "").trim() });
   if (commandHistory.length > 24) commandHistory.length = 24;
+  persistList(COMMAND_HISTORY_KEY, commandHistory);
   renderCommandHistory($("ai-history"), commandHistory);
 }
 
@@ -470,6 +510,10 @@ async function applyShopActions(actions) {
       if (action.applied) continue;
       const ids = action.pieceIds?.length ? action.pieceIds : added.map((p) => p.id).filter(Boolean);
       if (ids.length) await api.isolate(ids, action.label || "board");
+    } else if (action.type === "room" && action.room) {
+      setMode("lab");
+      setLabSpace("house");
+      house?.createRoom?.(action.room);
     } else if (action.type === "adaptation" && action.plan) {
       setMode("lab");
       setLabSpace("house");
@@ -483,17 +527,29 @@ async function applyShopActions(actions) {
   return added;
 }
 
-async function askShop(message) {
+let chatQueue = Promise.resolve();
+
+function askShop(message) {
+  const run = () => askShopOnce(message);
+  chatQueue = chatQueue.then(run, run);
+  return chatQueue;
+}
+
+async function askShopOnce(message) {
   const text = String(message || "").trim();
   if (!text) return;
 
   void loadCatalog(text);
   aiDock?.open?.();
 
+  const priorHistory = conversationHistory
+    .slice(-12)
+    .map(({ role, content }) => ({ role, content }));
   appendChat("you", text);
+  rememberConversation("user", text);
   aiDock?.remember(text);
   aiDock?.setOpen(true);
-  hud("Asking the shop…");
+  hud("AI is thinking…");
   try {
 
     const extra = labScenePayload();
@@ -508,21 +564,31 @@ async function askShop(message) {
       },
       scene: extra.scene,
       photoName: extra.photoName,
+      history: priorHistory,
 
     });
-    appendChat(reply.agent?.name || "Shop", reply.text || "", reply.backend);
+    const agentName = reply.agent?.name || "AI";
+    appendChat(agentName, reply.text || "", reply.backend);
+    rememberConversation("assistant", reply.text || "", {
+      agent: agentName,
+      backend: reply.backend || "",
+    });
     await applyShopActions(reply.actions);
     await refreshProject();
+    if (house?.hasScene?.() && (reply.actions || []).some((action) => action?.type === "add" || action?.type === "room")) {
+      house.rebuildHouse3d?.();
+    }
 
     aiDock?.refreshScene();
     recordCommand(text, reply.text || "Done.");
 
-    hud(reply.agent?.name ? `${reply.agent.name} answered.` : "Shop answered.");
+    hud(reply.agent?.name ? `${reply.agent.name} answered.` : "AI answered.");
   } catch (err) {
-    const failed = err.message || "The shop could not answer.";
-    appendChat("shop", failed);
+    const failed = err.message || "AI could not answer.";
+    appendChat("AI", failed);
+    rememberConversation("assistant", failed, { agent: "AI" });
     recordCommand(text, failed);
-    hud("The shop could not answer.");
+    hud("AI could not answer.");
   }
 }
 
@@ -539,6 +605,8 @@ aiDock = bindAiDock({
     askShop(query);
   },
 });
+restoreConversation();
+renderCommandHistory($("ai-history"), commandHistory);
 
 
 bindVoice({
@@ -929,7 +997,7 @@ function labHud(space) {
   return project.pieces.length
 
     ? "Bench — pick a piece, or fit it in the room."
-    : "Bench — scan, sketch, ask the shop, or measure the room below.";
+    : "Bench — scan, sketch, ask AI, or measure the room below.";
 
 }
 
@@ -1078,8 +1146,9 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
       `Binary hull: ${result.voxelCount.toLocaleString()} occupied voxels. ` +
       `Mesh: ${result.triangleCount.toLocaleString()} triangles / ${(result.positions.length / 3).toLocaleString()} vertices. ` +
       `Size: ${Math.round(dims.x)} × ${Math.round(dims.y)} × ${Math.round(dims.z)} mm.`;
-    if (output) output.textContent = summary;
-    hud("Reconstructed a real triangle mesh and added it to Bodies.");
+    if (output) output.textContent = `${summary} Place it in the room to test position, or bake a custom IKEAlive plan.`;
+    hud("Scanned mesh is on the bench — place it in the room or bake an IKEAlive plan.");
+    if (house?.hasScene?.() || house?.hasPhoto?.()) house.rebuildHouse3d?.();
   } catch (err) {
     const message = err?.message || "Could not reconstruct those photos.";
     if (output) output.textContent = message;
@@ -1092,6 +1161,52 @@ $("scan-reconstruct")?.addEventListener("click", async () => {
 $("back-ikealive")?.addEventListener("click", (ev) => {
   ev.preventDefault();
   setMode("ikeafy");
+});
+
+function latestScan() {
+  const all = shop.getReconstructed?.() || [];
+  return all.find((entry) => entry.piece.id === selectedIds[0]) || all.at(-1) || null;
+}
+
+$("scan-place-room")?.addEventListener("click", () => {
+  const scan = latestScan();
+  if (!scan) {
+    hud("Scan an object first, then place it in the room.");
+    return;
+  }
+  setMode("lab");
+  setLabSpace("house");
+  const room = house?.rebuildHouse3d?.() || house?.showScene?.();
+  house?.showScene?.();
+  hud(
+    room
+      ? `Placed ${scan.part?.name || "the scan"} in the 3D room — drag to orbit, WASD to walk.`
+      : "Open House after a room photo, then place the scan.",
+  );
+});
+
+$("scan-bake-plan")?.addEventListener("click", async () => {
+  const scan = latestScan();
+  if (!scan) {
+    hud("Scan an object first, then bake an IKEAlive plan.");
+    return;
+  }
+  hud("Baking a custom IKEAlive step plan…");
+  try {
+    const guide = await api.scanPlan({
+      name: scan.part?.name || "Scanned object",
+      dimsMm: scan.part?.dimsMm,
+    });
+    setMode("ikeafy");
+    const view = await studio?.startFromGuide?.(guide.raw, { label: guide.title });
+    hud(
+      view?.ok === false
+        ? view.reason || "Could not start the custom plan."
+        : `Custom IKEAlive plan for ${guide.title} — ${guide.steps?.length || 0} steps.`,
+    );
+  } catch (err) {
+    hud(err?.message || "Could not bake that IKEAlive plan.");
+  }
 });
 
 $("chat-form")?.addEventListener("submit", async (ev) => {
