@@ -4,6 +4,13 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildAiMeshGeometry } from "./ai-mesh.js";
 import { makeRoundPedestalTable } from "./generic-table.js";
+import {
+  buildWeldedTopology,
+  componentMode as normalizeComponentMode,
+  selectedWeldVertices,
+  subdivideTriangleAttributes,
+  updateComponentSelection,
+} from "./mesh-components.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -1458,6 +1465,7 @@ export function createWorkshop(canvas) {
     mesh.rotation.set(piece.rx || 0, piece.ry || 0, piece.rz || 0);
     mesh.scale.set(piece.sx || 1, piece.sy || 1, piece.sz || 1);
     markSelected(mesh);
+    if (mesh === selected) refreshComponentOverlay();
     return true;
   }
 
@@ -1775,11 +1783,12 @@ export function createWorkshop(canvas) {
     const mode = ["grab", "smooth", "inflate"].includes(next) ? next : null;
     sculptMode = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (meshTool) setMeshTool(null);
       transform.detach();
-    } else if (selected && !meshTool) {
+    } else if (selected && !meshTool && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("sculpting", Boolean(mode));
@@ -1789,57 +1798,389 @@ export function createWorkshop(canvas) {
     return sculptMode;
   }
 
+  /* ---- Blender-like vertex / edge / face component selection -------------
+     The overlay is world-space and disposable; the furniture geometry remains
+     the source of truth. Topology welds duplicate triangle corners so scaling
+     and selective subdivision always move/split every copy together. */
+  const componentOverlay = new THREE.Group();
+  scene.add(componentOverlay);
+  let componentPickObjects = [];
+  const componentPointMat = new THREE.PointsMaterial({
+    color: 0x62b7ff,
+    size: 6,
+    sizeAttenuation: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentPointSelectedMat = new THREE.PointsMaterial({
+    color: 0xffda1a,
+    size: 10,
+    sizeAttenuation: false,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeMat = new THREE.LineBasicMaterial({
+    color: 0x62b7ff,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentEdgeSelectedMat = new THREE.LineBasicMaterial({
+    color: 0xffda1a,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const componentFaceMat = new THREE.MeshBasicMaterial({
+    color: 0x3d9cf0,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    toneMapped: false,
+  });
+  const componentFaceSelectedMat = new THREE.MeshBasicMaterial({
+    color: 0xffda1a,
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+
+  function qualifiedComponentKey(targetIndex, localId) {
+    return `${targetIndex}|${localId}`;
+  }
+
+  function localComponentSelection(targetIndex) {
+    const prefix = `${targetIndex}|`;
+    return [...componentSelection]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length));
+  }
+
+  function clearComponentOverlay() {
+    componentOverlay.traverse((child) => child.geometry?.dispose?.());
+    componentOverlay.clear();
+    componentPickObjects = [];
+    componentRows = [];
+  }
+
+  function worldPosition(child, point) {
+    return new THREE.Vector3(point[0], point[1], point[2]).applyMatrix4(child.matrixWorld);
+  }
+
+  function positionGeometry(values) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(values, 3));
+    return geometry;
+  }
+
+  function addComponentPoints(row) {
+    const all = [];
+    const selectedPoints = [];
+    const keys = [];
+    for (const vertex of row.topology.vertices) {
+      const key = qualifiedComponentKey(row.index, vertex.id);
+      const point = worldPosition(row.child, vertex.position);
+      all.push(point.x, point.y, point.z);
+      keys.push(key);
+      if (componentSelection.has(key)) selectedPoints.push(point.x, point.y, point.z);
+    }
+    const points = new THREE.Points(positionGeometry(all), componentPointMat);
+    points.userData.componentKeys = keys;
+    points.userData.componentKind = "vertex";
+    componentOverlay.add(points);
+    componentPickObjects.push(points);
+    if (selectedPoints.length) {
+      componentOverlay.add(new THREE.Points(positionGeometry(selectedPoints), componentPointSelectedMat));
+    }
+  }
+
+  function edgePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const edge of row.topology.edges) {
+      const key = qualifiedComponentKey(row.index, edge.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      const [a, b] = edge.vertices.map((index) => worldPosition(row.child, row.topology.vertices[index].position));
+      values.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentEdges(row) {
+    const all = edgePositions(row);
+    const lines = new THREE.LineSegments(positionGeometry(all.values), componentEdgeMat);
+    lines.userData.componentKeys = all.keys;
+    lines.userData.componentKind = "edge";
+    componentOverlay.add(lines);
+    componentPickObjects.push(lines);
+    const highlighted = edgePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(
+        new THREE.LineSegments(positionGeometry(highlighted.values), componentEdgeSelectedMat),
+      );
+    }
+  }
+
+  function facePositions(row, onlySelected = false) {
+    const values = [];
+    const keys = [];
+    for (const face of row.topology.faces) {
+      const key = qualifiedComponentKey(row.index, face.id);
+      if (onlySelected && !componentSelection.has(key)) continue;
+      for (const vertexIndex of face.vertices) {
+        const point = worldPosition(row.child, row.topology.vertices[vertexIndex].position);
+        values.push(point.x, point.y, point.z);
+      }
+      keys.push(key);
+    }
+    return { values, keys };
+  }
+
+  function addComponentFaces(row) {
+    const all = facePositions(row);
+    const faces = new THREE.Mesh(positionGeometry(all.values), componentFaceMat);
+    faces.userData.componentKeys = all.keys;
+    faces.userData.componentKind = "face";
+    componentOverlay.add(faces);
+    componentPickObjects.push(faces);
+    const highlighted = facePositions(row, true);
+    if (highlighted.values.length) {
+      componentOverlay.add(new THREE.Mesh(positionGeometry(highlighted.values), componentFaceSelectedMat));
+    }
+  }
+
+  function refreshComponentOverlay() {
+    clearComponentOverlay();
+    if (!componentMode || !selected) return;
+    componentRows = sculptTargets(selected).map((child, index) => {
+      const geometry = sculptGeometry(child);
+      child.updateMatrixWorld(true);
+      return {
+        index,
+        child,
+        topology: buildWeldedTopology(geometry.getAttribute("position").array),
+      };
+    });
+    for (const row of componentRows) {
+      if (componentMode === "vertex") addComponentPoints(row);
+      else if (componentMode === "edge") addComponentEdges(row);
+      else addComponentFaces(row);
+    }
+  }
+
+  function componentKeyFromHit(hit) {
+    const keys = hit.object.userData.componentKeys || [];
+    if (hit.object.userData.componentKind === "face") return keys[hit.faceIndex] || null;
+    if (hit.object.userData.componentKind === "edge") return keys[Math.floor(hit.index / 2)] || null;
+    return keys[hit.index] || null;
+  }
+
+  function emitComponentSelection() {
+    const detail = {
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+      name: selected?.userData?.part?.name || "body",
+    };
+    onComponentSelect(detail);
+    canvas.dispatchEvent(new CustomEvent("ikealive-components", { detail }));
+  }
+
+  function pickComponent(ev) {
+    if (!componentMode || !selected) return false;
+    pointAt(ev);
+    ray.params.Points.threshold = 0.014;
+    ray.params.Line.threshold = 0.009;
+    const hits = ray.intersectObjects(componentPickObjects, false);
+    const key = hits.length ? componentKeyFromHit(hits[0]) : null;
+    componentSelection = updateComponentSelection(componentSelection, key, {
+      shiftKey: ev.shiftKey,
+      empty: !key,
+    });
+    transform.detach();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function setComponentMode(next) {
+    const mode = normalizeComponentMode(next);
+    if (componentMode !== mode) componentSelection = new Set();
+    componentMode = mode;
+    if (mode) {
+      if (cadTool) setCadTool(null);
+      if (measureOn) setMeasure(false);
+      if (meshTool) setMeshTool(null);
+      if (sculptMode) setSculptMode(null);
+      transform.detach();
+    } else if (selected && !cadTool && !measureOn && !meshTool && !sculptMode) {
+      transform.attach(selected);
+    }
+    canvas.classList.toggle("component-editing", Boolean(mode));
+    for (const button of document.querySelectorAll("[data-component-mode]")) {
+      const active = Boolean(mode) && button.dataset.componentMode === mode;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return componentMode;
+  }
+
+  function clearComponentSelection() {
+    if (!componentSelection.size) return false;
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
+    return true;
+  }
+
+  function scaleComponentSelection(factor) {
+    const amount = Number(factor);
+    if (!selected || !componentMode || !componentSelection.size) return null;
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const picked = [];
+    for (const row of componentRows) {
+      const local = localComponentSelection(row.index);
+      const vertices = selectedWeldVertices(row.topology, componentMode, local);
+      for (const index of vertices) {
+        picked.push({ row, index, world: worldPosition(row.child, row.topology.vertices[index].position) });
+      }
+    }
+    if (!picked.length) return null;
+    const center = picked.reduce((sum, entry) => sum.add(entry.world), new THREE.Vector3())
+      .divideScalar(picked.length);
+    const byRow = new Map();
+    for (const entry of picked) {
+      let edits = byRow.get(entry.row);
+      if (!edits) byRow.set(entry.row, (edits = []));
+      edits.push(entry);
+    }
+    for (const [row, edits] of byRow) {
+      const geometry = row.child.geometry;
+      const position = geometry.getAttribute("position");
+      const inverse = row.child.matrixWorld.clone().invert();
+      for (const entry of edits) {
+        const localPoint = entry.world.clone().sub(center).multiplyScalar(amount).add(center).applyMatrix4(inverse);
+        for (const occurrence of row.topology.vertices[entry.index].indices) {
+          position.setXYZ(occurrence, localPoint.x, localPoint.y, localPoint.z);
+        }
+      }
+      position.needsUpdate = true;
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    }
+    saveSculpt();
+    const name = selected.userData.part?.name || "body";
+    pushOp("S", `Scale ${componentSelection.size} ${componentMode} components · ${name}`);
+    onMeshEdit({
+      tool: "component-scale",
+      name,
+      label: `Scaled ${componentSelection.size} selected ${componentMode} components`,
+    });
+    refreshComponentOverlay();
+    return { scope: "components", count: componentSelection.size, mode: componentMode };
+  }
+
+  function geometryAttributeInput(geometry) {
+    return Object.fromEntries(
+      Object.entries(geometry.attributes)
+        .filter(([name]) => name !== "normal" && name !== "tangent")
+        .map(([name, attribute]) => [
+          name,
+          {
+            array: attribute.array,
+            itemSize: attribute.itemSize,
+            normalized: attribute.normalized,
+          },
+        ]),
+    );
+  }
+
+  function geometryFromSubdivision(oldGeometry, result) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.name = oldGeometry.name;
+    for (const [name, attribute] of Object.entries(result.attributes)) {
+      geometry.setAttribute(
+        name,
+        new THREE.BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized),
+      );
+    }
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    if (oldGeometry.groups.length) {
+      let startFace = 0;
+      while (startFace < result.faceMaterials.length) {
+        const materialIndex = result.faceMaterials[startFace];
+        let endFace = startFace + 1;
+        while (
+          endFace < result.faceMaterials.length &&
+          result.faceMaterials[endFace] === materialIndex
+        ) {
+          endFace += 1;
+        }
+        geometry.addGroup(startFace * 3, (endFace - startFace) * 3, materialIndex);
+        startFace = endFace;
+      }
+    }
+    return geometry;
+  }
+
   function subdivideSelected() {
     const id = selected?.userData?.piece?.id;
     if (!id) return false;
     const targets = sculptTargets(selected);
+    const selective =
+      (componentMode === "edge" || componentMode === "face") && componentSelection.size > 0;
     let total = 0;
     for (const child of targets) total += sculptGeometry(child).getAttribute("position").count;
-    if (total > 60000) return false; // once around the loop is plenty
-    for (const child of targets) {
-      const geo = child.geometry;
-      const pos = geo.getAttribute("position");
-      const uv = geo.getAttribute("uv");
-      const nextPos = new Float32Array(pos.count * 4 * 3);
-      const nextUv = uv ? new Float32Array(pos.count * 4 * 2) : null;
-      let w = 0;
-      let wUv = 0;
-      const P = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)];
-      const U = (i) => (uv ? [uv.getX(i), uv.getY(i)] : null);
-      const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
-      const push = (p, t) => {
-        nextPos.set(p, w);
-        w += 3;
-        if (nextUv && t) {
-          nextUv.set(t, wUv);
-          wUv += 2;
-        }
-      };
-      for (let i = 0; i < pos.count; i += 3) {
-        const [a, b, cV] = [P(i), P(i + 1), P(i + 2)];
-        const [ta, tb, tc] = [U(i), U(i + 1), U(i + 2)];
-        const ab = mid(a, b);
-        const bc = mid(b, cV);
-        const ca = mid(cV, a);
-        const tab = ta && mid(ta, tb);
-        const tbc = tb && mid(tb, tc);
-        const tca = tc && mid(tc, ta);
-        push(a, ta); push(ab, tab); push(ca, tca);
-        push(ab, tab); push(b, tb); push(bc, tbc);
-        push(ca, tca); push(bc, tbc); push(cV, tc);
-        push(ab, tab); push(bc, tbc); push(ca, tca);
-      }
-      const nextGeo = new THREE.BufferGeometry();
-      nextGeo.setAttribute("position", new THREE.BufferAttribute(nextPos, 3));
-      if (nextUv) nextGeo.setAttribute("uv", new THREE.BufferAttribute(nextUv, 2));
-      nextGeo.computeVertexNormals();
-      child.geometry = nextGeo;
-      geo.dispose();
+    if ((!selective && total > 60000) || total > 240000) return false;
+    const pending = [];
+    let beforeFaces = 0;
+    let afterFaces = 0;
+    for (let index = 0; index < targets.length; index += 1) {
+      const child = targets[index];
+      const local = selective ? localComponentSelection(index) : [];
+      if (selective && !local.length) continue;
+      const geometry = child.geometry;
+      const result = subdivideTriangleAttributes(geometryAttributeInput(geometry), {
+        mode: selective ? componentMode : null,
+        selection: local,
+        groups: geometry.groups,
+      });
+      beforeFaces += result.beforeFaces;
+      afterFaces += result.afterFaces;
+      pending.push({ child, geometry, next: geometryFromSubdivision(geometry, result) });
+    }
+    if (!pending.length || afterFaces * 3 > 240000) {
+      pending.forEach(({ next }) => next.dispose());
+      return false;
+    }
+    for (const { child, geometry, next } of pending) {
+      child.geometry = next;
+      geometry.dispose();
     }
     saveSculpt();
+    componentSelection = new Set();
+    refreshComponentOverlay();
+    emitComponentSelection();
     const name = selected?.userData?.part?.name || "body";
-    pushOp("S", `Subdivide · ${name}`);
-    return true;
+    const scope = selective ? `${componentMode} selection` : "whole mesh";
+    pushOp("S", `Subdivide ${scope} · ${name}`);
+    onMeshEdit({ tool: "subdivide", name, label: `Subdivide ${scope}` });
+    return { scope: selective ? "selection" : "all", beforeFaces, afterFaces };
   }
 
   /* ---- Mesh tools: extrude / inset / bevel / knife-lite / loop cut --------
@@ -2287,11 +2628,12 @@ export function createWorkshop(canvas) {
     const mode = MESH_TOOLS.includes(next) ? next : null;
     meshTool = mode;
     if (mode) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (measureOn) setMeasure(false);
       if (sculptMode) setSculptMode(null);
       transform.detach();
-    } else if (selected && !sculptMode && !cadTool && !measureOn) {
+    } else if (selected && !sculptMode && !cadTool && !measureOn && !componentMode) {
       transform.attach(selected);
     }
     canvas.classList.toggle("modeling", Boolean(mode));
@@ -2519,6 +2861,7 @@ export function createWorkshop(canvas) {
     clearSketch();
     clearJoint();
     cadTool = next || null;
+    if (cadTool && componentMode) setComponentMode(null);
     if (cadTool && sculptMode) setSculptMode(null);
     if (cadTool && meshTool) setMeshTool(null);
     if (cadTool && measureOn) {
@@ -2529,7 +2872,7 @@ export function createWorkshop(canvas) {
     }
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
     if (cadTool) transform.detach();
-    else if (selected && !measureOn) transform.attach(selected);
+    else if (selected && !measureOn && !componentMode) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
     }
@@ -2716,13 +3059,16 @@ export function createWorkshop(canvas) {
     measureOn = next;
     canvas.classList.toggle("measuring", measureOn);
     if (measureOn) {
+      if (componentMode) setComponentMode(null);
       if (cadTool) setCadTool(null);
       if (meshTool) setMeshTool(null);
       if (sculptMode) setSculptMode(null);
       transform.detach();
     } else {
       clearMeasure();
-      if (selected && !cadTool && !meshTool && !sculptMode) transform.attach(selected);
+      if (selected && !cadTool && !meshTool && !sculptMode && !componentMode) {
+        transform.attach(selected);
+      }
     }
     syncMeasureRead();
     emitViewport();
@@ -3086,6 +3432,10 @@ export function createWorkshop(canvas) {
       setMeasure(false);
       return;
     }
+    if (ev.key === "Escape" && componentMode) {
+      if (!clearComponentSelection()) setComponentMode(null);
+      return;
+    }
     if (ev.key === "Escape" && cadTool) setCadTool(null);
     if (ev.key === "Escape" && meshTool) setMeshTool(null);
     if (ev.key === "Escape" && sculptMode) setSculptMode(null);
@@ -3323,6 +3673,7 @@ export function createWorkshop(canvas) {
       jointPick(ev);
       return;
     }
+    if (componentMode && selected && pickComponent(ev)) return;
     if (meshTool && selected && beginMeshStroke(ev)) return;
     if (sculptMode && selected && beginSculptStroke(ev)) {
       if (sculptMode !== "grab") sculptStep(sculptStroke.hit);
@@ -3694,6 +4045,19 @@ export function createWorkshop(canvas) {
     setSculptMode,
     getSculptMode: () => sculptMode,
     subdivideSelected,
+    setComponentMode,
+    getComponentMode: () => componentMode,
+    getComponentSelection: () => ({
+      mode: componentMode,
+      count: componentSelection.size,
+      keys: [...componentSelection],
+    }),
+    hasComponentSelection: () => componentSelection.size > 0,
+    clearComponentSelection,
+    scaleComponentSelection,
+    onComponentSelect: (fn) => {
+      onComponentSelect = fn;
+    },
     onSculpt: (fn) => {
       onSculpt = fn;
     },
@@ -3715,7 +4079,7 @@ export function createWorkshop(canvas) {
       if (meshTool) setMeshTool(null);
       editMode = mode;
       transform.setMode(mode);
-      if (selected) transform.attach(selected);
+      if (selected && !componentMode) transform.attach(selected);
       return editMode;
     },
     getMode: () => editMode,
