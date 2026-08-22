@@ -152,7 +152,8 @@
       <!-- ============ WATCH / REEL + LAB STAGE ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
-        <canvas id="ar-photo" class="hidden"></canvas>
+        <video id="ar-camera" class="hidden" autoplay muted playsinline aria-hidden="true"></video>
+        <canvas id="ar-photo" class="hidden" aria-label="Live room camera with furniture overlay"></canvas>
         <canvas id="room-scene" class="hidden" aria-label="3D house rebuilt from room photos"></canvas>
         <div id="hud"></div>
         <!-- Lab: Viewport / Sim strip. Filled by src/lab.js — keep siblings' toolbars out of here. -->
@@ -349,9 +350,13 @@
             </summary>
             <div class="lab-folder-body house-plate">
               <p class="hint lab-hint house-caption">
-                Photo and measurements sit with the bench. AR shows the overlay — add more angles and
-                the Lab rebuilds the whole room in 3D.
+                AR uses the live camera and captures a short frame burst to rebuild the room in 3D.
+                Uploads still work when a camera is unavailable.
               </p>
+              <div class="ar-capture">
+                <button id="ar-toggle" type="button" class="primary" aria-pressed="false">AR on</button>
+                <span id="ar-status" class="hint" aria-live="polite">Camera off</span>
+              </div>
               <label class="field file-field" for="room-photo">
                 <span>Room photo</span>
                 <input id="room-photo" type="file" accept="image/*" />

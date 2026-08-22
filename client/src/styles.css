@@ -1090,6 +1090,9 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   pointer-events: none;
   background: #14181e;
 }
+#ar-camera {
+  display: none !important;
+}
 #app.mode-lab:not([data-lab="ar"]) #ar-photo {
   display: none !important;
 }
@@ -1119,6 +1122,24 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 .house-extra button {
   padding: 0.32rem 0.7rem;
   font-size: 0.78rem;
+}
+.ar-capture {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.45rem 0 0.7rem;
+}
+.ar-capture #ar-toggle {
+  flex: 0 0 auto;
+  min-width: 5rem;
+}
+.ar-capture #ar-toggle[aria-pressed="true"] {
+  background: #c93d32;
+  color: #fff;
+}
+.ar-capture #ar-status {
+  min-width: 0;
+  margin: 0;
 }
 #app.mode-lab[data-lab="ar"] #view {
   opacity: 0;
