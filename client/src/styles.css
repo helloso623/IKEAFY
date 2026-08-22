@@ -1097,21 +1097,6 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   pointer-events: auto;
 }
 
-/* The regenerated 3D house sits above the photo overlay in AR. */
-#room-scene {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  width: 100%;
-  height: 100%;
-  background: #14181e;
-}
-#app.mode-lab:not([data-lab="ar"]) #room-scene {
-  display: none !important;
-}
-#app.mode-lab[data-lab="ar"] #room-scene {
-  pointer-events: auto;
-}
 .house-extra {
   margin: 0.45rem 0 0;
   gap: 0.4rem;
@@ -1133,6 +1118,53 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   opacity: 1;
   pointer-events: auto;
 }
+
+/* House — the room photos rebuilt as a real 3D scene over the stage. */
+#house-view {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  background: #14181e;
+  display: block;
+}
+#house-view.hidden {
+  display: none !important;
+}
+#app.mode-lab[data-lab="house"] #view {
+  opacity: 0;
+  pointer-events: none;
+}
+#app.mode-lab[data-lab="house"] .lab-viewport,
+#app.mode-lab[data-lab="house"] .viewport-strip,
+#app.mode-lab[data-lab="house"] .vs-out {
+  display: none !important;
+}
+
+.house-photo-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.house-photo-strip:empty { display: none; }
+.house-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid var(--line, #d9d4c8);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+}
+.house-chip i {
+  width: 0.68rem;
+  height: 0.68rem;
+  border-radius: 3px;
+  border: 1px solid rgba(17, 17, 17, 0.25);
+}
+.house-status { min-height: 1rem; }
 
 #app.mode-lab .lab-browser,
 #app.mode-lab .rail.left {
