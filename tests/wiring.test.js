@@ -102,12 +102,11 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
   assert.match(studio, /pdfBase64|pdf-upload/, "uploaded PDFs need to travel with parse");
 });
 
-test("electronics stays a bench feature of the main Ikeafy app", () => {
+test("electronics stays a Lab feature of the main IKEAlive app", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
   assert.match(modes, /data-mode="ikeafy"/);
-  assert.match(modes, /data-mode="bench"/);
-  assert.match(modes, /data-mode="house"/);
+  assert.match(modes, /data-mode="lab"/);
   assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
 });
 
@@ -135,7 +134,7 @@ test("House is a live Lab form: photo, plan, cheaper fits, overlay", () => {
     assert.ok(markupIds.has(id), `House markup is missing #${id}`);
   }
   assert.match(main, /initHouse/);
-  assert.match(main, /lab-link/);
+  assert.match(main, /back-ikealive/);
   assert.match(house, /api\.adapt/);
   assert.match(house, /CHEAPER FITS/);
   assert.match(house, /drawImage/);
@@ -169,6 +168,15 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.equal(existsSync(path.join(root, ".next")), false, ".next is leftover Next build output");
   assert.equal(existsSync(path.join(root, "next-env.d.ts")), false);
   assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
+});
+
+test("askShop applies creative-desk add, camera, label, and isolate", () => {
+  assert.match(main, /applyShopActions/);
+  assert.match(main, /api\.add\(/);
+  assert.match(main, /api\.label\(/);
+  assert.match(main, /api\.isolate\(/);
+  assert.match(main, /shop\.setCamera/);
+  assert.match(main, /action\.type === "add"|action\.type === "add_part"/);
 });
 
 test("empty inspect is quiet — no ports, no Arduino", () => {

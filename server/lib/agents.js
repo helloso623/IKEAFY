@@ -462,7 +462,8 @@ export function sanitizeActions(raw, { electronics = false } = {}) {
 
 function localReply(message, ctx) {
   const agent = routeAgent(message);
-  const planned = ["cad", "eda", "sim"].includes(agent.id)
+  const hardLabTask = CAD_HINTS.test(message) || EDA_HINTS.test(message) || SIM_HINTS.test(message);
+  const planned = hardLabTask
     ? { handles: false, text: "", actions: [] }
     : planCreativeActions(message, ctx);
   if (planned.handles) {

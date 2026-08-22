@@ -1,5 +1,7 @@
 const PIN_ALIASES = {
   LED_BUILTIN: 13,
+  LED_PIN: 13,
+  BTN_PIN: 2,
 };
 
 function tokenize(source) {
@@ -10,6 +12,10 @@ function tokenize(source) {
 
 export function analyzeSketch(source) {
   const text = tokenize(source);
+  const aliases = { ...PIN_ALIASES };
+  for (const match of text.matchAll(/\b(?:const\s+)?int\s+([A-Za-z_]\w*)\s*=\s*(\d+)\s*;/g)) {
+    aliases[match[1]] = Number(match[2]);
+  }
   const pins = new Set();
   const writes = [];
   const reads = [];
@@ -22,7 +28,7 @@ export function analyzeSketch(source) {
     if (fn === "delay") delays.push(Number(args[0]) || 0);
     else {
       const raw = args[0];
-      const pin = PIN_ALIASES[raw] ?? Number(raw);
+      const pin = aliases[raw] ?? Number(raw);
       if (Number.isFinite(pin)) pins.add(pin);
       if (fn === "digitalWrite" || fn === "analogWrite") {
         writes.push({ pin, value: args[1] === "HIGH" || Number(args[1]) > 0 });
@@ -47,7 +53,7 @@ export function runSketch(source, { buttonDown = false, steps = 8 } = {}) {
   if (buttonDown) pins[2] = 1;
   const frames = [];
   let led = 0;
-  const hasToggle = /digitalWrite\s*\(\s*(13|LED_BUILTIN)/.test(source);
+  const hasToggle = /digitalWrite\s*\(\s*(13|LED_BUILTIN|LED_PIN)/.test(source);
   for (let i = 0; i < steps; i += 1) {
     if (hasToggle) led = i % 2;
     if (buttonDown && /digitalRead/.test(source)) led = 1;
