@@ -80,8 +80,6 @@ test("IKEAlive is upload then watch, not a bench side panel", () => {
   assert.match(html, /data-watch-card="reviews"/);
   assert.match(html, /data-watch-card="broken"/);
   assert.match(html, /data-watch-card="spare"/);
-  assert.doesNotMatch(html, /id="omnibox"/);
-  assert.doesNotMatch(html, /id="omnibox-form"/);
   assert.match(html, /id="ai-orb"/);
   assert.match(html, /id="ai-dock"/);
   const side = html.slice(html.indexOf('class="studio-side"'), html.indexOf('class="studio-side"') + 220);

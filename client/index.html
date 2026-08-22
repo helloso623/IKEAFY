@@ -39,17 +39,6 @@
           <button type="button" data-lab="ar">AR</button>
           <button type="button" id="scan-btn">Scan</button>
         </nav>
-        <!-- Header Ask stays in the DOM for wiring tests; Lab uses #ai-orb. -->
-        <form id="omnibox-form" class="omnibox-form" role="search" hidden>
-          <input
-            id="omnibox"
-            type="search"
-            placeholder="Add a table, generate a lamp, or ask…"
-            autocomplete="off"
-            aria-label="Search the catalog or ask the shop"
-          />
-          <button type="button" id="omnibox-ask">Ask</button>
-        </form>
         <div class="top-actions">
           <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
           <label class="toggle bench-only hidden">
@@ -335,6 +324,16 @@
           <!-- Wiring hooks stay hidden. Lab adds via scan, AI, sketch, or an explicit electronics search. -->
           <div class="hidden" aria-hidden="true">
             <span>Catalog</span>
+            <form id="omnibox-form" class="omnibox-form" role="search" hidden>
+              <input
+                id="omnibox"
+                type="search"
+                placeholder="Add a table, generate a lamp, or ask…"
+                autocomplete="off"
+                aria-label="Search the catalog or ask the shop"
+              />
+              <button type="button" id="omnibox-ask">Ask</button>
+            </form>
             <label><input id="show-electronics" type="checkbox" /> Show electronics</label>
             <input id="cost" type="number" min="0" step="1" />
             <input id="search" type="search" />

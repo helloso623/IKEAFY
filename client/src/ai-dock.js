@@ -78,7 +78,9 @@ export function setAiDockOpen(open, { orb, dock, input } = {}) {
     orb.classList.toggle("on", shown);
     orb.setAttribute("aria-expanded", shown ? "true" : "false");
   }
-  document.getElementById("app")?.classList.toggle("ai-open", shown);
+  if (typeof document !== "undefined") {
+    document.getElementById("app")?.classList.toggle("ai-open", shown);
+  }
   if (shown) input?.focus?.();
 }
 
