@@ -262,7 +262,8 @@ async function loadCatalog(raw) {
   const q = { q: catalogNeedle(typed) };
   const budget = $("cost")?.value || parseBudget(typed);
   if (budget) q.maxCost = budget;
-  const parts = (await api.catalog(q)).filter((p) => p.category !== "electronics" && p.category !== "cable");
+  if (showElectronicsOn()) q.electronics = "1";
+  const parts = filterLabCatalog(await api.catalog(q), typed);
   for (const p of parts) partsById[p.id] = p;
   updateCatalogHint(parts);
   const shelf = $("catalog");
