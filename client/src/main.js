@@ -313,7 +313,7 @@ function renderDiyHistory(active = null) {
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
-              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Piece PDF</button>
+              <button type="button" class="quiet" data-ways-build="${escapeHtml(entry.id)}">Ways PDF</button>
             </li>`,
           )
           .join("")
@@ -332,7 +332,7 @@ function renderDiyHistory(active = null) {
         ${
           current.id
             ? `<button type="button" class="quiet" data-ways-build="${escapeHtml(current.id)}">Print ways + cut list</button>`
-            : `<span class="hint">Live current design · Hunt table pieces to save this revision</span>`
+            : `<span class="hint">Live current design · Finish &amp; find ways to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
           current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
@@ -347,7 +347,7 @@ function openWaysPrint(build) {
   try {
     openBuildPacketPrint({ bom, pdf: build.pdf, assembly: { outline: build.outline || [] } });
   } catch (error) {
-    hud(error?.message || "Could not open that saved table-piece PDF.");
+    hud(error?.message || "Could not open that saved ways-to-make PDF.");
   }
 }
 
@@ -1169,12 +1169,12 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Hunting pieces…";
+  button.textContent = "Finding build ways…";
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Finding table pieces…</title><p>Matching tops, legs, rails, and boards to this model…</p>");
+    printWindow.document.write("<!doctype html><title>Finding build ways…</title><p>Researching construction routes and shaped pieces for this model…</p>");
   }
-  hud("Hunting furniture pieces in this model's shapes and millimetres…");
+  hud("Finding ways to make this exact final table…");
   try {
     const packet = await api.finishProject();
     openBuildPacketPrint(packet, printWindow);
@@ -1183,12 +1183,12 @@ $("finish-model")?.addEventListener("click", async () => {
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "table-piece plan" });
+    await studio?.openAssemblyView?.(packet.assembly, { label: "ways-to-make plan" });
     const match = packet.bom?.ikeaMatch;
     hud(
       match
-        ? `Piece PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
-        : `Piece PDF ready · ${packet.bom?.ways?.length || 0} candidate routes · ${
+        ? `Ways PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
+        : `Ways PDF ready · ${packet.bom?.ways?.length || 0} construction routes · ${
             packet.bom?.lines?.length || 0
           } cut-list lines · IKEAlive todo created.`,
     );
@@ -1199,7 +1199,7 @@ $("finish-model")?.addEventListener("click", async () => {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Hunt table pieces";
+    button.textContent = "Finish & find ways";
   }
 });
 

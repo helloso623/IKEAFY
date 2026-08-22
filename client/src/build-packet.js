@@ -28,13 +28,11 @@ function sourceLinks(line) {
 
 export function buildPacketHtml(packet = {}) {
   const bom = packet.bom || {};
-  const lines = bom.lines || [];
-  const cutLines = bom.cutList || lines.filter((line) => line.category !== "connection-hardware");
-  const hardwareLines = bom.hardwareLines || lines.filter((line) => line.category === "connection-hardware");
+  const lines = bom.cutList || bom.lines || [];
   const ways = bom.ways || [];
   const steps = packet.assembly?.outline || packet.assembly?.guide?.steps || [];
   const live = bom.liveSources || bom.researchResults || [];
-  const rowsFor = (source) => source
+  const rows = lines
     .map(
       (line) => `<tr>
         <td>${escapeHtml(line.qty)}</td>
@@ -46,8 +44,6 @@ export function buildPacketHtml(packet = {}) {
       </tr>`,
     )
     .join("");
-  const cutRows = rowsFor(cutLines);
-  const hardwareRows = rowsFor(hardwareLines);
   const wayRows = ways
     .map(
       (way, index) => `<article class="way">
@@ -90,7 +86,7 @@ export function buildPacketHtml(packet = {}) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} piece plan`)}</title>
+  <title>${escapeHtml(packet.pdf?.filename || `${bom.name || "Table"} ways to make`)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -114,24 +110,19 @@ export function buildPacketHtml(packet = {}) {
   </style>
 </head>
 <body>
-  <p class="kicker">IKEAlive build packet · tops, legs, rails &amp; boards</p>
+  <p class="kicker">IKEAlive build packet · ways to make this model</p>
   <h1>${escapeHtml(bom.name || "Custom furniture")}</h1>
   <div class="meta"><span>${escapeHtml(bom.scope || "")}</span><span>Estimated pieces: $${Number(
     bom.estimatedTotal || 0,
   ).toFixed(2)} ${escapeHtml(bom.currency || "USD")}</span></div>
   ${match}
-  <h2>Candidate piece routes</h2>
+  <h2>Ways to make the final model</h2>
   ${wayRows}
-  <h2>Pieces for this table</h2>
+  <h2>Cut list and shaped pieces</h2>
   <table>
     <thead><tr><th>Qty</th><th>Piece</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
-    <tbody>${cutRows}</tbody>
+    <tbody>${rows}</tbody>
   </table>
-  ${hardwareRows ? `<h2>Connection hardware</h2>
-  <table>
-    <thead><tr><th>Qty</th><th>Hardware</th><th>Shape / size</th><th>Material</th><th>Estimate</th><th>Legal source links</th></tr></thead>
-    <tbody>${hardwareRows}</tbody>
-  </table>` : ""}
   ${liveRows ? `<h2>Live build research</h2><ul>${liveRows}</ul>` : ""}
   <h2>IKEAlive watch / plan / todo</h2>
   <ol>${stepRows}</ol>
@@ -142,7 +133,7 @@ export function buildPacketHtml(packet = {}) {
 
 export function openBuildPacketPrint(packet, printWindow = null) {
   const target = printWindow || window.open("", "_blank");
-  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the table-piece PDF.");
+  if (!target) throw new Error("Allow pop-ups so IKEAlive can open the ways-to-make PDF.");
   target.document.open();
   target.document.write(buildPacketHtml(packet));
   target.document.close();
