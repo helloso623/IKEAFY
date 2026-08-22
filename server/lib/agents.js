@@ -5,6 +5,11 @@ import { planRoom } from "./adaptation.js";
 import { sketchFromFunctions } from "./firmware.js";
 import { addPiece, isolateAsBoard, labelFunction, movePiece, persistLabTool } from "./project.js";
 import { usableOpenAiKey } from "./secrets.js";
+import {
+  answerGuideQuestionWithGliner2,
+  GLINER2_BACKEND,
+  GLINER2_MODEL,
+} from "./gliner2.js";
 
 export const ROSTER = [
   {
@@ -1034,10 +1039,68 @@ function stewardCanCreate(message, ctx = {}) {
 
 function finishLocal(message, ctx, { escalate = false, creative = false } = {}) {
   const local = localReply(message, ctx);
-  const agent = local.agent || routeAgent(message);
-  const ikeaSmall = !escalate && (agent.id === "assembler" || IKEA_HINTS.test(String(message || "")));
-  if (ikeaSmall) return { ...local, backend: "gliner-2-standin", escalated: false };
   return { ...local, escalated: Boolean(escalate), from: creative ? "creative-desk" : "conversation" };
+}
+
+function isGuideQuestion(message, ctx = {}) {
+  if (!ctx.guide?.steps?.length) return false;
+  const text = String(message || "");
+  const guideHint = /\b(step|guide|manual|instruction|assemble|tool|parts?|warning|screw|fasten)\b/i.test(text);
+  return (
+    (routeAgent(text).id === "assembler" || guideHint) &&
+    (/[?]/.test(text) || SMALL_QUESTION.test(text) || STEP_LOCK.test(text))
+  );
+}
+
+function localGuideFallback(message, ctx, reason = "The local GLiNER 2 model is unavailable.") {
+  const requested = Number.parseInt(String(message || "").match(/\bstep\s+(\d+)\b/i)?.[1], 10);
+  const number = Number.isFinite(requested) ? requested : Number(ctx.step) || 1;
+  const step = ctx.guide?.steps?.find((candidate) => Number(candidate.number) === number);
+  let answer = step ? `Step ${number}: ${step.body}` : `The current guide has no step ${number}.`;
+  if (step && /\btool\b/i.test(message)) {
+    answer = step.toolRequired
+      ? `Step ${number} requires ${step.toolRequired}.`
+      : `Step ${number} does not list a required tool.`;
+  } else if (step && /\bparts?\b/i.test(message)) {
+    answer = step.partsUsed?.length
+      ? `Step ${number} uses ${step.partsUsed.join(", ")}.`
+      : `Step ${number} does not list any catalog parts.`;
+  } else if (step && /\bwarn|danger|careful|risk\b/i.test(message)) {
+    answer = step.warnings?.length
+      ? `Step ${number} warning: ${step.warnings.join("; ")}.`
+      : `Step ${number} has no recorded warning.`;
+  }
+  return {
+    agent: ROSTER.find((candidate) => candidate.id === "assembler"),
+    backend: "local-guide-fallback",
+    text: `GLiNER 2 unavailable — local guide fallback: ${answer}`,
+    actions: [],
+    escalated: false,
+    grounding: { guideTitle: ctx.guide?.title || "", stepNumbers: step ? [number] : [] },
+    gliner2: { status: "unavailable", model: GLINER2_MODEL, fallback: "local-guide-fallback", reason },
+  };
+}
+
+async function glinerGuideReply(message, ctx) {
+  try {
+    const answer = await answerGuideQuestionWithGliner2(message, ctx.guide, {
+      currentStep: ctx.step,
+      glinerInfer: ctx.glinerInfer,
+      glinerTimeoutMs: ctx.glinerTimeoutMs,
+    });
+    if (!answer) return localGuideFallback(message, ctx, "GLiNER 2 returned no guide-question structure.");
+    return {
+      agent: ROSTER.find((candidate) => candidate.id === "assembler"),
+      backend: GLINER2_BACKEND,
+      text: answer.text,
+      actions: [],
+      escalated: false,
+      grounding: { guideTitle: ctx.guide.title, stepNumbers: answer.stepNumbers },
+      gliner2: { status: "ok", model: GLINER2_MODEL },
+    };
+  } catch (error) {
+    return localGuideFallback(message, ctx, String(error?.message || "GLiNER 2 inference failed."));
+  }
 }
 
 /** Last-resort shop reply. Never throws; always a local steward payload. */
@@ -1071,6 +1134,10 @@ export async function chat(message, ctx = {}) {
       return finishLocal(message, ctx, { escalate, creative });
     }
 
+    if (isGuideQuestion(message, ctx)) {
+      return glinerGuideReply(message, ctx);
+    }
+
     if (hasHostedBrain()) {
       try {
         const hosted = await hostedReply(message, ctx, agent);
@@ -1078,7 +1145,7 @@ export async function chat(message, ctx = {}) {
           return {
             ...hosted,
             escalated: escalate,
-            from: escalate ? "gliner-2-standin" : creative ? "creative-desk" : "conversation",
+            from: escalate ? "specialist-desk" : creative ? "creative-desk" : "conversation",
           };
         }
       } catch {
