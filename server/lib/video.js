@@ -1,4 +1,5 @@
 import { storyboardForStep } from "./ikeafy.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 export const MODEL = "bytedance/seedance-2.5/text-to-video";
 export const PARTNER = "Seedance";
@@ -62,6 +63,7 @@ export function promptForStep(guide, stepNumber, extra = "") {
 
 async function falQueue(payload, { fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const headers = falHeaders();
+  ikealiveLog("video", "submit", { queue: QUEUE, promptChars: String(payload?.prompt || "").length, resolution: payload?.resolution, duration: payload?.duration });
   const submitted = await fetchFn(QUEUE, {
     method: "POST",
     headers,
@@ -69,33 +71,51 @@ async function falQueue(payload, { fetchFn = fetch, sleep = (ms) => new Promise(
   });
   if (!submitted.ok) {
     const detail = await submitted.text().catch(() => "");
+    ikealiveWarn("video", "submit failed", { status: submitted.status, detail: String(detail).slice(0, 180) });
     throw new Error(`fal submit ${submitted.status} ${detail.slice(0, 180)}`);
   }
   const ticket = await submitted.json();
   const immediate = videoUrlFrom(ticket);
-  if (immediate) return ticket;
+  if (immediate) {
+    ikealiveLog("video", "result", { requestId: ticket.request_id || null, videoUrl: immediate, immediate: true });
+    return ticket;
+  }
 
   const requestId = ticket.request_id;
   if (!requestId) throw new Error("fal submit returned no request_id");
   const statusUrl = ticket.status_url || `${MODEL_ROOT}/requests/${requestId}/status`;
   const resultUrl = ticket.response_url || `${MODEL_ROOT}/requests/${requestId}`;
+  ikealiveLog("video", "queued", { requestId, statusUrl, resultUrl });
 
   const deadline = Date.now() + DEADLINE_MS;
+  let polls = 0;
   while (Date.now() < deadline) {
+    polls += 1;
     const statusRes = await fetchFn(statusUrl, { headers });
-    if (!statusRes.ok) throw new Error(`fal status ${statusRes.status}`);
+    if (!statusRes.ok) {
+      ikealiveWarn("video", "poll failed", { requestId, status: statusRes.status, polls });
+      throw new Error(`fal status ${statusRes.status}`);
+    }
     const status = await statusRes.json();
     const state = String(status.status || "").toUpperCase();
+    ikealiveLog("video", "poll", { requestId, state, polls });
     if (state === "COMPLETED") {
       const done = await fetchFn(resultUrl, { headers });
-      if (!done.ok) throw new Error(`fal result ${done.status}`);
-      return done.json();
+      if (!done.ok) {
+        ikealiveWarn("video", "result failed", { requestId, status: done.status });
+        throw new Error(`fal result ${done.status}`);
+      }
+      const body = await done.json();
+      ikealiveLog("video", "result", { requestId, videoUrl: videoUrlFrom(body), polls });
+      return body;
     }
     if (state === "FAILED" || state === "CANCELED") {
+      ikealiveWarn("video", "job failed", { requestId, state });
       throw new Error(`fal ${state.toLowerCase()}`);
     }
     await sleep(POLL_MS);
   }
+  ikealiveWarn("video", "timeout", { requestId, polls });
   throw new Error("fal timeout");
 }
 
@@ -133,8 +153,12 @@ export async function renderStepVideo(
     reason: FAL_REQUIRED,
   };
 
-  if (!hasFal()) return local;
+  if (!hasFal()) {
+    ikealiveWarn("video", "missing FAL_KEY — no Seedance film", { stepNumber });
+    return local;
+  }
 
+  ikealiveLog("video", "render", { stepNumber, title: guide?.title || null, keyed: true });
   const result = await falQueue(
     {
       prompt,

@@ -48,7 +48,7 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
-import { hasTavily } from "./lib/tavily.js";
+import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
@@ -235,6 +235,11 @@ app.post("/api/ikeafy/parse", async (req, res) => {
   const hasPlates = images.some((image) =>
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
+  console.log("[ikealive:parse]", "POST /api/ikeafy/parse", {
+    plates: images.length,
+    hasGuideText: Boolean(req.body?.guide),
+    hasPdfBase64: Boolean(req.body?.pdfBase64),
+  });
   let raw = req.body?.guide || "";
   if (!hasPlates && req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
@@ -267,6 +272,21 @@ app.get("/api/ikeafy/official/products", (req, res) => {
   });
 });
 
+app.post("/api/ikeafy/manual", async (req, res) => {
+  const productName = req.body?.productName || req.body?.q || "";
+  console.log("[ikealive:tavily]", "POST /api/ikeafy/manual", { productName: String(productName).slice(0, 80) });
+  try {
+    const found = await findIkeaManual(productName);
+    res.json({
+      ...found,
+      pdfBase64: found.pdfBase64 || null,
+    });
+  } catch (err) {
+    console.warn("[ikealive:tavily]", "manual lookup error", err?.message || err);
+    res.status(502).json({ ok: false, reason: String(err.message || err) });
+  }
+});
+
 app.post("/api/ikeafy/official/verify", (req, res) => {
   res.json(verifyOfficialGuide(req.body?.guide || officialGuide({ article: req.body?.article })));
 });
@@ -292,6 +312,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   const stored = body.runId ? getAssembly(body.runId) : null;
   const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
   try {
     const result = await renderStepVideo({
       guide,
@@ -319,6 +340,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       prompt: result.prompt,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "render error", { stepNumber, error: String(err.message || err) });
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
@@ -326,7 +348,9 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
+  console.log("[ikealive:video]", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
   if (!hasFal()) {
+    console.warn("[ikealive:video]", "missing FAL_KEY — reel skipped");
     return res.status(503).json({
       ok: false,
       reel: true,
@@ -372,6 +396,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
       steps,
     });
   } catch (err) {
+    console.warn("[ikealive:video]", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });
@@ -439,6 +464,13 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  * the confirmations and the refusals all live here.
  */
 app.post("/api/assembly/start", async (req, res) => {
+  const body = req.body || {};
+  console.log("[ikealive:parse]", "POST /api/assembly/start", {
+    mode: body.mode || "official",
+    article: body.article || null,
+    plates: Array.isArray(body.images) ? body.images.length : 0,
+    hasGuideText: Boolean(body.guide),
+  });
   const result = await startAssemblyAsync(req.body || {});
   if (result.ok && getAssembly(result.run?.id)?.guide) {
     state.guide = getAssembly(result.run.id).guide;
