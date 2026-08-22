@@ -342,7 +342,7 @@ export function storyboardForStep(guide, stepNumber) {
     `Step ${step.number}: ${step.action}`,
     step.body,
     step.toolRequired ? `Tool: ${step.toolRequired}` : "Hands only",
-    step.warnings[0] ? `Watch: ${step.warnings[0]}` : "Looks good — continue when ready.",
+    step.warnings[0] ? `Watch: ${step.warnings[0]}` : "This plate is done.",
   ];
   return captions.map((caption, i) => ({
     frame: i,

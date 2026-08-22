@@ -1,13 +1,7 @@
 /**
- * The IKEAFY studio: its own tab, one plate at a time.
- *
- * Two sources feed it. The official IKEA sheet is locked — the server decides
- * which step you are on, will not send a step you have not reached, and refuses
- * skips and edits out loud. A guide you paste yourself is the opposite: editable
- * inline, skippable, and stored so you can come back to it.
- *
- * Nothing here decides progress on its own. Every move is a server call, so
- * disabling a button is a courtesy rather than the lock itself.
+ * IKEAlive watch: a Veed reel of every step, driven by Back / Play-Stop / Next.
+ * Click a step in #steps or the scrub list to jump there. Upload (or Start)
+ * builds the reel; this UI plays it.
  */
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
@@ -37,15 +31,12 @@ export function initStudio({ api, hud = () => {} } = {}) {
     reviews: first("#reviews"),
     film: first("#film"),
     frame: first("#film-frame"),
+    video: first("#film-video"),
     caption: first("#film-caption"),
-    confirm: first("#step-confirm"),
-    confirmLabel: first("#step-confirm-label"),
+    play: first("#film-play"),
     next: first("#film-wait"),
     back: first("#film-back"),
-    stuck: first("#film-stuck"),
-    skip: first("#step-skip"),
-    colorize: first("#colorize"),
-    render: first("#render-video"),
+    scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
@@ -69,11 +60,13 @@ export function initStudio({ api, hud = () => {} } = {}) {
     step: null,
     outline: [],
     guide: null,
-    frames: [],
+    reel: [],
+    clipIndex: 0,
     frameIndex: 0,
-    playing: 0,
+    playingOn: false,
+    playGen: 0,
+    reelToken: 0,
     timer: null,
-    watched: false,
     broken: null,
     destroyed: false,
   };
@@ -183,22 +176,29 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function renderBom() {
     if (!el.bom) return;
     const bom = state.guide?.bom;
-    if (!bom) {
-      el.bom.textContent = "";
-      return;
+    el.bom.replaceChildren();
+    if (!bom) return;
+
+    const group = (label, lines) => {
+      const wrap = document.createElement("div");
+      wrap.className = "bom-group";
+      const title = document.createElement("strong");
+      title.textContent = label;
+      const body = document.createElement("p");
+      body.textContent = lines.length
+        ? lines.map((line) => `${line.qty || 1}× ${line.name}${line.store ? ` — ${line.store}` : ""}`).join("\n")
+        : "None listed.";
+      wrap.append(title, body);
+      el.bom.append(wrap);
+    };
+
+    group("Kit", bom.included || []);
+    group("Extra", bom.extra || []);
+    if (bom.total != null) {
+      const total = document.createElement("p");
+      total.textContent = `List total $${bom.total}`;
+      el.bom.append(total);
     }
-    el.bom.textContent = [
-      "IN THE BOX",
-      ...(bom.included || []).map((line) => `• ${line.qty || 1}× ${line.name}`),
-      "",
-      "BUY SEPARATELY",
-      ...(bom.extra || []).map(
-        (line) => `• ${line.qty || 1}× ${line.name}${line.store ? ` — ${line.store}` : ""}`,
-      ),
-      bom.total == null ? "" : `Total list $${bom.total}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
   }
 
   async function renderReviews() {
@@ -209,7 +209,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
       for (const group of groups) {
         for (const review of group.reviews || []) {
           const line = document.createElement("div");
-          line.textContent = `Step ${group.step} · ${review.stars}★ · ${review.difficulty}\n${review.text}`;
+          const title = document.createElement("strong");
+          title.textContent = `Step ${group.step} · ${review.difficulty}`;
+          const body = document.createElement("p");
+          body.textContent = review.text;
+          line.append(title, body);
           el.reviews.append(line);
         }
       }
@@ -238,7 +242,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!el.spareArticle) return;
     el.spareArticle.placeholder = fittings.length
       ? `Fitting no. — this step uses ${fittings.map((f) => f.articleNumber).join(", ")}`
-      : "Fitting no. (e.g. 100347)";
+      : "Part number";
   }
 
   // -------------------------------------------------------------------- the run
@@ -595,8 +599,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.fillStyle = colorized ? "rgba(255, 252, 243, .96)" : "rgba(255, 255, 252, .96)";
     ctx.fillRect(0, h - cardHeight, w, cardHeight);
     line(0, h - cardHeight, w, h - cardHeight, 1.5, ink);
-    ctx.fillStyle = "#ffda1a";
-    ctx.fillRect(0, h - cardHeight, 8, cardHeight);
+    ctx.fillStyle = ink;
+    ctx.fillRect(0, h - cardHeight, 2, cardHeight);
 
     const plate = Math.max(1, Number(frame.frame) + 1 || 1);
     ctx.fillStyle = ink;

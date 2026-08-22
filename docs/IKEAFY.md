@@ -5,7 +5,7 @@ Consumer assembly studio: official IKEA steps as a black-and-white film, plus he
 1. Pick an official product (only **LACK** is unlocked) or paste a guide.
 2. The guide becomes numbered steps.
 3. The center stage plays one plate per step. Official mode unlocks plates in order.
-4. The right rail holds kit vs extra, where people had trouble, part ID, and spare fittings.
+4. The right rail is the IKEAlive watch: four same-style cards for kit vs extra, where people had troubles, part ID, and small-parts requests.
 
 Partners named in `/api/health` stand in locally:
 

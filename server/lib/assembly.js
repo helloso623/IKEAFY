@@ -12,7 +12,7 @@ import { expandStep, officialGuide, parseGuide } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
 
 const CONFIRM_BY_ACTION = {
-  unpack: "Every part on the parts list is out of the box and counted.",
+  unpack: "The kit matches the parts list.",
   place: "The part is sitting exactly as the plate shows.",
   align: "Every fastener is hand-started and square — nothing is cross-threaded.",
   fasten: "Every fastener is snug, and none of them was forced past snug.",
