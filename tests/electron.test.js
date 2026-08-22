@@ -13,6 +13,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const entry = path.join(root, "electron/main.js");
 const main = readFileSync(entry, "utf8");
+const vite = readFileSync(path.join(root, "client/vite.config.js"), "utf8");
 
 function startsStack(script) {
   return /dev:server/.test(script) && /dev:client|vite/.test(script) && /electron/.test(script);
@@ -44,6 +45,8 @@ test("Electron loads the local UI on 5173, localhost, or file:// dist without no
   assert.match(main, /BrowserWindow/);
   assert.match(main, /waitForUrl/);
   assert.match(main, /\/api\/health/);
+  assert.match(main, /apiPort/, "file renderers need the Express port in their URL");
+  assert.match(vite, /base:\s*["']\.\/["']/, "file renderers need relative built assets");
   assert.doesNotMatch(main, /nodeIntegration:\s*true/);
 });
 
