@@ -162,8 +162,9 @@ export async function searchHardwareOffers(build = {}, { fetchFn = fetch } = {})
   const dims = build.modelDimensionsMm || {};
   const query =
     `buy connection hardware for ${build.name || "custom furniture"} ${dims.x || ""} x ${dims.y || ""} x ${dims.z || ""} mm ` +
-    `${items.join(" OR ")} furniture mounting plates brackets bolts screws`;
-  return searchOfferQuery(query, key, fetchFn);
+    `${items.join(" OR ")} furniture mounting plates brackets bolts screws -McMaster`;
+  const offers = await searchOfferQuery(query, key, fetchFn);
+  return offers.filter((offer) => !/mcmaster/i.test(`${offer.title || ""} ${offer.url || ""}`));
 }
 
 export async function searchDiyOffers(build = {}, options = {}) {

@@ -614,13 +614,6 @@
             </label>
           </div>
         </div>
-        <div id="finish-progress" class="finish-progress" role="status" aria-live="polite" hidden>
-          <div class="finish-progress-copy">
-            <strong id="finish-progress-text">Reading the model…</strong>
-            <span id="finish-progress-percent">3%</span>
-          </div>
-          <progress id="finish-progress-bar" max="100" value="3">3%</progress>
-        </div>
         <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
           <span class="lab-cube-top">TOP</span>
@@ -754,6 +747,34 @@
           <ol id="ai-history" class="ai-history"></ol>
         </details>
       </aside>
+    </div>
+    <div
+      id="finish-progress"
+      class="finish-progress"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="finish-progress-text"
+      aria-describedby="finish-progress-detail"
+      hidden
+    >
+      <section class="finish-progress-card">
+        <p class="finish-progress-kicker">IKEAlive · Finish / Find a way</p>
+        <div class="finish-progress-mark" aria-hidden="true"><span></span></div>
+        <h2 id="finish-progress-text">Reading the model…</h2>
+        <p id="finish-progress-detail">Analyzing the current edited geometry, materials, and dimensions.</p>
+        <progress id="finish-progress-bar" max="100" value="3">3%</progress>
+        <div class="finish-progress-copy">
+          <span>Building a real tutorial for this model</span>
+          <strong id="finish-progress-percent">3%</strong>
+        </div>
+        <ol class="finish-progress-stages" aria-label="Research progress">
+          <li data-finish-stage="reading" data-at="3">Reading the model</li>
+          <li data-finish-stage="research" data-at="25">Researching how to build</li>
+          <li data-finish-stage="components" data-at="55">Listing components</li>
+          <li data-finish-stage="steps" data-at="80">Writing steps</li>
+          <li data-finish-stage="guide" data-at="92">Sending to IKEAlive</li>
+        </ol>
+      </section>
     </div>
     <script type="module" src="/src/interface-nav.js"></script>
     <script type="module" src="/src/main.js"></script>

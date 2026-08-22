@@ -1416,14 +1416,40 @@ function paintFinishProgress(job = {}) {
   const bar = $("finish-progress-bar");
   const text = $("finish-progress-text");
   const percent = Math.max(0, Math.min(100, Math.round(Number(job.percent) || 0)));
-  if (panel) panel.hidden = false;
+  if (panel) {
+    panel.hidden = false;
+    panel.setAttribute("aria-busy", String(job.status !== "failed" && percent < 100));
+  }
+  document.body.classList.add("finish-loading");
   if (bar) {
     bar.value = percent;
     bar.textContent = `${percent}%`;
   }
   if (text) text.textContent = job.text || "Reading the model…";
+  const detail = $("finish-progress-detail");
+  if (detail) {
+    detail.textContent =
+      percent >= 92
+        ? "Baking the researched components and assembly sequence into the playable IKEAlive tutorial."
+        : percent >= 80
+          ? "Turning the selected construction method into ordered Back / Play / Next instructions."
+          : percent >= 55
+            ? "Collecting every shaped piece and connection item with quantities and finished sizes."
+            : percent >= 25
+              ? "Using local geometry analysis and legal search results to find the closest build method."
+              : "Analyzing the current edited geometry, materials, silhouette, and dimensions.";
+  }
   const percentOut = $("finish-progress-percent");
   if (percentOut) percentOut.textContent = `${percent}%`;
+  const stages = [...document.querySelectorAll("[data-finish-stage]")];
+  let current = 0;
+  stages.forEach((stage, index) => {
+    if (percent >= Number(stage.dataset.at || 0)) current = index;
+  });
+  stages.forEach((stage, index) => {
+    stage.classList.toggle("done", index < current || percent >= 100);
+    stage.classList.toggle("current", index === current && percent < 100);
+  });
 }
 
 async function waitForFinishJob(id) {
@@ -1459,13 +1485,15 @@ $("finish-model")?.addEventListener("click", async () => {
     if (!started?.job?.id) throw new Error(started?.reason || "Could not start the similarity search.");
     paintFinishProgress(started.job);
     const packet = await waitForFinishJob(started.job.id);
-    openBuildPacketPrint(packet, printWindow);
+    if (printWindow) openBuildPacketPrint(packet, printWindow);
     await refreshProject();
     const saved = diyBuilds().find((entry) => entry.id === packet.build?.id) || packet.build;
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "closest ways-to-make plan" });
+    paintFinishProgress({ percent: 98, text: "Opening the tutorial guide…", status: "running" });
+    await studio?.openAssemblyView?.(packet.assembly, { label: "researched build tutorial" });
+    paintFinishProgress({ percent: 100, text: "Tutorial ready.", status: "complete" });
     hud(
       `${packet.bom?.similarityScore || 0}% closest physical result · ${packet.bom?.ways?.length || 0} scored ways · ` +
         `${packet.bom?.cutList?.length || 0} geometry-derived pieces · ${packet.bom?.hardwareLines?.length || 0} connection-hardware lines · PDF and IKEAlive todo ready.`,
@@ -1481,7 +1509,10 @@ $("finish-model")?.addEventListener("click", async () => {
     button.textContent = "Finish / Find a way";
     setTimeout(() => {
       const panel = $("finish-progress");
-      if (panel && Number($("finish-progress-bar")?.value) === 100) panel.hidden = true;
+      if (panel && Number($("finish-progress-bar")?.value) === 100) {
+        panel.hidden = true;
+        document.body.classList.remove("finish-loading");
+      }
     }, 1600);
   }
 });

@@ -1007,6 +1007,38 @@ async function handleCurrentDiy(req, res) {
 app.get("/api/project/diy", handleCurrentDiy);
 app.post("/api/project/diy", handleCurrentDiy);
 
+function tutorialPurchaseBom(bom = {}) {
+  const extra = (bom.lines || []).map((line) => ({
+    id: line.id,
+    name: line.name,
+    qty: line.qty,
+    dimensions: line.dimensions,
+    material: line.material,
+    category: line.category,
+    why: line.why,
+    estimatedCost: line.estimatedCost,
+    retailers: (line.sources || [])
+      .filter((source) => !/mcmaster/i.test(`${source.store || ""} ${source.url || ""}`))
+      .map((source) => ({
+        store: source.store,
+        title: source.title || source.store,
+        url: source.url,
+        live: Boolean(source.live),
+      })),
+  }));
+  return {
+    included: [],
+    owned: [],
+    extra,
+    missing: extra,
+    total: bom.estimatedTotal,
+    currency: bom.currency || "USD",
+    live: Boolean(bom.live),
+    partner: bom.partner || "catalog-standin",
+    scope: "Every researched component for the current model revision",
+  };
+}
+
 async function runFinishJob(job, projectSnapshot, model) {
   try {
     const packet = await finishFurnitureBuild(projectSnapshot, {
@@ -1014,7 +1046,7 @@ async function runFinishJob(job, projectSnapshot, model) {
       onProgress: (percent, text) => updateFinishJob(job, percent, text),
     });
     if (!packet.ok) throw new Error(packet.reason || "Could not analyze the current model.");
-    updateFinishJob(job, 88, "Building the cut list and IKEAlive steps…");
+    updateFinishJob(job, 92, "Sending steps to the tutorial guide…");
     const assembly = await startAssemblyAsync({
       mode: "custom",
       guide: packet.planSource,
@@ -1022,7 +1054,12 @@ async function runFinishJob(job, projectSnapshot, model) {
     });
     if (!assembly.ok) throw new Error(assembly.reason || "Could not parse the custom build plan.");
     const stored = getAssembly(assembly.run?.id);
-    if (stored?.guide) state.guide = stored.guide;
+    if (stored?.guide) {
+      stored.guide.bom = tutorialPurchaseBom(packet.bom);
+      state.guide = stored.guide;
+    }
+    const tutorialAssembly = assemblyView(assembly.run?.id);
+    if (!tutorialAssembly.ok) throw new Error(tutorialAssembly.reason || "Could not open the tutorial guide.");
     const dims = packet.bom.modelDimensionsMm;
     const build = appendDiyBuild(state.project, {
       id: `diy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1044,7 +1081,7 @@ async function runFinishJob(job, projectSnapshot, model) {
       pdf: packet.pdf,
       buildId: build.id,
     });
-    job.result = { ...packet, assembly, build };
+    job.result = { ...packet, assembly: tutorialAssembly, build };
     updateFinishJob(
       job,
       100,

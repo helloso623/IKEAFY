@@ -115,9 +115,10 @@ test("finish starts a progress job, scores the current model, and preserves prio
   assert.ok(packet.bom.ways.every((way) => Number.isFinite(way.similarity.score)));
   const progressText = first.update.job.events.map((event) => event.text);
   assert.ok(progressText.includes("Reading the model…"));
-  assert.ok(progressText.includes("Matching boards, hardware, and construction…"));
-  assert.ok(progressText.includes("Scoring look-alikes…"));
-  assert.ok(progressText.includes("Writing the IKEAlive plan…"));
+  assert.ok(progressText.includes("Researching how to build…"));
+  assert.ok(progressText.includes("Listing components…"));
+  assert.ok(progressText.includes("Writing steps…"));
+  assert.ok(progressText.includes("Sending steps to the tutorial guide…"));
   assert.match(progressText.at(-1), /Ready.*closest physical match/);
   assert.deepEqual(
     first.update.job.events.map((event) => event.percent),
@@ -126,6 +127,17 @@ test("finish starts a progress job, scores the current model, and preserves prio
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
+  assert.equal(packet.assembly.guide.bom.extra.length, packet.bom.lines.length);
+  assert.ok(packet.assembly.guide.bom.extra.every((line) => line.name && line.qty && line.dimensions));
+  assert.ok(
+    packet.assembly.guide.bom.extra.every((line) =>
+      line.retailers.every((retailer) => !/mcmaster/i.test(`${retailer.store} ${retailer.url}`)),
+    ),
+  );
+  const tutorial = await (await fetch(`${base}/api/assembly/${packet.assembly.run.id}`)).json();
+  assert.equal(tutorial.ok, true);
+  assert.deepEqual(tutorial.outline, packet.assembly.outline);
+  assert.deepEqual(tutorial.guide.bom.extra, packet.assembly.guide.bom.extra);
 
   const liveModel = {
     id: "mesh-only",

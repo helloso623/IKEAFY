@@ -576,10 +576,17 @@ test("sculpt-lite: grab, smooth, inflate and one subdivide on the selected body"
 });
 
 test("finish shows progress, scores a physical way, prints it, and opens its parsed todo", () => {
+  const styles = read("client/src/styles.css");
   assert.match(html, /id="finish-model"/);
   assert.match(html, /Finish \/ Find a way/);
+  assert.match(html, /id="finish-progress"[\s\S]*role="dialog"[\s\S]*aria-modal="true"/);
   assert.match(html, /id="finish-progress-bar"/);
   assert.match(html, /id="finish-progress-text"/);
+  assert.match(html, /Reading the model/);
+  assert.match(html, /Researching how to build/);
+  assert.match(html, /Listing components/);
+  assert.match(html, /Writing steps/);
+  assert.match(styles, /\.finish-progress\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
   assert.match(html, /visual and dimensional similarity/);
   assert.match(html, /Ways-to-make history/);
   assert.match(apiSource, /^\s{2}startFinishProject:/m);
@@ -596,6 +603,10 @@ test("finish shows progress, scores a physical way, prints it, and opens its par
   assert.match(main, /Ways PDF/);
   assert.match(main, /openBuildPacketPrint/);
   assert.match(main, /openAssemblyView/);
+  assert.match(studio, /function installGuideReel/);
+  assert.match(studio, /kind:\s*"guide"/);
+  assert.match(studio, /tutorial steps ready\. Use Back, Play, or Next/);
+  assert.match(studio, /clip\.kind === "guide"/);
   assert.match(main, /shop\.onSculpt[\s\S]*refreshCurrentDiy/);
   assert.match(main, /shop\.onMeshEdit[\s\S]*refreshCurrentDiy/);
   assert.match(main, /connection-hardware lines/);
