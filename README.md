@@ -62,7 +62,3 @@ AR requests the browser/Electron camera and captures a six-frame burst locally; 
 ### Object scans
 
 Lab → **Scan** accepts aligned front, side, and top photos plus a circumference or known length. It segments the photos locally, intersects their silhouettes into a binary voxel visual hull, and polygonizes that hull into a real `THREE.BufferGeometry` body (`scan-mesh`). The dependency-free reconstruction code in `client/src/scan-reconstruct.js` is offered under the **MIT License**; it uses no paid API, uploaded model, or model weights.
-
----
-
-<p align="center"><sub>IKEAFY is the repo. All rights reserved.</sub></p>
