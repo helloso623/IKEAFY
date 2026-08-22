@@ -82,6 +82,9 @@ test("IKEAlive starts on PDF upload and plays a Veed reel on watch", () => {
   assert.match(html, /id="film-wait"/);
   assert.match(html, /id="film-back"/);
   assert.match(html, /id="film-scrub"/);
+  assert.match(html, /panel watch chat/);
+  assert.match(html, /id="ikea-chat-form"/);
+  assert.equal(/<details class="studio-chat">/.test(html), false);
   assert.match(studio, /video\/reel|bootReel|parseCustom/);
   assert.match(studio, /pagesFromPdf/, "IKEA PDFs are drawings — rasterize plates, do not send only the filename");
   assert.match(studio, /bom\.owned|You have this/);
