@@ -2650,8 +2650,12 @@ body.lab-resizing * {
   gap: 0.2rem;
 }
 
-.lab-view-tools {
+.lab-view-tools,
+.lab-view-meta {
   pointer-events: auto;
+}
+
+.lab-view-tools {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;

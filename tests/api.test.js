@@ -171,6 +171,41 @@ test("finish starts a progress job, scores the current model, and preserves prio
   assert.equal(project.diyHistory.length, 2);
 });
 
+test("finish runs for a generated mesh without a catalog piece or selection gate", async (t) => {
+  const port = 24000 + (process.pid % 1000);
+  const child = spawn(process.execPath, ["server/index.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), OPENAI_API_KEY: "", TAVILY_API_KEY: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => child.kill("SIGTERM"));
+  const base = `http://127.0.0.1:${port}`;
+  await waitForHealth(`${base}/api/health`);
+
+  const generated = {
+    id: "generated-shape-button-body",
+    name: "Edited generated body",
+    partId: "generated-mesh",
+    shape: "generated-mesh",
+    dimsMm: { x: 760, y: 420, z: 680 },
+    poseM: { x: 0, y: 0.34, z: 0 },
+    material: { color: "#8a5a2b", texture: "wood", roughness: 0.45, metalness: 0 },
+    geometryAnalysis: {
+      source: "local-triangle-analysis",
+      geometryFingerprint: "generated-body-regression",
+      topShape: "rectangular",
+      supportStyle: "distributed",
+      silhouette: "rectilinear",
+    },
+  };
+  const { packet, update } = await finishModel(base, [generated]);
+  assert.equal(packet.ok, true);
+  assert.ok(packet.bom.components.some((component) => component.pieceId === generated.id));
+  assert.ok(packet.bom.cutList.length);
+  assert.ok(packet.assembly.outline.length >= 5);
+  assert.equal(update.job.status, "complete");
+});
+
 test("POST /api/chat generates a room scene through one editable mesh action", async (t) => {
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
