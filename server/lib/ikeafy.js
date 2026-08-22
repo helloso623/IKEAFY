@@ -1,14 +1,14 @@
 import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
-import { ikealiveLog, ikealiveWarn } from "./log.js";
 import {
   ensureGliner2Ready,
   extractGuideWithGliner2,
+  formatGliner2FailureReason,
   GLINER2_BACKEND,
-  GLINER2_SETUP_COMMAND,
   isGliner2RuntimeError,
 } from "./gliner2.js";
 import { FAL_PLATE_VISION_REQUIRED, parseFalVisionGuide, readPlatesWithFal } from "./plate-vision.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -395,9 +395,7 @@ function safeModelText(value) {
 }
 
 function glinerUnavailableReason(error) {
-  const detail = safeModelText(error?.message || error);
-  if (isGliner2RuntimeError(error) || detail.includes(GLINER2_SETUP_COMMAND)) return detail;
-  return `GLiNER 2 local runtime failed: ${detail || "unknown error"}. Run \`${GLINER2_SETUP_COMMAND}\` and restart IKEAlive.`;
+  return formatGliner2FailureReason(error);
 }
 
 /**
@@ -446,15 +444,17 @@ export async function parseGuideAsync(
       glinerStatus = modeled?.steps?.length ? "steps not grounded in extracted PDF text" : "no grounded steps";
     } catch (error) {
       const reason = glinerUnavailableReason(error);
-      ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
       if (plates.length) {
         // Plate PDFs can still use fal vision + normalize / structured fallback.
+        ikealiveLog("parse", "GLiNER 2 unavailable; trying fal plate vision", { requestId, reason });
         glinerStatus = reason;
       } else if (deps.requireGliner) {
+        ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
         const guide = emptyGuide({ instructions });
         guide.parseError = reason;
         return guide;
       } else {
+        ikealiveWarn("parse", "GLiNER 2 unavailable", { requestId, reason });
         const local = parseGuide(raw, { instructions, availableTools });
         if (local?.steps?.length) {
           local.parseWarning = reason;
@@ -494,13 +494,11 @@ export async function parseGuideAsync(
         deps,
       );
       let normalized = null;
+      let normalizeFailureReason = null;
       try {
         normalized = await extractGuideWithGliner2(visionText, deps);
       } catch (error) {
-        ikealiveWarn("parse", "GLiNER 2 vision normalize failed", {
-          requestId,
-          reason: glinerUnavailableReason(error),
-        });
+        normalizeFailureReason = glinerUnavailableReason(error);
       }
       const fromGliner = guideFromModel(normalized, {
         raw: visionText,
@@ -526,13 +524,30 @@ export async function parseGuideAsync(
         parser: "fal-plate-vision",
       });
       if (fromVision?.steps?.length) {
-        ikealiveLog("parse", "fal vision structured steps used directly", {
-          requestId,
-          title: fromVision.title,
-          steps: fromVision.steps.length,
-          glinerStatus: normalized ? "empty steps" : "normalize skipped or failed",
-        });
+        if (normalizeFailureReason) {
+          // Fal succeeded; Pioneer TLS / GLiNER normalize miss is informational, not alarming.
+          ikealiveLog("parse", "GLiNER 2 vision normalize skipped; fal structured steps used", {
+            requestId,
+            reason: normalizeFailureReason,
+            title: fromVision.title,
+            steps: fromVision.steps.length,
+          });
+        } else {
+          ikealiveLog("parse", "fal vision structured steps used directly", {
+            requestId,
+            title: fromVision.title,
+            steps: fromVision.steps.length,
+            glinerStatus: normalized ? "empty steps" : "normalize skipped or failed",
+          });
+        }
         return fromVision;
+      }
+
+      if (normalizeFailureReason) {
+        ikealiveWarn("parse", "GLiNER 2 vision normalize failed", {
+          requestId,
+          reason: normalizeFailureReason,
+        });
       }
 
       const local = parseGuide(visionText, { instructions, availableTools });

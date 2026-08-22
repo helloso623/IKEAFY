@@ -8,8 +8,10 @@ import {
   answerGuideQuestionWithGliner2,
   ensureGliner2Ready,
   extractGuideWithGliner2,
+  formatGliner2FailureReason,
   gliner2RuntimeStatus,
   inferWithGliner2,
+  isGliner2ApiConnectionError,
   isGliner2RuntimeError,
   stopGliner2Sidecar,
 } from "../server/lib/gliner2.js";
@@ -152,6 +154,41 @@ test("inference errors keep the GLINER2 backend label honest", async () => {
     },
   );
   assert.equal(GLINER2_BACKEND, "gliner2:fastino/gliner2-base-v1");
+});
+
+test("Pioneer API TLS failures are not framed as missing local setup", async () => {
+  useMockSidecar("ready");
+  process.env.GLINER2_MOCK_INFER = "ssl_fail";
+  await assert.rejects(
+    () =>
+      inferWithGliner2(
+        { operation: "extract_json", text: "1. Screw the side.", schema: { assembly_step: [] } },
+        { startupTimeoutMs: 5_000, timeoutMs: 5_000 },
+      ),
+    (error) => {
+      assert.equal(error.code, "GLINER2_API_CONNECTION_ERROR");
+      assert.equal(error.name, "Gliner2ApiConnectionError");
+      assert.match(error.message, /api\.fastino\.ai/);
+      assert.match(error.message, /TLS|certificate/i);
+      assert.match(error.message, /SSL_CERT_FILE|REQUESTS_CA_BUNDLE|CA/);
+      assert.doesNotMatch(error.message, /setup:gliner2/);
+      assert.equal(isGliner2ApiConnectionError(error), true);
+      assert.equal(isGliner2RuntimeError(error), true);
+      return true;
+    },
+  );
+});
+
+test("formatGliner2FailureReason reclassifies embedded SSL details without setup:gliner2", () => {
+  const wrapped = new Error(
+    "GLiNER 2 local runtime is unavailable (GLiNER2APIError: Connection error: HTTPSConnectionPool(host='api.fastino.ai', port=443): SSLCertVerificationError certificate verify failed: certificate has expired). Run `npm run setup:gliner2` from the project root, then restart IKEAlive.",
+  );
+  wrapped.name = "Gliner2RuntimeError";
+  wrapped.code = "GLINER2_INFERENCE_ERROR";
+  const reason = formatGliner2FailureReason(wrapped);
+  assert.match(reason, /Pioneer GLiNER 2 API TLS/);
+  assert.match(reason, /api\.fastino\.ai/);
+  assert.doesNotMatch(reason, /setup:gliner2/);
 });
 
 test("guide questions compose answers only from stored guide fields", async () => {

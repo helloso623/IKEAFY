@@ -74,7 +74,22 @@ try:
 except SystemExit:
     raise
 except Exception as error:
-    diagnostic(f"GLiNER 2 model startup failed: {type(error).__name__}: {error}")
+    err_text = f"{type(error).__name__}: {error}"
+    lower = err_text.lower()
+    if (
+        "api.fastino.ai" in lower
+        or "gliner2apierror" in lower
+        or "sslcertverificationerror" in lower
+        or "certificate verify failed" in lower
+        or "certificate has expired" in lower
+    ):
+        diagnostic(
+            "Pioneer GLiNER 2 API TLS/certificate failure talking to api.fastino.ai. "
+            f"{err_text}. Check network/CA certs (SSL_CERT_FILE / REQUESTS_CA_BUNDLE), "
+            "or Fastino status — not a missing local install."
+        )
+    else:
+        diagnostic(f"GLiNER 2 model startup failed: {err_text}")
     raise SystemExit(70)
 
 
