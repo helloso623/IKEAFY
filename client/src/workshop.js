@@ -1232,6 +1232,10 @@ export function createWorkshop(canvas) {
   const reconstructed = new Map();
   let selected = null;
   let boxHelper = null;
+  let componentMode = null;
+  let componentSelection = new Set();
+  let componentRows = [];
+  let onComponentSelect = () => {};
   let snapOn = true;
   let editMode = "translate";
   let simOn = false;
@@ -1431,16 +1435,20 @@ export function createWorkshop(canvas) {
   }
 
   function attach(mesh, quiet = false) {
+    const changedBody = selected !== (mesh || null);
+    if (changedBody) componentSelection = new Set();
     selected = mesh || null;
     if (!mesh) {
       transform.detach();
       markSelected(null);
+      refreshComponentOverlay();
       if (!quiet) onSelect(null);
       return false;
     }
-    if (sculptMode || cadTool || meshTool) transform.detach();
+    if (sculptMode || cadTool || meshTool || componentMode) transform.detach();
     else transform.attach(mesh);
     markSelected(mesh);
+    refreshComponentOverlay();
     if (!quiet) onSelect(mesh.userData);
     return true;
   }
@@ -1655,7 +1663,16 @@ export function createWorkshop(canvas) {
   function saveSculpt() {
     const id = selected?.userData?.piece?.id;
     if (!id) return;
-    sculptStore.set(id, sculptTargets(selected).map((child) => child.geometry));
+    const geometries = sculptTargets(selected).map((child) => child.geometry);
+    sculptStore.set(id, geometries);
+    const record = reconstructed.get(id);
+    if (record && geometries.length === 1) {
+      const geometry = geometries[0];
+      record.positions = new Float32Array(geometry.getAttribute("position").array);
+      const color = geometry.getAttribute("color")?.array;
+      record.colors = color ? new Float32Array(color) : null;
+      record.triangleCount = record.positions.length / 9;
+    }
   }
 
   function applySculptStore() {

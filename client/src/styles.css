@@ -2564,6 +2564,9 @@ body.lab-resizing * {
 
 .lab-view-tools {
   pointer-events: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .lab-tool {
@@ -2585,6 +2588,11 @@ body.lab-resizing * {
   background: var(--lab-raised);
   border-color: var(--lab-line);
   color: var(--lab-ink);
+}
+
+.lab-view-tools .component-mode.on {
+  border-color: #ffda1a;
+  color: #ffda1a;
 }
 
 .lab-tool.lab-finish {
@@ -2976,6 +2984,7 @@ body.lab-resizing * {
 #view.sculpting { cursor: grab; }
 #view.sculpting:active { cursor: grabbing; }
 #view.modeling { cursor: crosshair; }
+#view.component-editing { cursor: pointer; }
 #app.mode-lab .cad-measure.on {
   background: rgba(17, 17, 17, 0.9);
   border: 1px solid #ffda1a;
