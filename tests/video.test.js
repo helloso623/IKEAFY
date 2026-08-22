@@ -58,6 +58,8 @@ test("promptForStep uses the real step body, not a canned LACK plate", () => {
   const prompt = promptForStep(guide, 1, "go slower");
   assert.match(prompt, /Hang the rail on the two wall plugs/);
   assert.match(prompt, /go slower/);
+  assert.match(prompt, /arrow|callout|plate|exploded/i);
+  assert.doesNotMatch(prompt, /^cinematic photo of/i);
   assert.doesNotMatch(prompt, /table top face down/i);
   assert.doesNotMatch(prompt, /Unpack the pieces in the photos/i);
 });
