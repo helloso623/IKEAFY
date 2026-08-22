@@ -166,9 +166,9 @@ test("unknown runs and steps fail loudly", () => {
   assert.equal(startAssembly({ mode: "official", article: "000.000.00" }).ok, false);
 });
 
-test("drawing-only PDF plates tell the user to configure OpenAI", async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+test("drawing-only PDF plates accurately require FAL plate vision", async () => {
+  const previous = process.env.FAL_KEY;
+  delete process.env.FAL_KEY;
   try {
     const result = await startAssemblyAsync({
       mode: "custom",
@@ -177,11 +177,11 @@ test("drawing-only PDF plates tell the user to configure OpenAI", async () => {
     assert.equal(result.ok, false);
     assert.equal(
       result.reason,
-      "GLiNER 2 found no readable text in this drawing-only manual. Set OPENAI_API_KEY for plate vision.",
+      "GLiNER 2 found insufficient extractable PDF text. Set FAL_KEY so fal plate vision can read the drawing plates.",
     );
   } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
+    if (previous === undefined) delete process.env.FAL_KEY;
+    else process.env.FAL_KEY = previous;
   }
 });
 

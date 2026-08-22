@@ -53,7 +53,7 @@ The Electron command starts the same Vite client and Express API inside the desk
 
 Copy `.env.example` to `.env` when you want hosted services. Never commit the populated file.
 
-- `FAL_KEY` — Seedance step films, Nano Banana instruction stills, and Tripo meshes
+- `FAL_KEY` — drawing-plate interpretation through fal's multimodal vision endpoint, plus Seedance films, Nano Banana stills, and Tripo meshes
 - `OPENAI_API_KEY` — hosted Lab bench assistance
 - `OPENAI_MODEL_HARD` — model used for harder hosted requests
 - `OPENAI_MODEL_EASY` — model used for lighter hosted requests
@@ -61,7 +61,9 @@ Copy `.env.example` to `.env` when you want hosted services. Never commit the po
 - `PORT` — Express API port; defaults to `8787`
 - `CLIENT_PORT` — client port recorded in local configuration; Vite runs on `5173`
 
-Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction available. Hosted renders and live searches report that their key is missing; they do not silently pretend to have run.
+PDF text is extracted first and structured locally with GLiNER 2 (`fastino/gliner2-base-v1`). When that text does not contain grounded assembly steps, fal's `openrouter/router/vision` endpoint reads the rasterized plates with `google/gemini-2.5-flash`; GLiNER 2 then normalizes the returned plate description. This PDF path does not use `OPENAI_API_KEY`.
+
+Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction available. Drawing-only PDF parsing, hosted renders, and live searches report the specific key they need; they do not silently pretend to have run.
 
 ## Work around the guide
 

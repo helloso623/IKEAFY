@@ -263,6 +263,26 @@ test("custom studio sends extracted PDF text to GLiNER 2 without inventing guide
   assert.match(studio, /guide:\s*guideText/);
 });
 
+test("one Get the Reel click has exactly one assembly start path", () => {
+  assert.equal(
+    (studio.match(/listen\(el\.uploadForm,\s*"submit",\s*parseCustom\)/g) || []).length,
+    1,
+  );
+  assert.doesNotMatch(studio, /listen\(el\.parse,\s*"click",\s*parseCustom\)/);
+  const fileChange = studio.slice(
+    studio.indexOf('listen(el.pdf, "change"'),
+    studio.indexOf('listen(el.pdfDrop, "dragover"'),
+  );
+  const fileDrop = studio.slice(
+    studio.indexOf('listen(el.pdfDrop, "drop"'),
+    studio.indexOf("listen(el.clear"),
+  );
+  assert.doesNotMatch(fileChange, /parseCustom\(/);
+  assert.doesNotMatch(fileDrop, /parseCustom\(/);
+  assert.match(studio, /\brequestId,\s*\n\s*\}\s*,\s*\{\s*signal:/);
+  assert.match(studio, /state\.submitting/);
+});
+
 test("electronics stays off the Lab header and inspect", () => {
   assert.equal(/data-mode="electronics"/.test(html), false);
   const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
