@@ -208,6 +208,7 @@ function outlineFor(run) {
       body: readable ? step.body : null,
       preview: readable ? null : `Step ${step.number} opens when you confirm step ${run.cursor}.`,
       toolRequired: step.toolRequired || null,
+      partsUsed: readable ? [...(step.partsUsed || [])] : [],
       confirmed: run.confirmed.includes(step.number),
     };
   });

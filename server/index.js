@@ -51,6 +51,8 @@ import {
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
+import { FAL_IMAGE_REQUIRED, renderStepImage } from "./lib/image.js";
+import { FAL_SCENE_REQUIRED, MODEL as TRIPO_MODEL, QUEUE as TRIPO_QUEUE, renderStepScene } from "./lib/scene.js";
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
 import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
@@ -107,6 +109,36 @@ const VIDEO_PARTNERS = {
   },
 };
 
+const IMAGE_PARTNERS = {
+  nanoBanana: {
+    name: "Nano Banana 2",
+    model: "fal-ai/nano-banana-2",
+    status: "optional",
+    note: "Instruction stills through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a LACK table.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/image.js call Nano Banana 2. Nothing leaves the machine without it.",
+  },
+};
+
+const SCENE_PARTNERS = {
+  tripo: {
+    name: "Tripo H3.1",
+    model: TRIPO_MODEL,
+    status: "optional",
+    note: "Text-to-3D meshes through fal.ai when FAL_KEY is set. Without a key the watch UI asks you to set FAL_KEY — it does not draw a catalog LACK table.",
+  },
+  fal: {
+    name: "fal.ai",
+    status: "optional",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/scene.js call Tripo H3.1. Nothing leaves the machine without it.",
+  },
+};
+
 const app = express();
 app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
@@ -141,6 +173,19 @@ app.get("/api/health", (_req, res) => {
       live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
+    },
+    image: {
+      partners: IMAGE_PARTNERS,
+      renderer: hasFal() ? "fal-ai/nano-banana-2 via fal.ai" : "none",
+      live: hasFal(),
+      route: "/api/ikeafy/image/render",
+    },
+    scene: {
+      partners: SCENE_PARTNERS,
+      renderer: hasFal() ? "tripo3d/h3.1/text-to-3d via fal.ai" : "none",
+      live: hasFal(),
+      route: "/api/ikeafy/scene/render",
+      queue: TRIPO_QUEUE,
     },
     render: {
       route: "/api/ikeafy/render",
@@ -346,13 +391,23 @@ app.post("/api/ikeafy/render", (req, res) => {
     const updated = setAssemblyRenderMode(runId, mode);
     if (!updated.ok) ikealiveWarn("render", "run missing", { runId, mode });
   }
-  if (mode === "video") {
+  if (mode === "scene") {
+    ikealiveLog("3d", "model", { model: TRIPO_MODEL, queue: TRIPO_QUEUE, runId });
+    return res.json({
+      ok: true,
+      mode,
+      renderMode: mode,
+      implemented: true,
+      engine: "workshop",
+      renderer: TRIPO_MODEL,
+      queue: TRIPO_QUEUE,
+      reason: null,
+    });
+  }
+  if (mode === "video" || mode === "images") {
     return res.json({ ok: true, mode, renderMode: mode, implemented: true, reason: null });
   }
-  const reason =
-    mode === "images"
-      ? "Image instructions are not implemented yet."
-      : "3D engine instructions are not implemented yet.";
+  const reason = "Unknown instruction render mode.";
   ikealiveLog("render", "unimplemented", { mode, reason });
   res.json({ ok: true, mode, renderMode: mode, implemented: false, reason });
 });
@@ -376,8 +431,8 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image instructions are not implemented yet."
-        : "3D engine instructions are not implemented yet.";
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
+        : "3D instructions use Tripo H3.1, not Seedance.";
     ikealiveLog("render", "video route skipped", { mode: renderMode, reason });
     return res.json({
       ok: true,
@@ -434,8 +489,8 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   if (renderMode !== "video") {
     const reason =
       renderMode === "images"
-        ? "Image instructions are not implemented yet."
-        : "3D engine instructions are not implemented yet.";
+        ? "Image mode uses Nano Banana 2 stills, not Seedance."
+        : "3D instructions use Tripo H3.1, not Seedance.";
     ikealiveLog("render", "reel skipped", { mode: renderMode, reason });
     return res.json({
       ok: true,
@@ -497,6 +552,130 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
   } catch (err) {
     ikealiveWarn("video", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/image/render", async (req, res) => {
+  const body = req.body || {};
+  const { stored, mode } = rememberRenderMode(body);
+  const guide = guideForVideo(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  const renderMode = mode || "images";
+  ikealiveLog("image", "POST /api/ikeafy/image/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+  });
+  if (renderMode !== "images") {
+    const reason =
+      renderMode === "video"
+        ? "Video mode uses Seedance films, not Nano Banana stills."
+        : "3D instructions use Tripo H3.1, not Nano Banana stills.";
+    ikealiveLog("image", "image route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      imageUrl: null,
+      reason,
+    });
+  }
+  try {
+    const result = await renderStepImage({
+      guide,
+      stepNumber,
+      extra: body.instructions || body.extra || "",
+    });
+    if (stored?.guide) state.guide = stored.guide;
+    if (!result.imageUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_IMAGE_REQUIRED,
+        imageUrl: null,
+        partners: IMAGE_PARTNERS,
+      });
+    }
+    res.json({
+      ok: true,
+      stepNumber,
+      live: true,
+      partners: IMAGE_PARTNERS,
+      imageUrl: result.imageUrl,
+      provider: result.provider,
+      prompt: result.prompt,
+    });
+  } catch (err) {
+    ikealiveWarn("image", "render error", { stepNumber, error: String(err.message || err) });
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/scene/render", async (req, res) => {
+  const body = req.body || {};
+  const { stored, mode } = rememberRenderMode(body);
+  const guide = guideForVideo(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
+  const renderMode = mode || "scene";
+  ikealiveLog("3d", "POST /api/ikeafy/scene/render", {
+    stepNumber,
+    runId: body.runId || null,
+    keyed: hasFal(),
+    renderMode,
+    model: TRIPO_MODEL,
+  });
+  if (renderMode !== "scene") {
+    const reason =
+      renderMode === "video"
+        ? "Video mode uses Seedance films, not Tripo meshes."
+        : "Image mode uses Nano Banana 2 stills, not Tripo meshes.";
+    ikealiveLog("3d", "scene route skipped", { mode: renderMode, reason });
+    return res.json({
+      ok: true,
+      implemented: false,
+      mode: renderMode,
+      renderMode,
+      stepNumber,
+      meshUrl: null,
+      reason,
+    });
+  }
+  try {
+    const result = await renderStepScene({
+      guide,
+      stepNumber,
+      extra: body.instructions || body.extra || "",
+    });
+    if (stored?.guide) state.guide = stored.guide;
+    if (!result.meshUrl) {
+      return res.status(503).json({
+        ok: false,
+        stepNumber,
+        live: false,
+        error: result.reason || FAL_SCENE_REQUIRED,
+        meshUrl: null,
+        model: TRIPO_MODEL,
+        partners: SCENE_PARTNERS,
+      });
+    }
+    res.json({
+      ok: true,
+      stepNumber,
+      live: true,
+      partners: SCENE_PARTNERS,
+      meshUrl: result.meshUrl,
+      provider: result.provider,
+      model: result.model,
+      prompt: result.prompt,
+      engine: "workshop",
+    });
+  } catch (err) {
+    ikealiveWarn("3d", "render error", { stepNumber, error: String(err.message || err) });
+    res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
 

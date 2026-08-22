@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const MM = 0.001;
 const PALE = "#f2f2f2";
@@ -995,6 +996,9 @@ export function createWorkshop(canvas) {
   scene.add(cableGroup);
   const fx = new THREE.Group();
   scene.add(fx);
+  const gltfLoader = new GLTFLoader();
+  let instructionRoot = null;
+  let instructionUrl = null;
 
   const transform = new TransformControls(camera, canvas);
   const ray = new THREE.Raycaster();
@@ -2238,11 +2242,69 @@ export function createWorkshop(canvas) {
   }
 
   function explode(amount) {
+    const target = instructionRoot || group;
     let i = 0;
-    meshes.forEach((mesh) => {
+    target.traverse((mesh) => {
+      if (!mesh.isMesh) return;
       mesh.position.y += amount * (0.02 + (i % 4) * 0.03);
       i += 1;
     });
+  }
+
+  function disposeObject(root) {
+    root.traverse((child) => {
+      child.geometry?.dispose?.();
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        mat?.map?.dispose?.();
+        mat?.dispose?.();
+      }
+    });
+  }
+
+  function clearInstructionMesh() {
+    if (instructionRoot) {
+      scene.remove(instructionRoot);
+      disposeObject(instructionRoot);
+      instructionRoot = null;
+    }
+    instructionUrl = null;
+    group.visible = true;
+    cableGroup.visible = true;
+  }
+
+  function frameInstruction(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    root.scale.multiplyScalar(0.9 / maxDim);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const fittedCenter = fitted.getCenter(new THREE.Vector3());
+    root.position.sub(fittedCenter);
+    root.position.y -= fitted.min.y;
+  }
+
+  async function loadInstructionMesh(url, { camera: cam } = {}) {
+    const meshUrl = String(url || "").trim();
+    if (!meshUrl) throw new Error("No mesh URL");
+    if (instructionUrl === meshUrl && instructionRoot) {
+      if (cam) setCamera(cam);
+      resize();
+      return { meshUrl, reused: true };
+    }
+    clearInstructionMesh();
+    group.visible = false;
+    cableGroup.visible = false;
+    const gltf = await gltfLoader.loadAsync(meshUrl);
+    instructionRoot = gltf.scene || gltf.scenes?.[0];
+    if (!instructionRoot) throw new Error("GLB had no scene");
+    frameInstruction(instructionRoot);
+    scene.add(instructionRoot);
+    instructionUrl = meshUrl;
+    if (cam) setCamera(cam);
+    resize();
+    return { meshUrl };
   }
 
   function setLed(on) {
@@ -2392,6 +2454,8 @@ export function createWorkshop(canvas) {
     sync,
     setSim,
     setCamera,
+    loadInstructionMesh,
+    clearInstructionMesh,
     setShading,
     getShading: () => shading,
     setLook,

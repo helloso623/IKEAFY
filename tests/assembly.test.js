@@ -181,6 +181,7 @@ test("an assembly run stores the chosen instruction render mode", () => {
 
   const scene = startAssembly({ mode: "custom", guide: CUSTOM, renderMode: "3d" });
   assert.equal(scene.run.renderMode, "scene");
+  assert.ok(Array.isArray(scene.outline[0].partsUsed));
 
   const later = setAssemblyRenderMode(scene.run.id, "video");
   assert.equal(later.ok, true);
