@@ -2315,7 +2315,8 @@ body.lab-resizing * {
   gap: 0.2rem;
 }
 
-.lab-view-tools {
+.lab-view-tools,
+.lab-view-meta {
   pointer-events: auto;
 }
 
@@ -2437,7 +2438,6 @@ body.lab-resizing * {
 }
 
 @media (max-width: 1100px) {
-  .lab-viewport { display: none !important; }
   .lab-filter { grid-template-columns: 1fr; }
   .lab-split,
   .lab-edge-tab { display: none !important; }
