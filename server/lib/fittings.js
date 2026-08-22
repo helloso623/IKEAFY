@@ -162,8 +162,11 @@ export function classifySpare({ articleNumber, note = "", part = null, fittingKi
   return {
     free: false,
     fitting: null,
-    reason: "Could not tell whether this is a fitting or a whole component. Send a photo and let staff decide.",
+    reason:
+      "No part number could be identified. Take the photo and the product to the IKEA spare parts desk so staff can match the fitting.",
     kind: "unknown",
+    storeVisit: true,
+    channel: SPARES_POLICY.channels[1],
   };
 }
 

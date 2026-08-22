@@ -13,7 +13,14 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <div id="app" class="mode-ikeafy" data-mode="ikeafy" data-guide-mode="official">
+    <div
+      id="app"
+      class="mode-ikeafy"
+      data-mode="ikeafy"
+      data-guide-mode="official"
+      data-studio-view="input"
+      data-results-tab="instructions"
+    >
       <header class="top">
         <div class="brand">
           <span class="mark">IF</span>
@@ -41,36 +48,71 @@
         </div>
       </header>
 
-      <!-- ================= IKEAFY STUDIO — left column: source + steps ================= -->
+      <!-- ================= IKEAFY STUDIO — input, progress, then the step list =========== -->
       <section class="studio-in" data-pane="ikeafy" aria-label="Guide source and steps">
-        <div class="panel">
-          <h2>Where the steps come from</h2>
-          <div class="row source-toggle">
-            <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
-            <button id="custom-mode" aria-pressed="false">My own guide</button>
-          </div>
-          <div id="official-source" class="official-picker">
-            <label class="picker-label" for="official-product">Printed sheet</label>
-            <select id="official-product" aria-label="Official IKEA product"></select>
-            <p class="hint lock-note" id="official-lock-note">
-              The official sheet is read-only and runs in order. Steps you have not reached stay
-              closed.
+        <div id="studio-input">
+          <div class="panel input-hero">
+            <h2>Start a build</h2>
+            <p class="hint">
+              Search an IKEA product, or drop a building guide and add notes about the tools you
+              have.
             </p>
-          </div>
-          <div id="custom-source" class="custom-parse hidden">
-            <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
-            <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
-            <div class="row">
-              <button id="parse-guide" class="primary">Parse into a film</button>
-              <button id="clear-custom-session">Delete session</button>
+            <div class="row source-toggle">
+              <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
+              <button id="custom-mode" aria-pressed="false">My own guide</button>
             </div>
-            <p class="hint">Your own guide is editable and skippable. The official one is not.</p>
+            <div id="official-source" class="official-picker">
+              <label class="picker-label" for="product-search">Printed sheet</label>
+              <input
+                id="product-search"
+                type="search"
+                placeholder="Search IKEA product name…"
+                aria-label="Search IKEA products"
+              />
+              <div id="product-hits" class="list product-hits"></div>
+              <select id="official-product" aria-label="Official IKEA product"></select>
+              <button id="open-official" class="primary">Open official sheet</button>
+              <p class="hint lock-note" id="official-lock-note">
+                Only LACK is unlocked. KALLAX, BILLY and MALM sit in the catalog until their sheets
+                are transcribed. Official steps stay read-only and run in order.
+              </p>
+            </div>
+            <div id="custom-source" class="custom-parse hidden">
+              <label id="guide-drop" class="dropzone" for="guide-file">
+                <input id="guide-file" type="file" accept="image/*,video/*,.pdf,.txt,.md" multiple />
+                <strong>Drop a building guide</strong>
+                <span>Photos, PDF, text — or click to attach</span>
+                <div id="guide-files" class="file-chips"></div>
+              </label>
+              <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
+              <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
+              <div class="row">
+                <button id="parse-guide" class="primary">Parse into a film</button>
+                <button id="clear-custom-session">Delete session</button>
+              </div>
+              <p class="hint">Your own guide is editable and skippable. The official one is not.</p>
+            </div>
           </div>
         </div>
-        <div class="panel steps-panel">
-          <h2>Steps</h2>
-          <div id="lock-banner" class="lock-banner"></div>
-          <div id="steps" class="list step-list" data-editable="false"></div>
+
+        <div id="studio-progress" class="hidden" aria-live="polite">
+          <div class="progress-card">
+            <h2>Making the film</h2>
+            <p id="progress-status">Parsing…</p>
+            <p id="progress-detail" class="hint"></p>
+            <ol id="progress-beats" class="progress-beats"></ol>
+          </div>
+        </div>
+
+        <div id="studio-results-nav" class="hidden">
+          <div class="row">
+            <button id="studio-back">New guide</button>
+          </div>
+          <div class="panel steps-panel">
+            <h2>Steps</h2>
+            <div id="lock-banner" class="lock-banner"></div>
+            <div id="steps" class="list step-list" data-editable="false"></div>
+          </div>
         </div>
       </section>
 
@@ -80,8 +122,12 @@
         <canvas id="ar-photo" class="hidden"></canvas>
         <div id="hud"></div>
         <div id="film" class="film hidden">
-          <canvas id="film-frame"></canvas>
+          <div class="film-stage">
+            <canvas id="film-frame" aria-label="Step tutorial film"></canvas>
+            <canvas id="step-scheme" aria-label="3D scheme for this step"></canvas>
+          </div>
           <p id="film-caption"></p>
+          <button id="see-guide" type="button">See actual guide</button>
           <label class="confirm" id="step-confirm-row">
             <input type="checkbox" id="step-confirm" />
             <span id="step-confirm-label">Confirm this step before the next plate.</span>
@@ -207,113 +253,148 @@
         <!-- Studio column. .rail.right becomes display:contents in studio mode so this
              sits directly in the app grid. -->
         <section class="studio-side" data-pane="ikeafy" aria-label="Kit, reviews and spares">
-          <div class="panel bom">
-            <div class="paper-kicker">
-              <span>Assembly inventory</span>
-              <span aria-hidden="true">01 / KIT</span>
-            </div>
-            <h2>In the box / bring your own</h2>
-            <p class="hint kit-vs-extra">
-              Checked against the flat-pack contents before you begin.
-            </p>
-            <div id="bom" class="copy bom-list"></div>
-            <div class="paper-footer" aria-hidden="true">
-              <span>Included parts</span>
-              <span>Extra purchases</span>
-            </div>
+          <div class="row source-toggle results-tabs" id="results-tabs">
+            <button id="tab-instructions" class="on" aria-pressed="true">Instructions</button>
+            <button id="tab-material" aria-pressed="false">Material</button>
           </div>
 
-          <div class="panel reviews">
-            <div class="paper-kicker">
-              <span>Assembly notes</span>
-              <span aria-hidden="true">Customer field report</span>
-            </div>
-            <h2>Where people get stuck</h2>
-            <p class="hint">Useful warnings from other builders, grouped by step.</p>
-            <div id="reviews" class="copy review-notes"></div>
-          </div>
-
-          <div class="panel broken">
-            <div class="paper-kicker">
-              <span>Part identification desk</span>
-              <span aria-hidden="true">Before ordering</span>
-            </div>
-            <h2>Missing or broken fitting?</h2>
-            <p class="hint">
-              Show us the fitting and the step. We’ll identify the small part number for your
-              request.
-            </p>
-            <label class="paper-field file-field" for="broken-photo">
-              <span>Photo of fitting</span>
-              <input id="broken-photo" type="file" accept="image/*" />
-            </label>
-            <label class="paper-field" for="broken-note">
-              <span>What happened?</span>
-              <input id="broken-note" placeholder="Missing, split, bent…" />
-            </label>
-            <button id="broken-btn" class="identify-part">Identify from this step</button>
-          </div>
-
-          <div class="panel spare">
-            <div class="spare-letter">
-              <div class="letter-masthead">
-                <span class="letter-mark" aria-hidden="true">IF</span>
-                <div>
-                  <strong>Small parts service</strong>
-                  <small>Customer fittings request</small>
-                </div>
-                <span class="letter-ref">FORM 100.347</span>
+          <div id="instructions-pane">
+            <div class="panel">
+              <div class="paper-kicker">
+                <span>More context</span>
+                <span aria-hidden="true">Regenerate plate</span>
               </div>
-              <h2>Request free assembly fittings</h2>
-              <p class="letter-intro">
-                Screws, nails, dowels, cam locks, shelf pins and Allen keys are sent free of
-                charge. Panels and larger components are not included.
+              <h2>Explain this step again</h2>
+              <p class="hint">Add a note, photo or clip and regenerate this step’s film.</p>
+              <textarea
+                id="extra-context"
+                rows="3"
+                placeholder="What went wrong, or what you want explained…"
+              ></textarea>
+              <input id="extra-media" type="file" accept="image/*,video/*" multiple />
+              <button id="regenerate-step">Regenerate this step</button>
+            </div>
+
+            <div class="panel reviews">
+              <div class="paper-kicker">
+                <span>Assembly notes</span>
+                <span aria-hidden="true">Customer field report</span>
+              </div>
+              <h2>Where people get stuck</h2>
+              <p class="hint">Useful warnings from other builders, grouped by step.</p>
+              <div id="reviews" class="copy review-notes"></div>
+            </div>
+
+            <div class="panel broken">
+              <div class="paper-kicker">
+                <span>Part identification desk</span>
+                <span aria-hidden="true">Before ordering</span>
+              </div>
+              <h2>Missing or broken fitting?</h2>
+              <p class="hint">
+                Show us the fitting and the step. If we cannot read a part number from the photo, go
+                to the store.
               </p>
-              <div class="letter-rule"><span>Part requested</span></div>
-              <div class="row part-line">
-                <label class="paper-field" for="spare-article">
-                  <span>Fitting number</span>
-                  <input id="spare-article" placeholder="e.g. 100347" />
-                </label>
-                <label class="paper-field qty-field" for="spare-qty">
-                  <span>Qty.</span>
-                  <input id="spare-qty" type="number" min="1" value="1" />
-                </label>
+              <label class="paper-field file-field" for="broken-photo">
+                <span>Photo of fitting</span>
+                <input id="broken-photo" type="file" accept="image/*" />
+              </label>
+              <label class="paper-field" for="broken-note">
+                <span>What happened?</span>
+                <input id="broken-note" placeholder="Missing, split, bent…" />
+              </label>
+              <button id="broken-btn" class="identify-part">Identify from this step</button>
+            </div>
+
+            <div class="panel spare">
+              <div class="spare-letter">
+                <div class="letter-masthead">
+                  <span class="letter-mark" aria-hidden="true">IF</span>
+                  <div>
+                    <strong>Small parts service</strong>
+                    <small>Customer fittings request</small>
+                  </div>
+                  <span class="letter-ref">FORM 100.347</span>
+                </div>
+                <h2>Request free assembly fittings</h2>
+                <p class="letter-intro">
+                  Screws, nails, dowels, cam locks, shelf pins and Allen keys are sent free of
+                  charge. Panels and larger components are not included.
+                </p>
+                <div class="letter-rule"><span>Part requested</span></div>
+                <div class="row part-line">
+                  <label class="paper-field" for="spare-article">
+                    <span>Fitting number</span>
+                    <input id="spare-article" placeholder="e.g. 100347" />
+                  </label>
+                  <label class="paper-field qty-field" for="spare-qty">
+                    <span>Qty.</span>
+                    <input id="spare-qty" type="number" min="1" value="1" />
+                  </label>
+                </div>
+                <div class="letter-rule"><span>Send to</span></div>
+                <div class="row contact-line">
+                  <label class="paper-field" for="spare-name">
+                    <span>Name</span>
+                    <input id="spare-name" autocomplete="name" placeholder="Your name" />
+                  </label>
+                  <label class="paper-field" for="spare-email">
+                    <span>Email</span>
+                    <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
+                  </label>
+                </div>
+                <div class="letter-signoff">
+                  <span>No receipt needed for small fittings.</span>
+                  <button id="spare-request" class="primary">Send free-parts request</button>
+                </div>
+                <div id="spare-out" class="copy letter-response" aria-live="polite"></div>
               </div>
-              <div class="letter-rule"><span>Send to</span></div>
-              <div class="row contact-line">
-                <label class="paper-field" for="spare-name">
-                  <span>Name</span>
-                  <input id="spare-name" autocomplete="name" placeholder="Your name" />
-                </label>
-                <label class="paper-field" for="spare-email">
-                  <span>Email</span>
-                  <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
-                </label>
+            </div>
+
+            <div class="panel chat-panel studio-chat">
+              <div class="paper-kicker">
+                <span>Customer service</span>
+                <span class="service-open"><i aria-hidden="true"></i> Shop online</span>
               </div>
-              <div class="letter-signoff">
-                <span>No receipt needed for small fittings.</span>
-                <button id="spare-request" class="primary">Send free-parts request</button>
-              </div>
-              <div id="spare-out" class="copy letter-response" aria-live="polite"></div>
+              <h2>Ask the shop</h2>
+              <p class="hint">
+                Quick questions stay on Pioneer / GLiNER 2. Harder ones escalate to a larger OpenAI
+                model.
+              </p>
+              <details class="more-tools">
+                <summary>Who is answering</summary>
+                <div id="ikea-agent-bar" class="agent-bar"></div>
+              </details>
+              <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
+              <form id="ikea-chat-form">
+                <input
+                  id="ikea-chat-in"
+                  autocomplete="off"
+                  aria-label="Message the shop"
+                  placeholder="Ask about this step, tool or part…"
+                />
+                <input id="ikea-chat-files" type="file" accept="image/*,video/*" multiple />
+                <button type="submit">Send</button>
+              </form>
             </div>
           </div>
 
-          <div class="panel chat-panel studio-chat">
-            <div class="paper-kicker">
-              <span>Customer service</span>
-              <span class="service-open"><i aria-hidden="true"></i> Shop online</span>
+          <div id="material-pane" class="hidden">
+            <div class="panel bom">
+              <div class="paper-kicker">
+                <span>Assembly inventory</span>
+                <span aria-hidden="true">01 / KIT</span>
+              </div>
+              <h2>In the box / bring your own</h2>
+              <p class="hint kit-vs-extra">
+                Included vs to purchase. Extra items list IKEA, Amazon and local stand-ins.
+              </p>
+              <div id="bom" class="material-list bom-list"></div>
+              <div class="paper-footer" aria-hidden="true">
+                <span>Included parts</span>
+                <span>Extra purchases</span>
+              </div>
             </div>
-            <h2>Ask the shop</h2>
-            <details class="more-tools">
-              <summary>Who is answering</summary>
-              <div id="ikea-agent-bar" class="agent-bar"></div>
-            </details>
-            <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
-            <form id="ikea-chat-form">
-              <input id="ikea-chat-in" autocomplete="off" aria-label="Message the shop" placeholder="Ask about this step, tool or part…" />
-              <button type="submit">Send</button>
-            </form>
           </div>
         </section>
 
