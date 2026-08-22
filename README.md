@@ -45,6 +45,35 @@ npm run electron
 ```
 
 Both commands start the Vite client and Express API; `npm run electron` also opens the Electron window.
+The Electron command starts the same Vite client and Express API inside the desktop shell.
+
+## Optional services
+
+Copy `.env.example` to `.env` when you want hosted services. Never commit the populated file.
+
+- `FAL_KEY` — drawing-plate interpretation through fal's multimodal vision endpoint, plus Seedance films, Nano Banana stills, and Tripo meshes
+- `OPENAI_API_KEY` — hosted Lab bench assistance
+- `OPENAI_MODEL_HARD` — model used for harder hosted requests
+- `OPENAI_MODEL_EASY` — model used for lighter hosted requests
+- `TAVILY_API_KEY` — official IKEA PDF and missing-tool lookup
+- `PORT` — Express API port; defaults to `8787`
+- `CLIENT_PORT` — client port recorded in local configuration; Vite runs on `5173`
+
+PDF text is extracted first and structured locally with GLiNER 2 (`fastino/gliner2-base-v1`). When that text does not contain grounded assembly steps, fal's `openrouter/router/vision` endpoint reads the rasterized plates with `google/gemini-2.5-flash`; GLiNER 2 then normalizes the returned plate description. This PDF path does not use `OPENAI_API_KEY`.
+
+Without keys, IKEAlive keeps local guide parsing, the official LACK sheet, notes, owned tools, catalog stand-ins, and local reconstruction available. Drawing-only PDF parsing, hosted renders, and live searches report the specific key they need; they do not silently pretend to have run.
+
+## Work around the guide
+
+**Watch** keeps the manual primary and reveals official steps in order. Use it to compare the current plate with the parts and trouble notes attached to that step.
+
+**Bench** adapts existing pieces in 3D. **House** places those pieces against room photos and measurements. Camera capture stays inside **Scan**, where it supplies reconstruction views instead of becoming a separate Lab mode. These spaces support the build; they do not replace the instructions.
+
+**Scan** accepts aligned photos, additional stills, a walk-around video, or a video URL. It reconstructs a local visual hull and can use a known object or two measured points for scale. No paid reconstruction model or uploaded weights are required.
+
+When a table model is ready, **Finish & find ways** researches construction methods for that final shape, derives its dimensioned tops, legs, rails, boards, and cut list, prepares a printable PDF, and creates an IKEAlive watch / plan / todo.
+
+## Structure
 
 ## Connect the optional services
 

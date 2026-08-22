@@ -483,7 +483,7 @@ export function buildWaysForProject(project = {}) {
   return {
     ok: true,
     name: String(project.name || "Custom table").trim() || "Custom table",
-    scope: "Construction ways, cut stock, tops, legs, and visible table bodies for this exact modeled shape",
+    scope: "Construction ways, cut stock, tops, and legs, plus visible table bodies for this exact modeled shape",
     components,
     modelDimensionsMm: modelDimensionsMm(components),
     modelSignature: modelSignature(components),
@@ -533,7 +533,7 @@ export function buildPlanSource(build) {
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
     `Build scope: ${build.scope}.`,
     match,
-    `Board / stock cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    `Cut list: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
     "Construction ways:",
     alternatives,
     "",

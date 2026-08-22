@@ -224,12 +224,12 @@ export function routeAgent(text) {
   if (CAD_HINTS.test(t)) return ROSTER.find((a) => a.id === "cad");
   if (EDA_HINTS.test(t)) return ROSTER.find((a) => a.id === "eda");
   if (SIM_HINTS.test(t)) return ROSTER.find((a) => a.id === "sim");
+  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (isMeshBuildAsk(t)) return ROSTER.find((a) => a.id === "creative");
   if (CREATIVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "creative");
   if (isRoundTableDescription(t)) return ROSTER.find((a) => a.id === "creative");
   if (ROOM_CREATE_ASK.test(t)) return ROSTER.find((a) => a.id === "stylist");
   if (ROOM_HINTS.test(t) && !isCatalogAsk(t) && !benchCmd) return ROSTER.find((a) => a.id === "stylist");
-  if (isLampAsk(t)) return ROSTER.find((a) => a.id === "eda");
   if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
   if (IKEA_HINTS.test(t)) return ROSTER.find((a) => a.id === "assembler");
   if (MOVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "shop");
