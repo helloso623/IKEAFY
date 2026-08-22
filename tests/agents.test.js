@@ -449,6 +449,33 @@ test(
 );
 
 test(
+  "AI transforms the selected generated mesh instead of spawning a replacement",
+  withoutHosted(async () => {
+    const project = emptyProject();
+    const selected = {
+      id: "ai-mesh-1",
+      name: "Moon rover",
+      partId: "ai-mesh",
+      reconstructed: true,
+      generated: true,
+      x: 0.4,
+      y: 0.3,
+      z: -0.2,
+      sx: 1,
+      sy: 1.25,
+      sz: 1,
+    };
+    const reply = await chat("make the selected mesh taller", {
+      project,
+      scene: { lab: "desk", pieceCount: 1, selected },
+    });
+    assert.deepEqual(reply.actions, [{ type: "move", id: selected.id, sy: 1.375 }]);
+    assert.doesNotMatch(reply.text, /Built|shelf/i);
+    assert.equal(project.pieces.length, 0);
+  }),
+);
+
+test(
   "local steward creates a room and a real table mesh",
   withoutHosted(async () => {
     const project = emptyProject();

@@ -8,7 +8,7 @@ const NON_MODEL_ASK =
   /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|room|interior)\b|(?:\b(?:watch|play|upload|record)\b[\s\S]*\bvideo\b)/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
 const CATALOG_DROP_NOUN =
-  /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
+  /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?|legs?|boards?|tabletops?|aprons?|stretchers?)\b/i;
 const EDIT_EXISTING =
   /\b(?:make|scale|resize)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b|\b(?:make|scale|resize)\b[\s\S]*\b(?:bigger|larger|smaller|wider|narrower|taller|shorter|deeper|shallower|double|twice|half)\b[\s\S]*\b(?:it|this|selected|piece|object|mesh)\b/i;
 const COUNTED_PART_PLACEMENT =
