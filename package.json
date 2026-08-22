@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "IKEAFY workshop: Fusion/KiCad-style sandbox, physics lab, and IKEA-like assembly guides.",
+  "description": "IKEAFY: a consumer assembly app — official IKEA steps, a 3D bench, and a room overlay.",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node --watch server/index.js",
