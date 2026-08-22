@@ -122,6 +122,42 @@ const insertRingMat = new THREE.MeshStandardMaterial({ color: 0x8f9499, roughnes
 const insertHoleMat = new THREE.MeshStandardMaterial({ color: 0x241d14, roughness: 0.92, metalness: 0 });
 const footPlasticMat = new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.8, metalness: 0.04 });
 
+// Baked radial falloff for contact shadows: one tiny canvas, sampled by a
+// transparent unlit plane. Cheaper and steadier than a shadow map on the
+// floor, which flickered (see the floor comment in createWorkshop).
+function contactShadowMap(size = 256) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.04, half, half, half);
+  grad.addColorStop(0, "rgba(0, 0, 0, 0.42)");
+  grad.addColorStop(0.55, "rgba(0, 0, 0, 0.17)");
+  grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Foil sheen: a hash-noise jitter on roughness, injected into the foil
+// laminate shader. A few ALU ops per fragment, no extra textures, and the
+// constant cache key means every foil part shares one compiled program.
+function addFoilGrain(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <roughnessmap_fragment>",
+      `#include <roughnessmap_fragment>
+      #ifdef USE_MAP
+      float ikeaGrain = fract(sin(dot(vMapUv * 96.0, vec2(12.9898, 78.233))) * 43758.5453);
+      roughnessFactor = clamp(roughnessFactor + (ikeaGrain - 0.5) * 0.08, 0.05, 1.0);
+      #endif`,
+    );
+  };
+  mat.customProgramCacheKey = () => "ikealive-foil-grain";
+  return mat;
+}
+
 function pcbMap(hex = "#1b4d8c") {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -265,7 +301,7 @@ function foilMaterial(part, hex, kind) {
     grainRepeat(part.dimsMm?.x),
     grainRepeat(part.dimsMm?.y),
   );
-  return new THREE.MeshPhysicalMaterial({
+  const mat = new THREE.MeshPhysicalMaterial({
     color,
     map,
     roughness: 0.55,
@@ -273,6 +309,11 @@ function foilMaterial(part, hex, kind) {
     clearcoat: 0.22,
     clearcoatRoughness: 0.55,
   });
+  // Reuse the printed grain as a faint bump so streaks catch the key light —
+  // one extra sample of a texture already on the GPU — and jitter roughness.
+  mat.bumpMap = map;
+  mat.bumpScale = kind === "white" ? 0.12 : 0.3;
+  return addFoilGrain(mat);
 }
 
 function openWoodMaterial(part, hex) {
@@ -1082,6 +1123,27 @@ export function createWorkshop(canvas) {
   floor.userData.baseMaterial = floor.material;
   scene.add(floor);
 
+  // Soft contact shadow grounding the bench on the floor. The floor never
+  // receiveShadows (see above), so this baked blob is the AO feel instead:
+  // unlit, depthWrite off, and drawn after the floor via renderOrder — three
+  // reasons it cannot z-fight the plane 2 mm below it.
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.7, 2.0),
+    new THREE.MeshBasicMaterial({
+      map: contactShadowMap(),
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = floor.position.y + 0.002;
+  contactShadow.renderOrder = 0;
+  contactShadow.castShadow = false;
+  contactShadow.receiveShadow = false;
+  scene.add(contactShadow);
+
   const benchMap = grayWoodMap({ planks: 6, seed: 7 });
   benchMap.repeat.set(2, 1.2);
   const bench = new THREE.Mesh(
@@ -1393,6 +1455,8 @@ export function createWorkshop(canvas) {
     hemi.intensity = lookOn ? 1 : 0.9;
     floor.receiveShadow = false;
     bench.receiveShadow = !lookOn;
+    // Clay renders still want grounding, just less of it.
+    contactShadow.material.opacity = lookOn ? 0.28 : 0.55;
   }
 
   function meshOverride() {
