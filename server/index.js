@@ -399,8 +399,21 @@ app.post("/api/ikeafy/manual", async (req, res) => {
       pdfBase64: found.pdfBase64 || null,
     });
   } catch (err) {
-    ikealiveWarn("tavily", "manual lookup error", err?.message || err);
-    res.status(502).json({ ok: false, reason: String(err.message || err) });
+    const code = err?.code || err?.cause?.code || null;
+    const cause = err?.cause?.message || null;
+    ikealiveWarn("tavily", "manual lookup error", {
+      name: err?.name || "Error",
+      message: err?.message || String(err),
+      code,
+      cause,
+    });
+    const detail = [err?.message || String(err), cause, code ? `(${code})` : null]
+      .filter(Boolean)
+      .join(" — ");
+    res.status(502).json({
+      ok: false,
+      reason: `Manual lookup failed: ${detail}. Check TAVILY_API_KEY and network access to api.tavily.com.`,
+    });
   }
 });
 
@@ -1449,6 +1462,10 @@ app.listen(port, "0.0.0.0", () => {
   const link = phoneUploadUrls({ apiPort: port });
   ikealiveLog("video", "ready", { port, keyed: hasFal(), phone: link.url });
   ikealiveLog("parse", "OpenAI configuration", { keyVisible: Boolean(usableOpenAiKey()) });
+  ikealiveLog("tavily", "configuration", {
+    keyVisible: hasTavily(),
+    envFile: existsSync(path.join(__dirname, "..", ".env")),
+  });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
   console.log(`Phone room upload (same Wi-Fi): ${link.url}  (or ${link.apiUrl})`);
 });
