@@ -102,6 +102,26 @@ test(
   }),
 );
 
+test("chat reads part and step from scene context", async () => {
+  const merged = mergeChatContext({
+    scene: { partId: "lack-top", step: 4, interface: "watch", product: "LACK" },
+  });
+  assert.equal(merged.partId, "lack-top");
+  assert.equal(merged.step, 4);
+  assert.match(describeScene(merged.scene), /Watch step 4/);
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const reply = await chat("label it support", {
+      scene: { partId: "lack-top", mode: "lab", lab: "desk" },
+    });
+    assert.ok(reply.actions.some((a) => a.type === "label" && a.partId === "lack-top" && a.label === "support"));
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
 test("studio voice commands become reel actions, not bench adds", () => {
   assert.equal(planStudioActions("get the reel").actions[0].action, "start");
   assert.equal(planStudioActions("start the official sheet").actions[0].action, "official");
