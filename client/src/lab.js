@@ -1,17 +1,12 @@
 /**
- * Lab strip — a Blender-ish viewport bar over #view plus a stacked behavior sim.
+ * Lab strip — a Blender-ish viewport bar over #view.
  *
  * Viewport: Look is unlit clay (no shadows); Look at frames the selection.
  * Measure clicks two world points and labels the span in millimetres.
  * Solid / material / wire shading still sit next to those. Modifiers-lite
  * duplicates the selected piece through api.add (array 2× along X, mirror
- * across the Y axis). One Run sim stacks strength / weather / heat / rain /
- * tape / force through /api/physics/sim and animates the result via shop.setSim;
- * the sim reads the function graph, so a piece labeled "light" blinks.
+ * across the Y axis).
  */
-
-const SIM_CHIPS = ["strength", "weather", "heat", "rain", "tape", "force"];
-const GRAPH_ORDER = ["sense", "control", "light"];
 
 function clonePose(piece, patch = {}) {
   return {
@@ -31,17 +26,7 @@ function clonePose(piece, patch = {}) {
   };
 }
 
-function graphLine(project) {
-  const seen = new Set();
-  for (const piece of project?.pieces || []) {
-    if (piece.functionLabel) seen.add(piece.functionLabel);
-  }
-  if (!seen.size) return "Graph: no function labels yet — Label function names a piece's job.";
-  const chain = [...GRAPH_ORDER.filter((label) => seen.has(label)), ...[...seen].filter((l) => !GRAPH_ORDER.includes(l))];
-  return `Graph: ${chain.join(" → ")}`;
-}
-
-export function initLabStrip({ api, shop, hud, getProject, partsById, refreshProject }) {
+export function initLabStrip({ api, shop, hud, refreshProject }) {
   const strip = document.getElementById("viewport-strip");
   const out = document.getElementById("vs-out");
   if (!strip) return null;
@@ -61,13 +46,6 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     <div class="vs-group" role="group" aria-label="Modifiers">
       <button type="button" id="vs-array" title="Duplicate the selected piece once along X">Array 2×X</button>
       <button type="button" id="vs-mirror" title="Duplicate the selected piece mirrored across the Y axis">Mirror Y</button>
-    </div>
-    <span class="vs-sep"></span>
-    <div class="vs-group" role="group" aria-label="Simulation stack">
-      ${SIM_CHIPS.map(
-        (kind) => `<button type="button" class="chip" data-sim="${kind}">${kind[0].toUpperCase()}${kind.slice(1)}</button>`,
-      ).join("")}
-      <button type="button" id="vs-run" class="primary">Run sim</button>
     </div>`;
 
   function say(lines) {
@@ -175,40 +153,6 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     }, "Mirror Y"),
   );
 
-  // ---- Stacked sim -------------------------------------------------------
-  strip.addEventListener("click", (ev) => {
-    const chip = ev.target.closest(".chip[data-sim]");
-    if (chip) chip.classList.toggle("on");
-  });
-
-  function chipOn(kind) {
-    return strip.querySelector(`.chip[data-sim="${kind}"]`)?.classList.contains("on") || false;
-  }
-
-  strip.querySelector("#vs-run").addEventListener("click", async () => {
-    const opts = Object.fromEntries(SIM_CHIPS.map((kind) => [kind, chipOn(kind)]));
-    opts.tempC = opts.heat ? 60 : 22;
-    opts.forceN = 200;
-    hud("Running the stacked sim…");
-    await api.simStart();
-    const report = await api.simRun(opts);
-    shop.setSim(true, {
-      rain: opts.rain,
-      heat: opts.heat,
-      force: opts.strength || opts.force,
-      shake: opts.strength || opts.force,
-      ledHz: report.led?.blink ? report.led.hz || 2 : 0,
-    });
-    say([
-      `Stacked: ${report.stacked.join(" + ")}${report.tapeId ? ` · ${report.tapeId}` : ""}`,
-      graphLine(getProject()),
-      report.led?.note,
-      ...report.failures.slice(0, 4).map((f) => `✗ ${partsById[f.partId]?.name || f.partId}: ${f.note}`),
-      report.ok ? "✓ All holding." : null,
-    ]);
-    hud(report.note);
-  });
-
   document.getElementById("fn-btns")?.addEventListener("click", async (event) => {
     const functionLabel = event.target.closest("[data-fn]")?.dataset.fn;
     if (!functionLabel) return;
@@ -222,6 +166,6 @@ export function initLabStrip({ api, shop, hud, getProject, partsById, refreshPro
     hud(`${selected.part?.name || "Piece"} is now ${functionLabel}.`);
   });
 
-  say([graphLine(getProject()), "Stack chips, then Run sim."]);
+  say("Select a piece to inspect or modify it.");
   return { say };
 }

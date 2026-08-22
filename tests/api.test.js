@@ -29,6 +29,14 @@ test("chat client and server support the canonical and compatibility routes", ()
   assert.match(server, /fallbackChat\(/);
 });
 
+test("scan video proxy is a local same-origin fetch, not a paid model", () => {
+  const server = readFileSync(path.join(root, "server/index.js"), "utf8");
+  const api = readFileSync(path.join(root, "client/src/api.js"), "utf8");
+  assert.match(server, /\/api\/scan\/video/);
+  assert.match(server, /SCAN_VIDEO_MAX_BYTES/);
+  assert.match(api, /scanVideoUrl/);
+});
+
 async function waitForHealth(url, timeoutMs = 20_000) {
   const start = Date.now();
   let lastError = "";
@@ -103,4 +111,57 @@ test("chat() itself creates rooms and tables as steward actions", async () => {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
+});
+
+test("HTTP chat builds table, stool, and shelf kits on the bench", async (t) => {
+  const port = 22000 + (process.pid % 1000);
+  const child = spawn(process.execPath, ["server/index.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), OPENAI_API_KEY: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => child.kill("SIGTERM"));
+  const base = `http://127.0.0.1:${port}`;
+  await waitForHealth(`${base}/api/health`);
+
+  const catalog = await (await fetch(`${base}/api/catalog`)).json();
+  assert.ok(catalog.some((part) => part.id === "generic-side-table"));
+  assert.ok(catalog.some((part) => part.id === "generic-stool"));
+  assert.ok(catalog.some((part) => part.id === "generic-shelf-board"));
+
+  const cases = [
+    ["make a side table", ["generic-side-table"]],
+    ["make a stool", ["generic-stool"]],
+    ["make a shelf", ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"]],
+  ];
+  for (const [message, expected] of cases) {
+    const seeded = await fetch(`${base}/api/project/seed`, { method: "POST" });
+    assert.equal(seeded.status, 200);
+    const response = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    assert.equal(response.status, 200);
+    const reply = await response.json();
+    assert.equal(reply.ok, true);
+    assert.deepEqual(
+      reply.actions.filter((action) => action.type === "add").map((action) => action.partId),
+      expected,
+    );
+    const project = await (await fetch(`${base}/api/project`)).json();
+    assert.deepEqual(project.pieces.map((piece) => piece.partId), expected);
+  }
+
+  await fetch(`${base}/api/project/seed`, { method: "POST" });
+  const added = await fetch(`${base}/api/project/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ partId: "generic-stool", pose: { x: 0.2 } }),
+  });
+  assert.equal(added.status, 200);
+  assert.equal((await added.json()).partId, "generic-stool");
+
+  const workshop = readFileSync(path.join(root, "client/src/workshop.js"), "utf8");
+  assert.match(workshop, /shape === "bracket"/);
 });

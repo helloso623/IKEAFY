@@ -115,6 +115,10 @@ const GENERIC_TABLE_ASK =
   /\btest[\s-]*table\b|\black[\s-]*like\b|\bside[\s-]*table\b|\b(?:generic|placeholder)\b[\s\S]*\btable\b|\btable\b[\s\S]*\b(?:generic|placeholder)\b/i;
 const MAKE_TABLE_ASK =
   /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\btables?\b/i;
+const MAKE_STOOL_ASK =
+  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\bstools?\b/i;
+const MAKE_SHELF_ASK =
+  /\b(make|model|build|create|design|generate|add|place|put|drop)\b[\s\S]*\b(?:shelf|shelves)\b/i;
 const SHOP_CREATE_TYPES = new Set(["room", "add", "add_part", "studio", "scan", "move"]);
 const QTY_WORDS = {
   one: 1,
@@ -270,19 +274,47 @@ function roomFromDescription(message, ctx = {}) {
   };
 }
 
-function genericTablePlan() {
-  const part = getPart("generic-side-table");
-  if (!part) return null;
-  const dims = part.dimsMm || { x: 550, y: 550, z: 450 };
+function genericFurniturePlan(kind) {
+  const spec = {
+    table: {
+      ids: ["generic-side-table"],
+      poses: [{ x: 0, y: 0, z: 0 }],
+      label: "side table",
+    },
+    stool: {
+      ids: ["generic-stool"],
+      poses: [{ x: 0, y: 0, z: 0 }],
+      label: "stool",
+    },
+    shelf: {
+      ids: ["generic-shelf-board", "generic-shelf-bracket", "generic-shelf-bracket"],
+      poses: [
+        { x: 0, y: 0.62, z: 0 },
+        { x: -0.28, y: 0.51, z: 0 },
+        { x: 0.28, y: 0.51, z: 0 },
+      ],
+      label: "wall shelf",
+    },
+  }[kind];
+  if (!spec) return null;
+  const parts = spec.ids.map(getPart);
+  if (parts.some((part) => !part)) return null;
+  const dims = parts[0].dimsMm;
   return {
-    part,
+    parts,
+    label: spec.label,
     specs: `${Math.round(dims.x)}×${Math.round(dims.y)}×${Math.round(dims.z)} mm`,
-    action: {
+    actions: parts.map((part, index) => ({
       type: "add",
       partId: part.id,
-      pose: { x: 0, y: Number(dims.z) / 2000, z: 0 },
-    },
+      pose: spec.poses[index],
+    })),
   };
+}
+
+function genericTablePlan() {
+  const plan = genericFurniturePlan("table");
+  return plan ? { ...plan, part: plan.parts[0], action: plan.actions[0] } : null;
 }
 
 function furnitureOnlyHits(hits, message) {
@@ -499,6 +531,22 @@ export function planCreativeActions(message, ctx = {}) {
         handles: true,
         text: `Using ${table.specs} side-table proportions for a neutral editable placeholder. Placing it now.`,
         actions: [table.action],
+      };
+    }
+  }
+
+  const furnitureKind = MAKE_SHELF_ASK.test(lower)
+    ? "shelf"
+    : MAKE_STOOL_ASK.test(lower)
+      ? "stool"
+      : null;
+  if (furnitureKind) {
+    const furniture = genericFurniturePlan(furnitureKind);
+    if (furniture) {
+      return {
+        handles: true,
+        text: `Using ${furniture.specs} IKEA-like proportions for a generic ${furniture.label}. Placing the editable kit now.`,
+        actions: furniture.actions,
       };
     }
   }
