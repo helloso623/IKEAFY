@@ -1,4 +1,4 @@
-import { getPart, retailerOffers } from "./catalog.js";
+import { getPart, retailerOffers, searchParts } from "./catalog.js";
 
 const SEARCH_URL = "https://api.tavily.com/search";
 
@@ -222,3 +222,177 @@ export async function enrichShopping(list, { fetchFn = fetch } = {}) {
   );
   return { ...local, live: targets.some((line) => line.live) };
 }
+
+const MAX_MANUAL_BYTES = 10 * 1024 * 1024;
+
+function catalogHitsForProduct(name) {
+  return searchParts({ query: name, category: "furniture" })
+    .slice(0, 5)
+    .map((part) => ({
+      id: part.id,
+      name: part.name,
+      ikeaArticle: part.ikeaArticle || null,
+      storeUrl: part.storeUrl || null,
+    }));
+}
+
+export function pickManualPdfHit(results = []) {
+  const rows = (results || []).filter((hit) => hit?.url);
+  const scored = rows.map((hit) => {
+    const url = String(hit.url);
+    const blob = `${url} ${hit.title || ""} ${hit.content || ""}`.toLowerCase();
+    let score = 0;
+    if (/\.pdf(\?|$)/i.test(url)) score += 8;
+    if (/assembly_instructions|assembly-instructions/i.test(url)) score += 6;
+    if (/ikea\./i.test(url)) score += 3;
+    if (/assembly instructions|instruction (pdf|sheet)|building instruction/i.test(blob)) score += 4;
+    if (/filetype:pdf|\.pdf/i.test(blob)) score += 2;
+    return { hit, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored.find((row) => row.score >= 6);
+  return best?.hit || null;
+}
+
+function filenameFromUrl(url, fallback = "ikea-manual.pdf") {
+  try {
+    const base = decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "");
+    if (/\.pdf$/i.test(base)) return base;
+  } catch {
+    // Keep the fallback name.
+  }
+  return fallback;
+}
+
+/**
+ * Look up an IKEA product's official instructions PDF via Tavily, then fetch
+ * the PDF Tavily returned. Without a key, return catalog furniture stand-ins.
+ */
+export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
+  const name = String(productName || "").trim();
+  if (!name) {
+    return { ok: false, reason: "Type an IKEA product name." };
+  }
+
+  const catalog = catalogHitsForProduct(name);
+  const standin = {
+    ok: false,
+    live: false,
+    partner: "tavily-standin",
+    query: name,
+    catalog,
+    pdfUrl: null,
+    pdfBase64: null,
+    filename: null,
+    title: catalog[0]?.name || name,
+  };
+
+  if (!hasTavily()) {
+    console.log("[ikealive:tavily]", "manual stand-in", { query: name, catalog: catalog.map((c) => c.id) });
+    return {
+      ...standin,
+      reason: catalog.length
+        ? `No Tavily key — catalog stand-in for “${catalog[0].name}”. Set TAVILY_API_KEY to fetch the official IKEA PDF.`
+        : "Set TAVILY_API_KEY to find the official IKEA instructions PDF.",
+    };
+  }
+
+  const query = `IKEA ${name} assembly instructions PDF site:ikea.com`;
+  console.log("[ikealive:tavily]", "manual search", { query });
+  const res = await fetchFn(SEARCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${usableTavilyKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: "basic",
+      max_results: 8,
+      include_answer: false,
+    }),
+  });
+  if (!res.ok) {
+    console.warn("[ikealive:tavily]", "search failed", { status: res.status });
+    return { ...standin, partner: "tavily", live: false, reason: `Tavily search failed (${res.status}).` };
+  }
+  const json = await res.json();
+  const results = json.results || json.data || [];
+  const hit = pickManualPdfHit(results);
+  if (!hit?.url) {
+    console.log("[ikealive:tavily]", "no pdf hit", { query: name, results: results.length });
+    return {
+      ...standin,
+      partner: "tavily",
+      live: true,
+      reason: "Tavily found no IKEA instructions PDF for that name.",
+    };
+  }
+
+  console.log("[ikealive:tavily]", "fetch pdf", { url: hit.url, title: hit.title || null });
+  const pdfRes = await fetchFn(hit.url);
+  if (!pdfRes.ok) {
+    console.warn("[ikealive:tavily]", "pdf fetch failed", { url: hit.url, status: pdfRes.status });
+    return {
+      ok: false,
+      live: true,
+      partner: "tavily",
+      query: name,
+      catalog,
+      pdfUrl: hit.url,
+      pdfBase64: null,
+      filename: filenameFromUrl(hit.url),
+      title: hit.title || name,
+      reason: `Found a PDF but could not download it (${pdfRes.status}).`,
+    };
+  }
+  const buf = Buffer.from(await pdfRes.arrayBuffer());
+  if (buf.byteLength > MAX_MANUAL_BYTES) {
+    console.warn("[ikealive:tavily]", "pdf too large", { url: hit.url, bytes: buf.byteLength });
+    return {
+      ok: false,
+      live: true,
+      partner: "tavily",
+      query: name,
+      catalog,
+      pdfUrl: hit.url,
+      pdfBase64: null,
+      filename: filenameFromUrl(hit.url),
+      title: hit.title || name,
+      bytes: buf.byteLength,
+      reason: "That IKEA PDF is too large to ingest here. Drop the file instead.",
+    };
+  }
+  const looksPdf = buf.subarray(0, 5).toString("utf8") === "%PDF-";
+  if (!looksPdf) {
+    console.warn("[ikealive:tavily]", "not a pdf", { url: hit.url, bytes: buf.byteLength });
+    return {
+      ok: false,
+      live: true,
+      partner: "tavily",
+      query: name,
+      catalog,
+      pdfUrl: hit.url,
+      pdfBase64: null,
+      filename: filenameFromUrl(hit.url),
+      title: hit.title || name,
+      reason: "Tavily’s hit was not a PDF. Try a more specific product name.",
+    };
+  }
+
+  console.log("[ikealive:tavily]", "manual ready", { url: hit.url, bytes: buf.byteLength, filename: filenameFromUrl(hit.url) });
+  return {
+    ok: true,
+    live: true,
+    partner: "tavily",
+    query: name,
+    catalog,
+    pdfUrl: hit.url,
+    pdfBase64: buf.toString("base64"),
+    filename: filenameFromUrl(hit.url),
+    title: hit.title || name,
+    bytes: buf.byteLength,
+    reason: null,
+  };
+}
+

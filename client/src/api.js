@@ -74,6 +74,7 @@ export const api = {
   broken: (step, note, photoName = "broken.jpg") =>
     post("/api/ikeafy/broken", { step, note, photoName }),
   shopping: () => req("/api/ikeafy/shopping"),
+  lookupManual: (productName) => post("/api/ikeafy/manual", { productName }),
 
   // Assembly runs — the server owns the cursor, so these are the only way forward.
   runStart: (body = {}) => post("/api/assembly/start", body),

@@ -141,8 +141,8 @@ function inferAction(text) {
   return "assemble";
 }
 
-function inferParts(text) {
-  const lower = text.toLowerCase();
+function inferParts(text, title = "") {
+  const lower = `${title} ${text}`.toLowerCase();
   const hits = [];
   for (const part of listParts()) {
     const tokens = part.name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
@@ -150,8 +150,8 @@ function inferParts(text) {
       hits.push(part.id);
     }
   }
-  if (/leg/.test(lower) && !hits.includes("lack-leg")) hits.push("lack-leg");
-  if (/top|table/.test(lower) && !hits.includes("lack-top")) hits.push("lack-top");
+  if (/leg/.test(lower) && /lack/.test(lower) && !hits.includes("lack-leg")) hits.push("lack-leg");
+  if (/lack/.test(lower) && /top|table/.test(lower) && !hits.includes("lack-top")) hits.push("lack-top");
   if (/allen/.test(lower) && !hits.includes("allen-key")) hits.push("allen-key");
   if (/tape/.test(lower) && !hits.includes("tape-gaffer")) hits.push("tape-gaffer");
   return [...new Set(hits)];
@@ -211,7 +211,7 @@ export function parseGuide(
   const source = stepLines.length ? stepLines : fallback;
   const steps = source.map((line, i) => {
     const body = line.replace(/^\d+[\.)]\s*/, "");
-    const partIds = inferParts(body);
+    const partIds = inferParts(body, title);
     const tool = inferTool(body, availableTools);
     const reviews = locked ? SAMPLE_REVIEWS.filter((r) => r.step === i + 1) : [];
     return {
@@ -385,8 +385,16 @@ async function extractGuideWithOpenAI(
     .join("; ");
   const model = process.env.OPENAI_MODEL_HARD || process.env.OPENAI_MODEL_EASY || "gpt-4.1-mini";
   const userContent = [];
+  const plateFirst = images.length > 0;
   const brief = [
-    raw ? `Guide text:\n${String(raw).slice(0, 12000)}` : "The builder attached photos or PDF plates of a building guide.",
+    plateFirst
+      ? "The builder attached PDF plates (drawings of a building guide). Read those plates in order. Do not treat extracted PDF text or binary streams as the instructions."
+      : raw
+        ? `Guide text:\n${String(raw).slice(0, 12000)}`
+        : "The builder attached photos of a building guide.",
+    plateFirst && raw
+      ? `Optional notes (not the plate source): ${String(raw).slice(0, 500)}`
+      : "",
     instructions ? `Builder notes / tools: ${instructions}` : "",
     availableTools.length ? `Tools on hand: ${availableTools.join(", ")}` : "",
     "Turn this into assembly steps for THIS input, in plate order. Identify the product from the cover or filename. Do not substitute an IKEA LACK table unless the input is actually about LACK.",
@@ -435,9 +443,29 @@ export async function parseGuideAsync(
   deps = {},
 ) {
   if (official) return parseGuide(raw, { instructions, availableTools, official, productArticle });
+  const plates = (images || []).filter((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
+  if (plates.length) {
+    console.log("[ikealive:parse]", "vision plates", { count: plates.length });
+    try {
+      const hosted = await extractGuideWithOpenAI(
+        { raw, images: plates, instructions, availableTools },
+        deps,
+      );
+      if (hosted?.steps?.length) {
+        console.log("[ikealive:parse]", "vision ok", { title: hosted.title, steps: hosted.steps.length });
+        return hosted;
+      }
+      console.warn("[ikealive:parse]", "vision returned no steps");
+    } catch {
+      // Fall through to an empty guide — never leak the key, never parse plates as text.
+    }
+    return emptyGuide({ instructions });
+  }
   const local = parseGuide(raw, { instructions, availableTools });
   try {
-    const hosted = await extractGuideWithOpenAI({ raw, images, instructions, availableTools }, deps);
+    const hosted = await extractGuideWithOpenAI({ raw, images: [], instructions, availableTools }, deps);
     if (hosted?.steps?.length) return hosted;
   } catch {
     // Fall through to the local parser — never leak the key.

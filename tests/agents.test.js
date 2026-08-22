@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROSTER, chat, planCreativeActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
+import { ROSTER, chat, planCreativeActions, planStudioActions, routeAgent, shouldEscalate } from "../server/lib/agents.js";
 import { emptyProject } from "../server/lib/project.js";
 
 function withoutHosted(fn) {
@@ -90,6 +90,23 @@ test(
     assert.ok(reply.actions.some((a) => a.type === "add" || a.type === "add_part"));
     assert.equal(reply.actions.some((a) => a.type === "isolate"), false);
     assert.doesNotMatch(reply.text, /arduino|nano|led|firmware/i);
+  }),
+);
+
+test("studio voice commands become reel actions, not bench adds", () => {
+  assert.equal(planStudioActions("get the reel").actions[0].action, "start");
+  assert.equal(planStudioActions("start the official sheet").actions[0].action, "official");
+  assert.equal(planStudioActions("next step").actions[0].action, "next");
+  assert.equal(planStudioActions("request a spare").actions[0].action, "spare");
+  assert.equal(planStudioActions("add a lack table").handles, false);
+});
+
+test(
+  "chat turns next step into a studio action",
+  withoutHosted(async () => {
+    const reply = await chat("next step", { step: 2 });
+    assert.ok(reply.actions.some((a) => a.type === "studio" && a.action === "next"));
+    assert.doesNotMatch(reply.text, /Parsed \d+ steps/);
   }),
 );
 

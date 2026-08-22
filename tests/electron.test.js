@@ -35,10 +35,11 @@ test("browser npm run dev still starts the Vite + Express workshop", () => {
   assert.doesNotMatch(pkg.scripts.dev, /electron/);
 });
 
-test("Electron loads the local UI on 5173 or file:// dist without nodeIntegration", () => {
+test("Electron loads the local UI on 5173, localhost, or file:// dist without nodeIntegration", () => {
   assert.match(main, /nodeIntegration:\s*false/);
   assert.match(main, /loadURL/);
   assert.match(main, /5173/);
+  assert.match(main, /127\.0\.0\.1/);
   assert.match(main, /file:|pathToFileURL|distFileUrl/);
   assert.match(main, /dist/);
   assert.match(main, /BrowserWindow/);

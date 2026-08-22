@@ -5,16 +5,20 @@ import { initLabStrip } from "./lab.js";
 import { drawSilhouettePreview, reconstructFromFiles } from "./scan-reconstruct.js";
 import { createWorkshop } from "./workshop.js";
 import { initStudio } from "./studio.js";
+import { bindVoice } from "./voice.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
 const shop = createWorkshop(view);
 const partsById = {};
-let project = { pieces: [], cables: [], tapes: [], chrome: null };
+let project = { pieces: [], cables: [], tapes: [], chrome: null, netlist: null, erc: null };
 let selectedIds = [];
 let costBarrier = "";
 let studio = null;
 let house = null;
+// KiCad bench: half-drawn wire and the net lit up from the netlist panel.
+let pendingPort = null;
+let highlightedNet = null;
 
 function hud(text) {
   $("hud").textContent = text;
@@ -339,6 +343,8 @@ async function applyShopActions(actions) {
       house?.applyPlan(action.plan);
     } else if (action.type === "firmware") {
       continue;
+    } else if (action.type === "studio") {
+      await window.__ikeafyStudio?.applyActions?.([action]);
     }
   }
   return added;
@@ -755,6 +761,7 @@ function setLabSpace(space) {
   house?.setActive(space === "ar");
   if (isLab()) hud(labHud(space));
   shop.resize();
+  if (isLab()) console.log("[ikealive:lab]", "space", space);
 }
 
 function setMode(mode) {
@@ -790,10 +797,24 @@ function setMode(mode) {
     house?.setActive(false);
   }
   shop.resize();
+  console.log("[ikealive:lab]", inLab ? "open" : "closed", { space: app.dataset.lab || "desk" });
 }
 
 for (const btn of document.querySelectorAll("#modes button")) {
-  btn.addEventListener("click", () => setMode(btn.dataset.mode));
+  btn.addEventListener("click", () => {
+    if (btn.dataset.mode === "lab" && isLab()) {
+      setMode("ikeafy");
+      return;
+    }
+    setMode(btn.dataset.mode);
+  });
+}
+
+for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
+  btn.addEventListener("click", () => {
+    setMode("lab");
+    setLabSpace(btn.dataset.lab);
+  });
 }
 
 for (const btn of document.querySelectorAll("#lab-spaces [data-lab]")) {
@@ -888,6 +909,15 @@ $("chat-form")?.addEventListener("submit", async (ev) => {
   await askShop(message);
 });
 
+bindVoice({
+  button: $("lab-voice"),
+  status: $("lab-voice-status"),
+  input: $("chat-in"),
+  onHear: (text) => askShop(text),
+});
+
+window.__ikeafyApplyShop = applyShopActions;
+
 window.addEventListener("keydown", (ev) => {
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
@@ -938,8 +968,8 @@ async function boot() {
   setMode("ikeafy");
   hud(
     health.video?.live
-      ? "Drop an IKEA PDF — Veed Fabric will build the reel."
-      : "Drop an IKEA PDF — the reel plays as a local storyboard until FAL_KEY is set.",
+      ? "Drop an IKEA PDF — Seedance 2.5 will build the reel."
+      : "Drop an IKEA PDF. Set FAL_KEY for Seedance 2.5 films — the reel is a live MP4, not a table drawing.",
   );
 }
 

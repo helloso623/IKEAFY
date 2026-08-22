@@ -50,7 +50,7 @@
           <button type="button" id="omnibox-ask">Ask</button>
         </form>
         <div class="top-actions">
-          <button type="button" class="quiet watch-only" data-go-interface="upload">New build</button>
+          <button type="button" class="quiet watch-only" data-go-interface="upload">New manual</button>
           <label class="toggle bench-only hidden">
             <input type="checkbox" id="sim-toggle" />
             Simulate
@@ -67,7 +67,7 @@
           <p class="kicker">IKEAlive</p>
           <h1>Your manual has a next move.</h1>
           <p class="lede">
-            Upload the IKEA instructions PDF. We parse the plates, Veed builds a reel, and you watch one step at a time.
+            Upload the IKEA instructions PDF. We read the plates, Seedance 2.5 builds a reel, and you watch one step at a time.
           </p>
 
           <form id="upload-form" class="card upload-card">
@@ -78,23 +78,69 @@
               <em id="pdf-name" class="upload-file"></em>
             </label>
 
+            <p class="upload-or">or type the product name</p>
+            <div class="product-lookup">
+              <label class="picker-label" for="product-name">IKEA product name</label>
+              <div class="row product-lookup-row">
+                <input id="product-name" placeholder="BILLY bookcase, MALM dresser…" autocomplete="off" />
+                <button type="button" id="product-lookup">Find the PDF</button>
+              </div>
+              <p class="hint">Tavily finds the official instructions PDF, then we read the plates. The LACK sheet below stays the locked transcribed path.</p>
+            </div>
+
             <div id="custom-source" class="custom-parse">
-              <label class="picker-label" for="guide-in">Or paste the guide</label>
-              <textarea id="guide-in" rows="5" placeholder="1. Unpack the table top…"></textarea>
-              <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
+              <label class="picker-label" for="guide-notes">Notes / tools you have (optional)</label>
+              <input id="guide-notes" placeholder="Allen key in the drawer, screwdriver…" />
             </div>
 
             <div class="row upload-actions">
-              <button type="submit" id="parse-guide" class="primary">Build the reel</button>
+              <button type="submit" id="parse-guide" class="primary">Get the Reel</button>
               <button type="button" id="clear-custom-session" class="quiet">Clear</button>
             </div>
+            <p id="upload-progress" class="upload-progress" aria-live="polite"></p>
           </form>
 
           <ul class="upload-process">
-            <li><strong>Upload</strong> the IKEA instructions PDF, or paste a guide</li>
-            <li><strong>Reel</strong> — Veed Fabric turns each plate into a short film</li>
-            <li><strong>Watch</strong> the steps, one plate at a time</li>
-            <li><strong>Help</strong> is on the right: inventory, troubles, identify, small parts</li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <path d="M16 9v10M11 14l5 5 5-5M10 23h12" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span><strong>Upload</strong> the IKEA instructions PDF, or type the product name</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <rect x="7" y="10" width="14" height="12" rx="1.5" stroke="#111" stroke-width="1.7" />
+                  <path d="M21 13h4v8h-4M13 14v6l5-3-5-3z" stroke="#111" stroke-width="1.7" stroke-linejoin="round" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Reel</strong> — Seedance 2.5 on fal turns each plate into a short film</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <ellipse cx="16" cy="16" rx="9" ry="5.5" stroke="#111" stroke-width="1.7" />
+                  <circle cx="16" cy="16" r="2.4" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Watch</strong> the steps, one film at a time</span>
+            </li>
+            <li>
+              <span class="process-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" fill="#ffda1a" />
+                  <path d="M10 20.5c0-4 2.6-7.5 6-7.5s6 3.5 6 7.5" stroke="#111" stroke-width="1.7" stroke-linecap="round" />
+                  <circle cx="13.2" cy="14" r="1.4" fill="#111" />
+                  <circle cx="18.8" cy="14" r="1.4" fill="#111" />
+                </svg>
+              </span>
+              <span><strong>Help</strong> is on the right: inventory, troubles, identify, small parts, and chat</span>
+            </li>
           </ul>
 
           <details id="official-source" class="official-picker upload-official">
@@ -127,8 +173,9 @@
         <div id="cad-measure" class="cad-dims cad-measure" aria-live="polite"></div>
         <div id="film" class="film hidden">
           <div class="film-stage">
-            <canvas id="film-frame"></canvas>
+            <canvas id="film-frame" class="hidden"></canvas>
             <video id="film-video" class="hidden" playsinline></video>
+            <p id="film-status" class="film-status">Upload a PDF to build the Seedance reel.</p>
           </div>
           <p id="film-caption"></p>
           <div class="row wrap film-actions" role="group" aria-label="Watch transport">
@@ -147,8 +194,14 @@
       </main>
 
       <!-- ============ WATCH — four Finley-style cards ============ -->
-      <aside class="rail cards" data-pane="ikeafy" aria-label="IKEAlive watch">
+      <aside class="rail cards" data-pane="ikeafy" data-watch-card="bom" aria-label="IKEAlive watch">
         <section class="studio-side" aria-label="Assembly inventory, troubles, part ID and small parts">
+          <nav class="watch-picks" aria-label="Watch cards">
+            <button type="button" class="watch-pick on" data-watch-card="bom">Assembly inventory</button>
+            <button type="button" class="watch-pick" data-watch-card="reviews">Where people had troubles</button>
+            <button type="button" class="watch-pick" data-watch-card="broken">Part identification desk</button>
+            <button type="button" class="watch-pick" data-watch-card="spare">Small parts service</button>
+          </nav>
           <div class="panel watch bom">
             <h2>Assembly inventory</h2>
             <p class="hint">Kit in the box, then anything extra to pick up.</p>
@@ -202,15 +255,18 @@
             <div id="spare-out" class="copy spare-response" aria-live="polite"></div>
           </div>
 
-          <details class="studio-chat">
-            <summary>Ask us anything</summary>
+          <div class="panel watch chat">
+            <h2>Ask us anything</h2>
+            <p class="hint">Questions about this step, a tool, or a part.</p>
             <div id="ikea-agent-bar" class="agent-bar"></div>
             <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
             <form id="ikea-chat-form">
               <input id="ikea-chat-in" autocomplete="off" aria-label="Message us" placeholder="Ask about a step, tool or part…" />
+              <button type="button" id="ikea-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
               <button type="submit" class="primary">Send</button>
             </form>
-          </details>
+            <p id="ikea-voice-status" class="voice-status hint" aria-live="polite"></p>
+          </div>
         </section>
       </aside>
 
@@ -459,8 +515,10 @@
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form">
             <input id="chat-in" autocomplete="off" placeholder="Add a LACK table, put four legs, generate a lamp…" />
+            <button type="button" id="lab-voice" class="quiet" aria-pressed="false" title="Speak">Mic</button>
             <button type="submit" class="primary">Send</button>
           </form>
+          <p id="lab-voice-status" class="voice-status hint" aria-live="polite"></p>
         </div>
       </aside>
     </div>
@@ -479,12 +537,27 @@
           window.dispatchEvent(new Event("resize"));
         }
 
+        function setWatchCard(name) {
+          const allowed = new Set(["bom", "reviews", "broken", "spare"]);
+          const next = allowed.has(name) ? name : "bom";
+          const rail = document.querySelector(".rail.cards");
+          if (rail) rail.setAttribute("data-watch-card", next);
+          for (const btn of document.querySelectorAll(".watch-pick")) {
+            const on = btn.getAttribute("data-watch-card") === next;
+            btn.classList.toggle("on", on);
+            btn.setAttribute("aria-pressed", String(on));
+          }
+        }
+
         document.addEventListener("click", (ev) => {
           const go = ev.target.closest("[data-go-interface]");
           if (go) setInterface(go.getAttribute("data-go-interface"));
+          const pick = ev.target.closest(".watch-pick");
+          if (pick) setWatchCard(pick.getAttribute("data-watch-card"));
         });
 
         window.setIkealiveInterface = setInterface;
+        window.setIkealiveWatchCard = setWatchCard;
       })();
     </script>
     <script type="module" src="/src/main.js"></script>

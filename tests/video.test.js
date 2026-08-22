@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseGuide, storyboardForStep } from "../server/lib/ikeafy.js";
+import { parseGuide } from "../server/lib/ikeafy.js";
 import { hasFal, hasVeed, promptForStep, renderStepVideo } from "../server/lib/video.js";
 
 const RAW = `LACK side table
@@ -24,7 +24,7 @@ test("hasFal is false without a FAL key", () => {
   }
 });
 
-test("renders an offline birch-workshop storyboard without a FAL key", async () => {
+test("renders no Seedance film without a FAL key", async () => {
   const previous = process.env.FAL_KEY;
   delete process.env.FAL_KEY;
 
@@ -32,13 +32,13 @@ test("renders an offline birch-workshop storyboard without a FAL key", async () 
     const guide = parseGuide(RAW);
     const result = await renderStepVideo({ guide, stepNumber: 1 });
 
-    assert.equal(result.provider, "local-storyboard");
+    assert.equal(result.ok, false);
+    assert.equal(result.live, false);
+    assert.equal(result.provider, "none");
     assert.equal(result.partner, "Seedance");
     assert.equal(result.model, "bytedance/seedance-2.5/text-to-video");
     assert.equal(result.videoUrl, null);
-    assert.equal(result.continuous, true);
-    assert.equal(result.theme.setting, "birch workshop");
-    assert.deepEqual(result.frames, storyboardForStep(guide, 1));
+    assert.match(result.reason, /FAL_KEY/);
     assert.match(result.prompt, /Place the table top face down on a rug/);
   } finally {
     restoreEnv("FAL_KEY", previous);
@@ -79,6 +79,8 @@ test("Seedance queue uses the step prompt and returns the video url", async () =
       { fetchFn, sleep: async () => {} },
     );
 
+    assert.equal(result.ok, true);
+    assert.equal(result.live, true);
     assert.equal(result.provider, "seedance-2.5");
     assert.equal(result.partner, "Seedance");
     assert.equal(result.model, "bytedance/seedance-2.5/text-to-video");
@@ -94,6 +96,29 @@ test("Seedance queue uses the step prompt and returns the video url", async () =
     assert.equal(payload.prompt, result.prompt);
     assert.equal(payload.duration, "5");
     assert.equal("image_url" in payload, false);
+  } finally {
+    restoreEnv("FAL_KEY", previous);
+  }
+});
+
+test("Seedance errors do not fall back to a canvas storyboard reel", async () => {
+  const previous = process.env.FAL_KEY;
+  process.env.FAL_KEY = "fal-test";
+  const fetchFn = async () => ({
+    ok: false,
+    status: 401,
+    text: async () => "unauthorized",
+  });
+
+  try {
+    await assert.rejects(
+      () =>
+        renderStepVideo(
+          { guide: parseGuide(RAW), stepNumber: 1 },
+          { fetchFn, sleep: async () => {} },
+        ),
+      /fal submit 401/,
+    );
   } finally {
     restoreEnv("FAL_KEY", previous);
   }

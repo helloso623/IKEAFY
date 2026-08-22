@@ -9,6 +9,7 @@
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite --config client/vite.config.js --host 0.0.0.0 --port 5173",
+    "dev:electron": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:electron:open\"",
     "electron": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:electron:open\"",
     "electron:dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:electron:open\"",
     "electron:open": "ELECTRON_DEV=1 electron .",

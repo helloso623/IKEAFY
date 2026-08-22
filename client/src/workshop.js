@@ -89,6 +89,57 @@ function breadboardMap() {
   return tex;
 }
 
+/* --------------------------------------------------------------- Lab KiCad
+   The bench doubles as a small EDA while electronics are on it: every port is
+   a clickable gold pad, locked wires are routed tubes colored by net class,
+   loose wires draw as a dashed ratsnest, and each net carries a name sprite.
+   All of it hangs off the netlist the server derives in lib/cables.js. */
+
+const NET_CLASS_COLORS = { ground: 0x30343a, power: 0xc0392b, data: 0x2a6fb8 };
+const SIGNAL_PALETTE = [0x2f6f3a, 0x7a4fa0, 0xb8860b, 0x1f7a8c, 0xa0522d];
+
+function netColor(net) {
+  if (!net) return 0xb6402a;
+  if (NET_CLASS_COLORS[net.class]) return NET_CLASS_COLORS[net.class];
+  let hash = 0;
+  for (const ch of net.name || "") hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return SIGNAL_PALETTE[hash % SIGNAL_PALETTE.length];
+}
+
+function kindColor(kind) {
+  if (/usb/.test(kind || "")) return 0x9a9a9a;
+  if (kind === "jst-3") return 0xf4f4f4;
+  if (kind === "lead") return 0xc9c9c9;
+  if (kind === "barrel-5.5") return 0x2a2a2a;
+  return 0xd4af37; // 2.54 mm header gold
+}
+
+function textSprite(text, { fontPx = 46, pad = 20, fg = "#1a1a1a", bg = "rgba(250, 250, 248, 0.92)", heightM = 0.016 } = {}) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const font = `500 ${fontPx}px "IBM Plex Mono", monospace`;
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+  const h = fontPx + pad * 2;
+  canvas.width = w;
+  canvas.height = h;
+  ctx.font = font;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, h * 0.3);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, pad, h / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.scale.set(heightM * (w / h), heightM, 1);
+  sprite.renderOrder = 5;
+  sprite.userData.keepColor = true;
+  return sprite;
+}
+
 function inferShape(part) {
   if (part.shape) return part.shape;
   if (part.id === "lack-table" || part.kitParts?.length) return "table";
@@ -220,36 +271,80 @@ function makeBoard(part, mat) {
   const d = part.dimsMm.y * MM;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.BoxGeometry(w, h * 0.32, d), mat, 0, -h * 0.18, 0);
+  // PCB substrate
+  add(g, new THREE.BoxGeometry(w, h * 0.3, d), mat, 0, -h * 0.2, 0);
+  // MCU package with a pin-1 dot
   add(
     g,
-    new THREE.BoxGeometry(w * 0.3, h * 0.28, d * 0.34),
-    stdMat({ color: 0x1c1c1c, roughness: 0.4, metalness: 0.08 }),
-    0.02 * Math.sign(w),
-    h * 0.08,
+    new THREE.BoxGeometry(w * 0.26, h * 0.26, d * 0.36),
+    stdMat({ color: 0x141414, roughness: 0.38, metalness: 0.1 }),
+    w * 0.07,
+    h * 0.04,
     0,
     true,
   );
   add(
     g,
-    new THREE.BoxGeometry(w * 0.14, h * 0.38, d * 0.32),
-    stdMat({ color: 0x9a9a9a, roughness: 0.28, metalness: 0.65 }),
-    -w * 0.42,
-    0,
+    new THREE.CylinderGeometry(w * 0.012, w * 0.012, h * 0.06, 8),
+    stdMat({ color: 0xdddddd, roughness: 0.4 }),
+    w * 0.07 - w * 0.09,
+    h * 0.19,
+    -d * 0.12,
+    true,
+  );
+  // USB shield
+  add(
+    g,
+    new THREE.BoxGeometry(w * 0.16, h * 0.36, d * 0.38),
+    stdMat({ color: 0x9a9a9a, roughness: 0.24, metalness: 0.7 }),
+    -w * 0.43,
+    h * 0.04,
     0,
     true,
   );
-  const pinMat = stdMat({ color: 0xc5c5c5, roughness: 0.25, metalness: 0.7 });
-  const pinH = h * 0.55;
-  const rows = [
-    [d * 0.38, 7],
-    [-d * 0.38, 7],
-  ];
-  for (const [pz, count] of rows) {
-    for (let i = 0; i < count; i += 1) {
-      const px = -w * 0.28 + (i * w * 0.56) / Math.max(count - 1, 1);
-      add(g, new THREE.BoxGeometry(0.0009, pinH, 0.0009), pinMat, px, h * 0.12, pz, true);
+  // Crystal can
+  const crystal = add(
+    g,
+    new THREE.CylinderGeometry(d * 0.08, d * 0.08, w * 0.1, 10),
+    stdMat({ color: 0xc7c7c7, roughness: 0.25, metalness: 0.8 }),
+    -w * 0.16,
+    h * 0.06,
+    d * 0.2,
+    true,
+  );
+  crystal.rotation.z = Math.PI / 2;
+  // Power LED
+  const pwr = add(
+    g,
+    new THREE.BoxGeometry(w * 0.03, h * 0.1, w * 0.03),
+    stdMat({ color: 0x77cc77, roughness: 0.3, emissive: new THREE.Color(0x2a5a2a), emissiveIntensity: 0.7 }),
+    w * 0.3,
+    h * 0.05,
+    -d * 0.22,
+    true,
+  );
+  pwr.userData.keepColor = true;
+  // Header strips: black plastic with gold pins along both long edges
+  const plastic = stdMat({ color: 0x1c1c1c, roughness: 0.55 });
+  const pin = stdMat({ color: 0xd4af37, roughness: 0.25, metalness: 0.85 });
+  for (const side of [1, -1]) {
+    add(g, new THREE.BoxGeometry(w * 0.82, h * 0.24, d * 0.13), plastic.clone(), 0, h * 0.02, side * d * 0.4, true);
+    for (let i = 0; i < 12; i += 1) {
+      const px = -w * 0.38 + (i * w * 0.76) / 11;
+      add(g, new THREE.CylinderGeometry(0.0004, 0.0004, h * 0.62, 6), pin, px, h * 0.3, side * d * 0.4, true);
     }
+  }
+  // ICSP 2×3 at the far end
+  for (let i = 0; i < 6; i += 1) {
+    add(
+      g,
+      new THREE.CylinderGeometry(0.0004, 0.0004, h * 0.5, 6),
+      pin,
+      w * 0.38 + (i % 3) * 0.0022 - 0.0022,
+      h * 0.24,
+      (i < 3 ? -1 : 1) * 0.0011,
+      true,
+    );
   }
   return g;
 }
@@ -270,8 +365,11 @@ function makeLed(part, mat) {
   const dome = add(g, new THREE.SphereGeometry(r, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass, 0, r * 0.15, 0);
   dome.userData.ledGlow = true;
   add(g, new THREE.CylinderGeometry(r * 0.72, r * 0.88, r * 0.45, 14), mat, 0, -r * 0.15, 0);
+  // Flange with the flat cathode side, like the real package
+  add(g, new THREE.CylinderGeometry(r * 1.08, r * 1.08, r * 0.14, 14), mat.clone(), 0, -r * 0.34, 0);
   const lead = stdMat({ color: 0xb0b0b0, roughness: 0.3, metalness: 0.75 });
-  add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 1.1, 6), lead, r * 0.22, -r * 0.85, 0, true);
+  // Anode lead is the long one
+  add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 1.3, 6), lead, r * 0.22, -r * 0.95, 0, true);
   add(g, new THREE.CylinderGeometry(0.00035, 0.00035, r * 0.85, 6), lead, -r * 0.22, -r * 0.75, 0, true);
   return g;
 }
@@ -301,16 +399,36 @@ function makeButton(part, mat) {
   const w = part.dimsMm.x * MM;
   const h = part.dimsMm.z * MM;
   const g = new THREE.Group();
-  add(g, new THREE.BoxGeometry(w, h * 0.45, w), mat, 0, -h * 0.15, 0);
+  add(g, new THREE.BoxGeometry(w, h * 0.5, w), mat, 0, -h * 0.12, 0);
+  // Stainless top plate and the round plunger
   add(
     g,
-    new THREE.CylinderGeometry(w * 0.28, w * 0.3, h * 0.4, 16),
-    stdMat({ color: 0x3a3a3a, roughness: 0.45 }),
+    new THREE.BoxGeometry(w * 0.92, h * 0.1, w * 0.92),
+    stdMat({ color: 0xc9c9c9, roughness: 0.3, metalness: 0.7 }),
     0,
-    h * 0.18,
+    h * 0.16,
     0,
     true,
   );
+  add(
+    g,
+    new THREE.CylinderGeometry(w * 0.26, w * 0.28, h * 0.38, 14),
+    stdMat({ color: 0x3a3a3a, roughness: 0.45 }),
+    0,
+    h * 0.32,
+    0,
+    true,
+  );
+  // Four gull-wing legs
+  const leg = stdMat({ color: 0xb8b8b8, roughness: 0.3, metalness: 0.75 });
+  for (const [sx, sz] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ]) {
+    add(g, new THREE.CylinderGeometry(w * 0.045, w * 0.045, h * 0.5, 6), leg, sx * w * 0.44, -h * 0.42, sz * w * 0.3, true);
+  }
   return g;
 }
 
@@ -326,8 +444,16 @@ function makeBreadboard(part, mat) {
     metalness: 0.02,
   });
   add(g, new THREE.BoxGeometry(w, h * 0.7, d), board);
+  // Centre channel where DIP packages straddle
+  add(g, new THREE.BoxGeometry(w, h * 0.08, d * 0.07), stdMat({ color: 0xd8d8d2, roughness: 0.85 }), 0, h * 0.36, 0, true);
+  // Power rails with their painted stripes
   add(g, new THREE.BoxGeometry(w, h * 0.12, 0.002), stdMat({ color: 0xb6402a }), 0, h * 0.42, d * 0.42, true);
   add(g, new THREE.BoxGeometry(w, h * 0.12, 0.002), stdMat({ color: 0x2a4f8a }), 0, h * 0.42, -d * 0.42, true);
+  // Steel clips peeking out of the end rows
+  const clip = stdMat({ color: 0xb0b0b0, roughness: 0.3, metalness: 0.7 });
+  for (const side of [1, -1]) {
+    add(g, new THREE.BoxGeometry(0.0016, h * 0.2, d * 0.6), clip, side * w * 0.47, h * 0.28, 0, true);
+  }
   return g;
 }
 
@@ -335,22 +461,34 @@ function makeResistor(part, mat) {
   const w = part.dimsMm.x * MM;
   const r = Math.max(part.dimsMm.y, part.dimsMm.z) * MM * 0.55;
   const g = new THREE.Group();
-  add(g, new THREE.CylinderGeometry(r, r, w * 0.7, 10), mat);
-  g.children[0].rotation.z = Math.PI / 2;
+  // Capsule body: cylinder with rounded ends
+  add(g, new THREE.CylinderGeometry(r, r, w * 0.66, 12), mat).rotation.z = Math.PI / 2;
+  for (const side of [1, -1]) {
+    add(g, new THREE.SphereGeometry(r, 10, 8), mat.clone(), side * w * 0.33, 0, 0);
+  }
   const lead = stdMat({ color: 0xb8b8b8, roughness: 0.28, metalness: 0.7 });
-  add(g, new THREE.CylinderGeometry(r * 0.22, r * 0.22, w * 0.95, 6), lead).rotation.z = Math.PI / 2;
-  const bands = [0x2a2a2a, 0xc45c26, 0xc4a024];
-  bands.forEach((hex, i) => {
+  add(g, new THREE.CylinderGeometry(r * 0.18, r * 0.18, w * 1.3, 6), lead, 0, 0, 0, true).rotation.z = Math.PI / 2;
+  for (const side of [1, -1]) {
+    add(g, new THREE.CylinderGeometry(r * 0.18, r * 0.18, r * 2.2, 6), lead, side * w * 0.65, -r * 0.9, 0, true);
+  }
+  // 220 Ω color code: red, red, brown, gold tolerance
+  const bands = [
+    [0xc0392b, -w * 0.2],
+    [0xc0392b, -w * 0.09],
+    [0x6b3a2a, w * 0.02],
+    [0xd4af37, w * 0.2],
+  ];
+  for (const [hex, x] of bands) {
     add(
       g,
-      new THREE.CylinderGeometry(r * 1.04, r * 1.04, w * 0.06, 10),
-      stdMat({ color: hex, roughness: 0.5 }),
-      -w * 0.16 + i * 0.004,
+      new THREE.CylinderGeometry(r * 1.06, r * 1.06, w * 0.05, 12),
+      stdMat({ color: hex, roughness: 0.45 }),
+      x,
       0,
       0,
       true,
     ).rotation.z = Math.PI / 2;
-  });
+  }
   return g;
 }
 
@@ -673,6 +811,150 @@ export function createWorkshop(canvas) {
   let ledBlinkOn = false;
   let onSelect = () => {};
   let onPoseCommit = () => {};
+  let onPortClick = () => {};
+
+  // ---- KiCad bench state ---------------------------------------------------
+  let edaOn = false;
+  let pendingPortKey = null;
+  let highlight = { net: null, members: [] };
+  const portMarkers = new Map(); // "pieceId::portId" -> pad mesh
+  const cableObjects = []; // { obj, label, net, cableId, baseOpacity }
+
+  function addEdaDecor(root, piece, part) {
+    if (!(part.category === "electronics" || part.category === "cable")) return;
+    const maxDim = Math.max(part.dimsMm.x, part.dimsMm.y, part.dimsMm.z) * MM;
+    const padR = THREE.MathUtils.clamp(maxDim * 0.03, 0.0012, 0.0024);
+    for (const port of part.ports || []) {
+      const marker = new THREE.Mesh(
+        new THREE.CylinderGeometry(padR, padR, padR * 1.2, 10),
+        stdMat({ color: kindColor(port.kind), roughness: 0.3, metalness: 0.75 }),
+      );
+      marker.position.set(port.xyz[0] * MM, port.xyz[2] * MM, port.xyz[1] * MM);
+      marker.userData = {
+        keepColor: true,
+        portRef: { pieceId: piece.id, portId: port.id, kind: port.kind },
+      };
+      marker.visible = edaOn;
+      root.add(marker);
+      portMarkers.set(`${piece.id}::${port.id}`, marker);
+    }
+    const tag = [piece.ref, piece.functionLabel].filter(Boolean).join(" · ");
+    if (tag) {
+      const sprite = textSprite(tag);
+      sprite.position.set(0, part.dimsMm.z * MM * 0.5 + 0.016, 0);
+      sprite.visible = edaOn;
+      sprite.userData.edaTag = true;
+      root.add(sprite);
+    }
+  }
+
+  function portWorld(mesh, portId) {
+    const part = mesh?.userData?.part;
+    const port = (part?.ports || []).find((p) => p.id === portId);
+    if (!port) return null;
+    mesh.updateWorldMatrix(true, false);
+    return mesh.localToWorld(new THREE.Vector3(port.xyz[0] * MM, port.xyz[2] * MM, port.xyz[1] * MM));
+  }
+
+  function worldCenter(mesh) {
+    const v = new THREE.Vector3();
+    mesh.getWorldPosition(v);
+    return v;
+  }
+
+  function liveMaterial(obj) {
+    return obj.userData?.baseMaterial || obj.material;
+  }
+
+  function applyHighlightGlow() {
+    const active = highlight.net;
+    for (const row of cableObjects) {
+      const on = !active || row.net === active;
+      const mat = liveMaterial(row.obj);
+      mat.transparent = true;
+      mat.opacity = on ? row.baseOpacity : 0.12;
+      if (mat.emissive !== undefined) {
+        mat.emissive = new THREE.Color(active && on ? 0xffda1a : 0x000000);
+        mat.emissiveIntensity = active && on ? 0.55 : 0;
+      }
+      if (row.label) row.label.material.opacity = on ? 1 : 0.12;
+    }
+    const members = new Set(highlight.members || []);
+    for (const [key, marker] of portMarkers) {
+      const mat = liveMaterial(marker);
+      if (!mat.emissive) continue;
+      const lit = members.has(key);
+      mat.emissive = new THREE.Color(lit ? 0xffda1a : 0x000000);
+      mat.emissiveIntensity = lit ? 0.9 : 0;
+      marker.scale.setScalar(lit ? 1.5 : 1);
+    }
+  }
+
+  function applyPendingGlow() {
+    if (!pendingPortKey) return;
+    const marker = portMarkers.get(pendingPortKey);
+    if (!marker) return;
+    const mat = liveMaterial(marker);
+    if (mat.emissive) {
+      mat.emissive = new THREE.Color(0xffda1a);
+      mat.emissiveIntensity = 1.4;
+    }
+    marker.scale.setScalar(1.7);
+  }
+
+  function setEda(on) {
+    edaOn = Boolean(on);
+    for (const marker of portMarkers.values()) marker.visible = edaOn;
+    group.traverse((child) => {
+      if (child.userData?.edaTag) child.visible = edaOn;
+    });
+    cableGroup.traverse((child) => {
+      if (child.isSprite) child.visible = edaOn;
+    });
+  }
+
+  function highlightNet(name, members = []) {
+    highlight = { net: name || null, members: name ? members : [] };
+    applyHighlightGlow();
+    applyPendingGlow();
+  }
+
+  function setPendingPort(key) {
+    pendingPortKey = key || null;
+    applyHighlightGlow();
+    applyPendingGlow();
+  }
+
+  function drawBoardSubstrates(project) {
+    for (const abs of project.abstractions || []) {
+      if (abs.kind !== "board") continue;
+      let min = null;
+      let max = null;
+      for (const id of abs.pieceIds || []) {
+        const mesh = meshes.get(id);
+        const part = mesh?.userData?.part;
+        if (!mesh || !part) continue;
+        const pos = worldCenter(mesh);
+        const half = new THREE.Vector3(part.dimsMm.x, part.dimsMm.z, part.dimsMm.y).multiplyScalar(MM / 2);
+        const lo = pos.clone().sub(half);
+        const hi = pos.clone().add(half);
+        min = min ? min.min(lo) : lo;
+        max = max ? max.max(hi) : hi;
+      }
+      if (!min || !max) continue;
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(max.x - min.x + 0.024, 0.0035, max.z - min.z + 0.024),
+        stdMat({ color: 0x1e6b3f, roughness: 0.48, metalness: 0.08, transparent: true, opacity: 0.92 }),
+      );
+      slab.position.set((min.x + max.x) / 2, min.y - 0.001, (min.z + max.z) / 2);
+      slab.receiveShadow = true;
+      cableGroup.add(slab);
+      const tag = textSprite(abs.label || "board", { heightM: 0.014, bg: "rgba(30, 107, 63, 0.9)", fg: "#f2f2f2" });
+      tag.position.set((min.x + max.x) / 2, min.y + 0.012, max.z + 0.02);
+      tag.visible = edaOn;
+      cableGroup.add(tag);
+    }
+  }
 
   function applySnap() {
     if (snapOn) {
@@ -1462,6 +1744,7 @@ export function createWorkshop(canvas) {
     const root = lab ? makeLabSolid(lab, part, piece) : bodyFor(inferShape(part), part, materialFor(part, piece));
     shadow(root);
     root.userData = { piece, part, ports: part.ports || [] };
+    if (!lab) addEdaDecor(root, piece, part);
     return root;
   }
 
@@ -1555,6 +1838,8 @@ export function createWorkshop(canvas) {
     transform.detach();
     group.clear();
     meshes.clear();
+    portMarkers.clear();
+    cableObjects.length = 0;
     selected = null;
     markSelected(null);
     for (const piece of project.pieces) {
@@ -1572,29 +1857,50 @@ export function createWorkshop(canvas) {
       meshes.set(record.piece.id, mesh);
     }
     cableGroup.clear();
+    const cableNets = project.netlist?.cableNets || {};
+    const netByName = new Map((project.netlist?.nets || []).map((n) => [n.name, n]));
     for (const cable of project.cables) {
       const a = meshes.get(cable.fromPiece);
       const b = meshes.get(cable.toPiece);
       if (!a || !b) continue;
-      const aPos = new THREE.Vector3();
-      const bPos = new THREE.Vector3();
-      a.getWorldPosition(aPos);
-      b.getWorldPosition(bPos);
-      const curve = new THREE.CatmullRomCurve3([
-        aPos.clone(),
-        aPos.clone().lerp(bPos, 0.5).add(new THREE.Vector3(0, 0.06, 0)),
-        bPos.clone(),
-      ]);
-      const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 16, 0.002, 6, false),
-        new THREE.MeshStandardMaterial({
-          color: cable.locked ? 0x2f6f3a : 0xb6402a,
-          roughness: 0.45,
-          metalness: 0.05,
-        }),
-      );
-      cableGroup.add(tube);
+      const aPos = portWorld(a, cable.fromPort) || worldCenter(a);
+      const bPos = portWorld(b, cable.toPort) || worldCenter(b);
+      const netName = cableNets[cable.id] || cable.net || null;
+      const color = netColor(netName ? netByName.get(netName) : null);
+      const mid = aPos.clone().lerp(bPos, 0.5).add(new THREE.Vector3(0, cable.locked ? 0.045 : 0.02, 0));
+      let obj;
+      let baseOpacity;
+      if (cable.locked) {
+        // Routed wire: a tube colored by net class.
+        const curve = new THREE.CatmullRomCurve3([aPos.clone(), mid, bPos.clone()]);
+        obj = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, 20, 0.0016, 6, false),
+          new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05, transparent: true }),
+        );
+        baseOpacity = 1;
+      } else {
+        // Unlocked connection: dashed air-line — the ratsnest.
+        const geo = new THREE.BufferGeometry().setFromPoints([aPos.clone(), mid, bPos.clone()]);
+        obj = new THREE.Line(
+          geo,
+          new THREE.LineDashedMaterial({ color, dashSize: 0.011, gapSize: 0.007, transparent: true }),
+        );
+        obj.computeLineDistances();
+        baseOpacity = 0.85;
+      }
+      obj.material.opacity = baseOpacity;
+      obj.userData.cableId = cable.id;
+      cableGroup.add(obj);
+      let label = null;
+      if (netName) {
+        label = textSprite(netName, { heightM: 0.013 });
+        label.position.copy(mid).add(new THREE.Vector3(0, 0.011, 0));
+        label.visible = edaOn;
+        cableGroup.add(label);
+      }
+      cableObjects.push({ obj, label, net: netName, cableId: cable.id, baseOpacity });
     }
+    drawBoardSubstrates(project);
     for (const tape of project.tapes || []) {
       const first = meshes.get(tape.pieceIds?.[0]);
       if (!first) continue;
@@ -1608,6 +1914,8 @@ export function createWorkshop(canvas) {
       group.add(strip);
     }
     applyShading();
+    applyHighlightGlow();
+    applyPendingGlow();
     if (keepId && meshes.has(keepId)) attach(meshes.get(keepId), true);
   }
 
@@ -1617,9 +1925,17 @@ export function createWorkshop(canvas) {
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
-    const hits = ray.intersectObjects(group.children, true);
+    const hits = ray
+      .intersectObjects(group.children, true)
+      .filter((h) => !h.object.isSprite && h.object.visible !== false);
     if (!hits.length) {
       attach(null);
+      return;
+    }
+    // Gold pads outrank the piece under them: a click wires, not drags.
+    const portRef = edaOn ? hits[0].object.userData?.portRef : null;
+    if (portRef) {
+      onPortClick({ ...portRef });
       return;
     }
     const mesh = hitsWalk(hits[0].object);
@@ -1882,6 +2198,12 @@ export function createWorkshop(canvas) {
     select: (id) => selectById(id),
     clearSelect: () => attach(null),
     applyPose,
+    setEda,
+    highlightNet,
+    setPendingPort,
+    onPortClick: (fn) => {
+      onPortClick = fn;
+    },
     onSelect: (fn) => {
       onSelect = fn;
     },
