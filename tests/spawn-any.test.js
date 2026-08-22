@@ -30,6 +30,9 @@ test("arbitrary object requests produce editable mesh actions, never catalog pro
     ["spawn a 720 mm tall brass lamp", "lamp"],
     ["create a blue sofa", "sofa"],
     ["model a moon rover", "object"],
+    ["place a moon rover", "object"],
+    ["I want a dragon", "object"],
+    ["render a video camera", "object"],
   ];
 
   for (const [message, kind] of cases) {

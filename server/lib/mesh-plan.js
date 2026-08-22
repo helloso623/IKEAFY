@@ -1,8 +1,14 @@
-const GENERATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn)\b/i;
-const PLACE_VERB = /\b(add|place|put|drop)\b/i;
-const CREATE_VERB = /\b(make|model|build|create|design|generate|invent|sculpt|spawn|add|place|put|drop)\b/i;
-const NON_MODEL_ASK = /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|video|room|interior)\b/i;
+const GENERATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate)\b/i;
+const PLACE_VERB = /\b(add|place|put|drop|insert)\b/i;
+const CREATE_VERB =
+  /\b(make|model|build|create|design|generate|invent|sculpt|spawn|draw|render|craft|produce|construct|fabricate|add|place|put|drop|insert)\b/i;
+const REQUEST_OBJECT = /\b(?:want|need|would\s+like)\b[\s\S]*\b(?:a|an|the|some)\b/i;
+const NON_MODEL_ASK =
+  /\b(find|search|buy|shop|catalog|manual|guide|assemble|assembly|reel|room|interior)\b|(?:\b(?:watch|play|upload|record)\b[\s\S]*\bvideo\b)/i;
 const BRANDED_CATALOG_ASK = /\b(ikea|lack|linnmon|linmon|kallax|billy|malm)\b/i;
+const CATALOG_DROP_NOUN =
+  /\b(zip[\s-]*ties?|tape|screws?|bolts?|fasteners?|brackets?|hardware|tools?|wires?|cables?|batter(?:y|ies)|parts?|components?)\b/i;
 const MODEL_NOUN =
   /\b(table|chair|seat|stool|bench|sofa|couch|bed|cabinet|bookcase|bookshelf|dresser|wardrobe|shelf|desk|lamp|vase|bottle|urn|furniture)\b/i;
 const SPAWN_FOLLOW_UP =
@@ -139,7 +145,8 @@ export function sanitizeMeshAction(raw = {}) {
 export function isMeshBuildAsk(message) {
   const source = String(message || "").trim();
   const directNoun = MODEL_NOUN.test(source) && source.split(/\s+/).length <= 8;
-  const createsMesh = GENERATE_VERB.test(source) || (PLACE_VERB.test(source) && MODEL_NOUN.test(source));
+  const placesObject = PLACE_VERB.test(source) && !CATALOG_DROP_NOUN.test(source);
+  const createsMesh = GENERATE_VERB.test(source) || REQUEST_OBJECT.test(source) || placesObject;
   if (!createsMesh && !directNoun) return false;
   if (NON_MODEL_ASK.test(source)) return false;
   if (BRANDED_CATALOG_ASK.test(source) && !GENERATE_VERB.test(source)) return false;

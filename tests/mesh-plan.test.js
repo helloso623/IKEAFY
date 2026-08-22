@@ -13,6 +13,9 @@ import {
 test("described builds route to meshes while explicit catalog drops stay catalog actions", () => {
   assert.equal(isMeshBuildAsk("build a round walnut table"), true);
   assert.equal(isMeshBuildAsk("generate a sculptural lamp"), true);
+  assert.equal(isMeshBuildAsk("place a moon rover"), true);
+  assert.equal(isMeshBuildAsk("I want a dragon"), true);
+  assert.equal(isMeshBuildAsk("render a video camera"), true);
   assert.equal(isMeshBuildAsk("add a lack table"), false);
   assert.equal(isMeshBuildAsk("add zip ties"), false);
   assert.equal(isMeshBuildAsk("find a cheap table"), false);
