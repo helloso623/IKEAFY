@@ -49,6 +49,7 @@ import {
 import { requestSpare } from "./lib/spares.js";
 import { FAL_REQUIRED, hasFal, renderStepVideo } from "./lib/video.js";
 import { hasTavily, findIkeaManual } from "./lib/tavily.js";
+import { ikealiveLog, ikealiveWarn } from "./lib/log.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { isPieceFunction, normalizeFunction, PIECE_FUNCTIONS, simulateBehavior } from "./lib/functions.js";
@@ -235,7 +236,7 @@ app.post("/api/ikeafy/parse", async (req, res) => {
   const hasPlates = images.some((image) =>
     String(image?.dataUrl || image?.url || "").startsWith("data:image"),
   );
-  console.log("[ikealive:parse]", "POST /api/ikeafy/parse", {
+  ikealiveLog("parse", "POST /api/ikeafy/parse", {
     plates: images.length,
     hasGuideText: Boolean(req.body?.guide),
     hasPdfBase64: Boolean(req.body?.pdfBase64),
@@ -274,7 +275,7 @@ app.get("/api/ikeafy/official/products", (req, res) => {
 
 app.post("/api/ikeafy/manual", async (req, res) => {
   const productName = req.body?.productName || req.body?.q || "";
-  console.log("[ikealive:tavily]", "POST /api/ikeafy/manual", { productName: String(productName).slice(0, 80) });
+  ikealiveLog("tavily", "POST /api/ikeafy/manual", { productName: String(productName).slice(0, 80) });
   try {
     const found = await findIkeaManual(productName);
     res.json({
@@ -282,7 +283,7 @@ app.post("/api/ikeafy/manual", async (req, res) => {
       pdfBase64: found.pdfBase64 || null,
     });
   } catch (err) {
-    console.warn("[ikealive:tavily]", "manual lookup error", err?.message || err);
+    ikealiveWarn("tavily", "manual lookup error", err?.message || err);
     res.status(502).json({ ok: false, reason: String(err.message || err) });
   }
 });
@@ -312,7 +313,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
   const stored = body.runId ? getAssembly(body.runId) : null;
   const guide = guideForVideo(body);
   const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
-  console.log("[ikealive:video]", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
+  ikealiveLog("video", "POST /api/ikeafy/video/render", { stepNumber, runId: body.runId || null, keyed: hasFal() });
   try {
     const result = await renderStepVideo({
       guide,
@@ -340,7 +341,7 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
       prompt: result.prompt,
     });
   } catch (err) {
-    console.warn("[ikealive:video]", "render error", { stepNumber, error: String(err.message || err) });
+    ikealiveWarn("video", "render error", { stepNumber, error: String(err.message || err) });
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
   }
 });
@@ -348,9 +349,9 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
 app.post("/api/ikeafy/video/reel", async (req, res) => {
   const body = req.body || {};
   const guide = guideForVideo(body);
-  console.log("[ikealive:video]", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
+  ikealiveLog("video", "POST /api/ikeafy/video/reel", { steps: guide?.steps?.length || 0, keyed: hasFal() });
   if (!hasFal()) {
-    console.warn("[ikealive:video]", "missing FAL_KEY — reel skipped");
+    ikealiveWarn("video", "missing FAL_KEY — reel skipped");
     return res.status(503).json({
       ok: false,
       reel: true,
@@ -396,7 +397,7 @@ app.post("/api/ikeafy/video/reel", async (req, res) => {
       steps,
     });
   } catch (err) {
-    console.warn("[ikealive:video]", "reel error", { error: String(err.message || err), done: steps.length });
+    ikealiveWarn("video", "reel error", { error: String(err.message || err), done: steps.length });
     res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });
@@ -465,7 +466,7 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  */
 app.post("/api/assembly/start", async (req, res) => {
   const body = req.body || {};
-  console.log("[ikealive:parse]", "POST /api/assembly/start", {
+  ikealiveLog("assembly", "POST /api/assembly/start", {
     mode: body.mode || "official",
     article: body.article || null,
     plates: Array.isArray(body.images) ? body.images.length : 0,
@@ -474,6 +475,15 @@ app.post("/api/assembly/start", async (req, res) => {
   const result = await startAssemblyAsync(req.body || {});
   if (result.ok && getAssembly(result.run?.id)?.guide) {
     state.guide = getAssembly(result.run.id).guide;
+  }
+  if (result.ok) {
+    ikealiveLog("assembly", "run ready", {
+      runId: result.run?.id || null,
+      mode: result.run?.mode || body.mode || null,
+      steps: result.outline?.length || result.run?.total || 0,
+    });
+  } else {
+    ikealiveWarn("assembly", "start failed", { reason: result.reason || null });
   }
   res.status(result.ok ? 200 : 400).json(result);
 });
@@ -490,27 +500,51 @@ app.get("/api/assembly/:id/step/:number", (req, res) => {
 
 app.post("/api/assembly/:id/confirm", (req, res) => {
   const result = confirmStep(req.params.id, req.body || {});
+  ikealiveLog("assembly", "confirm", {
+    runId: req.params.id,
+    step: req.body?.step ?? null,
+    ok: result.ok,
+    cursor: result.run?.cursor ?? result.cursor ?? null,
+  });
   res.status(result.ok ? 200 : result.locked || result.needsConfirmation ? 409 : 404).json(result);
 });
 
 app.post("/api/assembly/:id/back", (req, res) => {
   const result = goBack(req.params.id, req.body?.step);
+  ikealiveLog("assembly", "back", {
+    runId: req.params.id,
+    step: req.body?.step ?? null,
+    ok: result.ok,
+    cursor: result.run?.cursor ?? null,
+  });
   res.status(result.ok ? 200 : 409).json(result);
 });
 
 app.post("/api/assembly/:id/skip", (req, res) => {
   const result = skipStep(req.params.id, req.body?.step);
+  ikealiveLog("assembly", "skip", {
+    runId: req.params.id,
+    step: req.body?.step ?? null,
+    ok: result.ok,
+    locked: Boolean(result.locked),
+  });
   // 423 Locked: the official sheet refuses, and says so.
   res.status(result.ok ? 200 : result.locked ? 423 : 404).json(result);
 });
 
 app.post("/api/assembly/:id/edit", (req, res) => {
   const result = editStep(req.params.id, req.body?.step, req.body || {});
+  ikealiveLog("assembly", "edit", { runId: req.params.id, step: req.body?.step ?? null, ok: result.ok });
   res.status(result.ok ? 200 : result.locked ? 423 : 404).json(result);
 });
 
 app.post("/api/assembly/:id/stuck", (req, res) => {
   const result = stuckOn(req.params.id, req.body?.note || "");
+  ikealiveLog("assembly", "stuck", {
+    runId: req.params.id,
+    ok: result.ok,
+    step: result.stillOnStep ?? null,
+  });
   res.status(result.ok ? 200 : 404).json(result);
 });
 
@@ -791,6 +825,7 @@ if (existsSync(dist)) {
 
 const port = Number(process.env.PORT || 8787);
 app.listen(port, "0.0.0.0", () => {
+  ikealiveLog("video", "ready", { port, keyed: hasFal() });
   console.log(`IKEAFY bench on :${port} — agents ${hasHostedBrain() ? "hosted+local" : "local steward"}`);
 });
 

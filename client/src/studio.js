@@ -188,10 +188,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
       return null;
     }
     announce(`Looking up “${name}” with Tavily…`);
-    console.log("[ikealive:tavily]", "lookup", { productName: name });
+    ikealiveLog("tavily", "lookup", { productName: name });
     const found = await api.lookupManual(name);
     if (!found?.ok || !found.pdfBase64) {
-      console.log("[ikealive:tavily]", "no pdf", {
+      ikealiveLog("tavily", "no pdf", {
         partner: found?.partner || null,
         catalog: (found?.catalog || []).map((row) => row.id),
         reason: found?.reason || null,
@@ -201,7 +201,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
     const file = fileFromPdfBase64(found.pdfBase64, found.filename);
     attachPdfFile(file);
-    console.log("[ikealive:tavily]", "pdf attached", {
+    ikealiveLog("tavily", "pdf attached", {
       filename: file.name,
       bytes: found.bytes || file.size,
       url: found.pdfUrl || null,
@@ -217,7 +217,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (!file) return null;
       return parseCustom();
     } catch (error) {
-      console.warn("[ikealive:tavily]", "lookup failed", error?.message || error);
+      ikealiveWarn("tavily", "lookup failed", error?.message || error);
       return fail(error);
     }
   }
@@ -436,14 +436,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("official");
       announce("Opening the official sheet…");
-      console.log("[ikealive:parse]", "official start", { article: el.product?.value || "304.499.08" });
+      ikealiveLog("assembly", "official start", { article: el.product?.value || "304.499.08" });
       const view = await api.runStart({ mode: "official", article: el.product?.value || undefined });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
       setInterface("watch");
       announce("Rendering Seedance 2.5…");
-      console.log("[ikealive:parse]", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      ikealiveLog("assembly", "official run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
       await bootReel();
       return view;
     } catch (error) {
@@ -465,21 +465,21 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
-        console.log("[ikealive:parse]", "rasterize", { name: file.name, type: file.type, bytes: file.size });
+        ikealiveLog("parse", "rasterize", { name: file.name, type: file.type, bytes: file.size });
         if (!isPdfFile(file)) {
           return fail(new Error("Drop a PDF — IKEA manuals are drawings, not plain text."));
         }
         try {
           const plates = await pagesFromPdf(file);
           images = plates.images || [];
-          console.log("[ikealive:parse]", "plates", {
+          ikealiveLog("parse", "plates", {
             name: file.name,
             pageCount: plates.pageCount,
             usedPages: plates.usedPages,
             imageCount: images.length,
           });
         } catch (error) {
-          console.warn("[ikealive:parse]", "rasterize failed", error?.message || error);
+          ikealiveWarn("parse", "rasterize failed", error?.message || error);
           return fail(new Error(error?.message || "Could not read that PDF as plates."));
         }
         if (!images.length) {
@@ -491,7 +491,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
         return null;
       }
       announce("Reading the plates with vision…");
-      console.log("[ikealive:parse]", "assembly start", { plates: images.length, notes: Boolean(el.notes?.value) });
+      ikealiveLog("assembly", "start", { plates: images.length, notes: Boolean(el.notes?.value) });
       const view = await api.runStart({
         mode: "custom",
         instructions: el.notes?.value || "",
@@ -503,7 +503,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       await renderReviews();
       setInterface("watch");
       announce("Rendering Seedance 2.5…");
-      console.log("[ikealive:parse]", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
+      ikealiveLog("assembly", "run ready", { runId: view.run?.id, steps: view.outline?.length || 0 });
       await bootReel();
       if (state.reel.some((clip) => clip.videoUrl)) {
         announce("Reel ready. Watch the first step.");
@@ -1277,7 +1277,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
   async function applyStudioActions(actions) {
     for (const action of actions || []) {
       if (action?.type !== "studio") continue;
-      console.log("[ikealive:voice]", "studio action", action.action);
+      ikealiveLog("voice", "studio action", action.action);
       if (action.action === "start") await parseCustom();
       else if (action.action === "official") await startOfficial();
       else if (action.action === "next") await nextStep();

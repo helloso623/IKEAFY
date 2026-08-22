@@ -35,3 +35,10 @@ test("Electron loads the client over localhost without nodeIntegration", () => {
   assert.match(main, /\/api\/health/);
   assert.doesNotMatch(main, /nodeIntegration:\s*true/);
 });
+
+test("Electron pipes BrowserWindow console-message events to process.stdout", () => {
+  assert.match(main, /console-message/);
+  assert.match(main, /process\.stdout\.write/);
+  assert.match(main, /attachRendererLogs/);
+  assert.match(main, /from "\.\/log\.js"/);
+});
