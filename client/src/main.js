@@ -564,31 +564,35 @@ $("delete-piece").addEventListener("click", () => {
 });
 
 function setMode(mode) {
+  if (mode !== "lab") mode = "ikeafy";
   const app = $("app");
+  const inLab = mode === "lab";
   app.dataset.mode = mode;
-  app.classList.remove("mode-bench", "mode-ikeafy", "mode-house");
+  app.classList.remove("mode-bench", "mode-ikeafy", "mode-house", "mode-lab");
   app.classList.add(`mode-${mode}`);
-  app.classList.toggle("lab-open", mode === "bench" || mode === "house");
+  app.classList.toggle("lab-open", inLab);
   for (const btn of document.querySelectorAll("#modes button")) {
     btn.classList.toggle("on", btn.dataset.mode === mode);
   }
   for (const rail of document.querySelectorAll(".rail")) {
     rail.classList.remove("hidden");
   }
+  const visiblePanes = inLab ? new Set(["bench", "house", "lab"]) : new Set(["ikeafy"]);
   for (const pane of document.querySelectorAll("[data-pane]")) {
-    pane.classList.toggle("hidden", pane.dataset.pane !== mode);
+    pane.classList.toggle("hidden", !visiblePanes.has(pane.dataset.pane));
   }
-  for (const node of document.querySelectorAll(".bench-only")) {
-    node.classList.toggle("hidden", mode !== "bench");
+  for (const node of document.querySelectorAll(".bench-only, .lab-only")) {
+    node.classList.toggle("hidden", !inLab);
   }
-  $("film").classList.toggle("hidden", mode !== "ikeafy");
-  house?.setActive(mode === "house");
-  if (mode === "bench") {
+  $("film").classList.toggle("hidden", inLab);
+  house?.setActive(inLab);
+  if (inLab) {
     applyChrome(project.chrome);
-    hud(project.pieces.length ? "Pick a piece, move it, or Delete it." : "Add a piece from the shelf.");
-  }
-  if (mode === "house") {
-    hud("Drop a room photo, set the size and budget, then put a table in.");
+    hud(
+      project.pieces.length
+        ? "Pick a piece on the bench, or fit it in the room."
+        : "Add a piece from the shelf, or fit a table in the room.",
+    );
   }
   shop.resize();
 }
@@ -597,10 +601,9 @@ for (const btn of document.querySelectorAll("#modes button")) {
   btn.addEventListener("click", () => setMode(btn.dataset.mode));
 }
 
-$("lab-link")?.addEventListener("click", (ev) => {
+$("back-ikealive")?.addEventListener("click", (ev) => {
   ev.preventDefault();
-  const mode = $("app")?.dataset.mode;
-  setMode(mode === "bench" || mode === "house" ? "ikeafy" : "bench");
+  setMode("ikeafy");
 });
 
 $("chat-form")?.addEventListener("submit", async (ev) => {
