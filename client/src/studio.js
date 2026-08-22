@@ -1,14 +1,10 @@
 /**
- * The IKEAFY studio: its own tab, one plate at a time.
- *
- * Two sources feed it. The official IKEA sheet is locked — the server decides
- * which step you are on, will not send a step you have not reached, and refuses
- * skips and edits out loud. A guide you paste yourself is the opposite: editable
- * inline, skippable, and stored so you can come back to it.
- *
- * Nothing here decides progress on its own. Every move is a server call, so
- * disabling a button is a courtesy rather than the lock itself.
+ * IKEAlive watch: a Veed reel of every step, driven by Back / Play-Stop / Next.
+ * Click a step in #steps or the scrub list to jump there. Upload (or Start)
+ * builds the reel; this UI plays it.
  */
+
+import { isPdfFile, pagesFromPdf } from "./pdf-guide.js";
 
 const CUSTOM_SESSION_KEY = "ikeafy.custom-session";
 
@@ -37,16 +33,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
     reviews: first("#reviews"),
     film: first("#film"),
     frame: first("#film-frame"),
+    video: first("#film-video"),
     caption: first("#film-caption"),
-    confirm: first("#step-confirm"),
-    confirmLabel: first("#step-confirm-label"),
+    play: first("#film-play"),
     next: first("#film-wait"),
     back: first("#film-back"),
-    stuck: first("#film-stuck"),
+    confirm: first("#step-confirm"),
+    confirmLabel: first("#step-confirm-label"),
     skip: first("#step-skip"),
+    stuck: first("#film-stuck"),
     colorize: first("#colorize"),
     render: first("#render-video"),
+    scrub: first("#film-scrub"),
     renderOut: first("#render-video-out"),
+    pdf: first("#pdf-upload"),
+    pdfName: first("#pdf-name"),
+    pdfDrop: first("#pdf-drop", ".upload-drop"),
+    uploadForm: first("#upload-form"),
     detail: first("#step-detail", "#inspect"),
     broken: first("#broken-btn"),
     brokenNote: first("#broken-note"),
@@ -69,12 +72,18 @@ export function initStudio({ api, hud = () => {} } = {}) {
     step: null,
     outline: [],
     guide: null,
+    reel: [],
+    clipIndex: 0,
     frames: [],
     frameIndex: 0,
     playing: 0,
+    playingOn: false,
+    playGen: 0,
+    reelToken: 0,
     timer: null,
     watched: false,
     broken: null,
+    submitting: false,
     destroyed: false,
   };
 
@@ -99,6 +108,15 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ---------------------------------------------------------------- source mode
 
+  function setInterface(name) {
+    const next = name === "watch" ? "watch" : "upload";
+    if (typeof window.setIkealiveInterface === "function") {
+      window.setIkealiveInterface(next);
+      return;
+    }
+    document.getElementById("app")?.setAttribute("data-interface", next);
+  }
+
   function setMode(mode) {
     state.mode = mode === "custom" ? "custom" : "official";
     const official = state.mode === "official";
@@ -106,9 +124,32 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.customMode?.classList.toggle("on", !official);
     el.officialMode?.setAttribute("aria-pressed", String(official));
     el.customMode?.setAttribute("aria-pressed", String(!official));
-    el.officialSource?.classList.toggle("hidden", !official);
-    el.customSource?.classList.toggle("hidden", official);
+    const uploading = document.getElementById("app")?.dataset.interface === "upload";
+    if (uploading) {
+      el.officialSource?.classList.remove("hidden");
+      el.customSource?.classList.remove("hidden");
+    } else {
+      el.officialSource?.classList.toggle("hidden", !official);
+      el.customSource?.classList.toggle("hidden", official);
+    }
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function showPdfName(file) {
+    if (el.pdfName) el.pdfName.textContent = file?.name || "";
   }
 
   async function fillProducts() {
@@ -148,24 +189,35 @@ export function initStudio({ api, hud = () => {} } = {}) {
       : `Your guide · step ${cursor} of ${total} · edit or skip as you like`;
   }
 
+  function currentStepNumber() {
+    return state.reel[state.clipIndex]?.number || state.run?.cursor || 1;
+  }
+
+  function clipCaption(clip) {
+    return clip?.frames?.[1]?.caption || clip?.frames?.[0]?.caption || "";
+  }
+
   function renderSteps() {
     if (!el.steps) return;
     el.steps.replaceChildren();
     const editable = state.run ? state.run.canEdit : false;
     el.steps.dataset.editable = String(editable);
+    el.steps.dataset.jump = String(Boolean(state.reel.length));
+    const active = currentStepNumber();
 
     for (const item of state.outline) {
       const row = document.createElement("div");
       row.className = "item";
       row.dataset.step = String(item.number);
-      row.classList.toggle("active", item.number === state.run?.cursor);
-      row.classList.toggle("locked", Boolean(item.locked));
+      row.classList.toggle("active", item.number === active);
+      row.classList.toggle("locked", Boolean(item.locked) && !state.reel.length);
       row.classList.toggle("done", item.state === "done");
 
+      const clip = state.reel.find((entry) => entry.number === item.number);
       const body = document.createElement("span");
       body.textContent = item.readable
         ? `${item.number}. ${item.action ? `${item.action} — ` : ""}${item.body || ""}`
-        : `${item.number}. ${item.preview || "Locked until you get there."}`;
+        : `${item.number}. ${clipCaption(clip) || item.preview || "In the reel."}`;
       if (editable && item.readable) {
         body.contentEditable = "true";
         body.setAttribute("role", "textbox");
@@ -174,7 +226,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
       row.append(body);
 
       const meta = document.createElement("small");
-      meta.textContent = item.confirmed ? "done" : item.locked ? "locked" : item.toolRequired || "hands";
+      meta.textContent = item.confirmed ? "done" : item.toolRequired || "jump";
       row.append(meta);
       el.steps.append(row);
     }
@@ -183,22 +235,59 @@ export function initStudio({ api, hud = () => {} } = {}) {
   function renderBom() {
     if (!el.bom) return;
     const bom = state.guide?.bom;
-    if (!bom) {
-      el.bom.textContent = "";
-      return;
+    el.bom.replaceChildren();
+    if (!bom) return;
+
+    if (bom.live) {
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = "Missing tools: live shop links from Tavily.";
+      el.bom.append(note);
     }
-    el.bom.textContent = [
-      "IN THE BOX",
-      ...(bom.included || []).map((line) => `• ${line.qty || 1}× ${line.name}`),
-      "",
-      "BUY SEPARATELY",
-      ...(bom.extra || []).map(
-        (line) => `• ${line.qty || 1}× ${line.name}${line.store ? ` — ${line.store}` : ""}`,
-      ),
-      bom.total == null ? "" : `Total list $${bom.total}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+
+    const group = (label, lines, withShops = false) => {
+      const wrap = document.createElement("div");
+      wrap.className = "bom-group";
+      const title = document.createElement("strong");
+      title.textContent = label;
+      wrap.append(title);
+      if (!lines.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "None listed.";
+        wrap.append(empty);
+        el.bom.append(wrap);
+        return;
+      }
+      for (const line of lines) {
+        const row = document.createElement("p");
+        const shops = withShops ? line.retailers || line.offers || [] : [];
+        row.textContent = `${line.qty || 1}× ${line.name}${line.why ? ` — ${line.why}` : ""}`;
+        wrap.append(row);
+        if (shops.length) {
+          const list = document.createElement("div");
+          list.className = "offers";
+          for (const offer of shops.slice(0, 4)) {
+            const link = document.createElement("a");
+            link.href = offer.url || "#";
+            link.target = "_blank";
+            link.rel = "noreferrer";
+            link.textContent = offer.store || "Shop";
+            list.append(link);
+          }
+          wrap.append(list);
+        }
+      }
+      el.bom.append(wrap);
+    };
+
+    group("Kit", bom.included || []);
+    group("You have this", bom.owned || []);
+    group("To purchase", bom.extra || [], true);
+    if (bom.total != null) {
+      const total = document.createElement("p");
+      total.textContent = `List total $${bom.total}`;
+      el.bom.append(total);
+    }
   }
 
   async function renderReviews() {
@@ -209,7 +298,11 @@ export function initStudio({ api, hud = () => {} } = {}) {
       for (const group of groups) {
         for (const review of group.reviews || []) {
           const line = document.createElement("div");
-          line.textContent = `Step ${group.step} · ${review.stars}★ · ${review.difficulty}\n${review.text}`;
+          const title = document.createElement("strong");
+          title.textContent = `Step ${group.step} · ${review.difficulty}`;
+          const body = document.createElement("p");
+          body.textContent = review.text;
+          line.append(title, body);
           el.reviews.append(line);
         }
       }
@@ -218,19 +311,31 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  function renderConfirm() {
-    const locked = Boolean(state.run?.locked);
-    if (el.confirm) {
-      el.confirm.checked = false;
-      el.confirm.disabled = !state.watched;
+  function renderTransport() {
+    const last = Math.max(0, state.reel.length - 1);
+    if (el.back) el.back.disabled = !state.reel.length || state.clipIndex <= 0;
+    if (el.next) el.next.disabled = !state.reel.length || state.clipIndex >= last;
+    if (el.play) {
+      el.play.disabled = !state.reel.length;
+      el.play.textContent = state.playingOn ? "Stop" : "Play";
+      el.play.setAttribute("aria-pressed", String(Boolean(state.playingOn)));
     }
-    setOut(
-      el.confirmLabel,
-      state.step?.confirmPrompt ||
-        (locked ? "Confirm this step before the next plate." : "Mark this step done."),
-    );
-    if (el.next) el.next.disabled = locked ? true : !state.watched;
-    if (el.skip) el.skip.classList.toggle("refuses", locked);
+    renderScrub();
+  }
+
+  function renderScrub() {
+    if (!el.scrub) return;
+    el.scrub.replaceChildren();
+    for (const [index, clip] of state.reel.entries()) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = String(clip.number);
+      btn.dataset.step = String(clip.number);
+      btn.dataset.clip = String(index);
+      btn.title = clipCaption(clip) || `Step ${clip.number}`;
+      if (index === state.clipIndex) btn.setAttribute("aria-current", "true");
+      el.scrub.append(btn);
+    }
   }
 
   function renderFittings() {
@@ -238,7 +343,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     if (!el.spareArticle) return;
     el.spareArticle.placeholder = fittings.length
       ? `Fitting no. — this step uses ${fittings.map((f) => f.articleNumber).join(", ")}`
-      : "Fitting no. (e.g. 100347)";
+      : "Part number";
   }
 
   // -------------------------------------------------------------------- the run
@@ -249,11 +354,10 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = view.step || null;
     state.outline = view.outline || [];
     state.guide = view.guide || state.guide;
-    state.watched = false;
     renderLockBanner();
     renderSteps();
     renderBom();
-    renderConfirm();
+    renderTransport();
     renderFittings();
     return view;
   }
@@ -266,37 +370,73 @@ export function initStudio({ api, hud = () => {} } = {}) {
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
       await renderReviews();
-      await playCurrent();
-      announce(`${state.guide?.title || "Official guide"} — one plate at a time, in order.`);
+      await bootReel();
+      setInterface("watch");
+      announce(`${state.guide?.title || "Official guide"} — the reel is ready. Play, next, back, or jump.`);
       return view;
     } catch (error) {
       return fail(error);
     }
   }
 
-  async function parseCustom() {
+  async function parseCustom(event) {
+    event?.preventDefault();
+    if (state.submitting) return null;
+    state.submitting = true;
     try {
       setMode("custom");
-      const raw = el.guide?.value || "";
-      if (!raw.trim()) {
-        announce("Paste a guide first.");
+      const file = el.pdf?.files?.[0] || null;
+      const pasted = el.guide?.value || "";
+      let pdfBase64 = "";
+      let images = [];
+      if (file) {
+        showPdfName(file);
+        announce("Reading the PDF plates…");
+        pdfBase64 = await fileToBase64(file);
+        if (isPdfFile(file)) {
+          try {
+            const plates = await pagesFromPdf(file);
+            images = plates.images || [];
+            if (plates.text && el.guide && !pasted.trim()) el.guide.value = plates.text;
+          } catch {
+            announce("Could not rasterize the PDF plates — trying extracted text.");
+          }
+        }
+      }
+      if (!pasted.trim() && !pdfBase64 && !images.length) {
+        announce("Drop a PDF or paste a guide first.");
         return null;
       }
-      announce("Turning your guide into a film…");
+      announce("Parsing the sheet…");
+      let guideText = el.guide?.value || pasted;
+      if ((pdfBase64 || images.length) && api.parseGuide) {
+        const parsed = await api.parseGuide(guideText, el.notes?.value || "", { pdfBase64, images });
+        if (parsed?.ok === false) return fail(new Error(parsed.reason));
+        if (parsed?.raw) {
+          guideText = parsed.raw;
+          if (el.guide) el.guide.value = parsed.raw;
+        }
+      }
+      announce("Starting the run and building the reel…");
       const view = await api.runStart({
         mode: "custom",
-        guide: raw,
+        guide: guideText,
         instructions: el.notes?.value || "",
+        pdfBase64,
+        images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(raw);
+      saveCustom(guideText);
       await renderReviews();
-      await playCurrent();
-      announce("Your guide is a film now. This one you can edit and skip.");
+      await bootReel();
+      setInterface("watch");
+      announce("Reel ready. Watch the first step.");
       return view;
     } catch (error) {
       return fail(error);
+    } finally {
+      state.submitting = false;
     }
   }
 
@@ -331,12 +471,17 @@ export function initStudio({ api, hud = () => {} } = {}) {
     state.step = null;
     state.outline = [];
     state.guide = null;
+    state.reel = [];
+    state.clipIndex = 0;
+    state.frameIndex = 0;
     if (el.guide) el.guide.value = "";
     if (el.notes) el.notes.value = "";
-    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut]) {
+    for (const node of [el.steps, el.bom, el.reviews, el.caption, el.detail, el.spareOut, el.scrub]) {
       if (node) node.replaceChildren();
     }
+    hideVideo();
     el.film?.classList.add("hidden");
+    renderTransport();
     try {
       localStorage.removeItem(CUSTOM_SESSION_KEY);
     } catch {
@@ -348,10 +493,23 @@ export function initStudio({ api, hud = () => {} } = {}) {
 
   // ------------------------------------------------------------------- playback
 
-  function stopPlayback() {
-    state.playing += 1;
+  function hideVideo() {
+    if (!el.video) return;
+    el.video.pause();
+    el.video.removeAttribute("src");
+    el.video.load();
+    el.video.classList.add("hidden");
+    el.frame?.classList.remove("hidden");
+  }
+
+  function stopPlayback({ keepFrame = false } = {}) {
+    state.playGen += 1;
+    state.playingOn = false;
     if (state.timer) clearTimeout(state.timer);
     state.timer = null;
+    if (el.video && !el.video.classList.contains("hidden")) el.video.pause();
+    if (!keepFrame) hideVideo();
+    renderTransport();
   }
 
   function drawFrame(frame = {}) {
@@ -595,8 +753,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.fillStyle = colorized ? "rgba(255, 252, 243, .96)" : "rgba(255, 255, 252, .96)";
     ctx.fillRect(0, h - cardHeight, w, cardHeight);
     line(0, h - cardHeight, w, h - cardHeight, 1.5, ink);
-    ctx.fillStyle = "#ffda1a";
-    ctx.fillRect(0, h - cardHeight, 8, cardHeight);
+    ctx.fillStyle = ink;
+    ctx.fillRect(0, h - cardHeight, 2, cardHeight);
 
     const plate = Math.max(1, Number(frame.frame) + 1 || 1);
     ctx.fillStyle = ink;
@@ -632,106 +790,243 @@ export function initStudio({ api, hud = () => {} } = {}) {
     ctx.textAlign = "left";
   }
 
-  async function loadFrames() {
-    if (!api.renderVideo || !state.run) return [];
+  function clipFromPlan(step) {
+    const frames = Array.isArray(step?.frames) ? step.frames : [];
+    return {
+      number: Number(step?.number) || 0,
+      frames,
+      videoUrl: step?.videoUrl || null,
+      provider: step?.provider || "local-storyboard",
+    };
+  }
+
+  async function loadReel() {
+    if (!state.run) return [];
+    const body = {
+      runId: state.run.id,
+      guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+    };
+    if (api.renderReel) {
+      try {
+        const result = await api.renderReel(body);
+        const clips = (result.steps || [])
+          .map((step) =>
+            clipFromPlan({
+              number: step.number,
+              frames: step.frames || step.plan,
+              videoUrl: step.videoUrl,
+              provider: step.provider,
+            }),
+          )
+          .filter((clip) => clip.number);
+        if (clips.length) return clips;
+      } catch (error) {
+        fail(error);
+      }
+    }
     try {
-      const result = await api.renderVideo({
-        runId: state.run.id,
-        stepNumber: state.run.cursor,
-        guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
-      });
-      setOut(
-        el.renderOut,
-        result.videoUrl
-          ? `${result.model} via fal.ai — ${result.videoUrl}`
-          : `${result.provider} · local canvas storyboard (set FAL_KEY for ${result.model})`,
-      );
-      return result.frames || result.plan || [];
+      const plan = api.video ? await api.video(body) : { steps: [] };
+      const clips = (plan.steps || []).map(clipFromPlan).filter((clip) => clip.number);
+      if (clips.length) return clips;
     } catch (error) {
       fail(error);
-      return [];
+    }
+    return (state.outline || []).map((item) => ({
+      number: item.number,
+      frames: [
+        {
+          frame: 0,
+          durationMs: 1200,
+          caption: item.body || item.preview || `Step ${item.number}`,
+        },
+      ],
+      videoUrl: null,
+      provider: "local-storyboard",
+    }));
+  }
+
+  async function upgradeReel(clips) {
+    if (!api.renderVideo || !state.run) return;
+    const token = ++state.reelToken;
+    let live = 0;
+    for (const clip of clips) {
+      if (state.destroyed || token !== state.reelToken) return;
+      try {
+        const result = await api.renderVideo({
+          runId: state.run.id,
+          stepNumber: clip.number,
+          guide: state.mode === "custom" ? el.guide?.value || "" : undefined,
+        });
+        if (token !== state.reelToken) return;
+        clip.frames = result.frames || result.plan || clip.frames;
+        clip.videoUrl = result.videoUrl || null;
+        clip.provider = result.provider || clip.provider;
+        if (clip.videoUrl) live += 1;
+        setOut(
+          el.renderOut,
+          live
+            ? `Veed reel · ${live}/${clips.length} clips`
+            : `${result.provider || "local-storyboard"} · canvas storyboard (set FAL_KEY for Veed)`,
+        );
+        if (currentStepNumber() === clip.number) showClip(state.clipIndex, { play: state.playingOn, restart: false });
+      } catch {
+        // Keep the local storyboard clip if Veed is down.
+      }
     }
   }
 
-  async function playCurrent() {
+  async function bootReel() {
     if (!state.run) return;
     stopPlayback();
     el.film?.classList.remove("hidden");
-    state.frames = await loadFrames();
+    state.reel = await loadReel();
+    state.clipIndex = Math.max(
+      0,
+      state.reel.findIndex((clip) => clip.number === state.run.cursor),
+    );
+    if (state.clipIndex < 0) state.clipIndex = 0;
     state.frameIndex = 0;
-    state.watched = false;
-    renderConfirm();
-    const token = state.playing;
-
-    const advance = () => {
-      if (state.destroyed || token !== state.playing) return;
-      const frame = state.frames[state.frameIndex];
-      if (!frame) {
-        finishFrames();
-        return;
-      }
-      drawFrame(frame);
-      setOut(el.caption, frame.caption || state.step?.body);
-      state.frameIndex += 1;
-      if (state.frameIndex >= state.frames.length) {
-        finishFrames();
-        return;
-      }
-      state.timer = setTimeout(advance, Math.max(120, Number(frame.durationMs) || 1000));
-    };
-    advance();
+    renderSteps();
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: true });
+    if (state.reel.some((clip) => !clip.videoUrl)) upgradeReel(state.reel);
   }
 
-  function finishFrames() {
-    state.watched = true;
-    renderConfirm();
-    announce(
-      state.run?.locked
-        ? "Plate finished. Tick the check, then take the next one."
-        : "Plate finished. Next when you are ready.",
-    );
+  function showVideo(url, { play = false } = {}) {
+    if (!el.video || !url) return false;
+    el.frame?.classList.add("hidden");
+    el.video.classList.remove("hidden");
+    if (el.video.src !== url) {
+      el.video.src = url;
+      el.video.currentTime = 0;
+    }
+    if (play) {
+      const playAttempt = el.video.play();
+      if (playAttempt?.catch) playAttempt.catch(() => {});
+    } else {
+      el.video.pause();
+    }
+    return true;
+  }
+
+  function playCanvasClip(clip, token) {
+    const frames = clip.frames || [];
+    const tick = () => {
+      if (state.destroyed || token !== state.playGen || !state.playingOn) return;
+      if (state.frameIndex >= frames.length) {
+        finishClip();
+        return;
+      }
+      const frame = frames[state.frameIndex];
+      drawFrame(frame);
+      setOut(el.caption, frame?.caption || state.step?.body || clipCaption(clip));
+      state.frameIndex += 1;
+      if (state.frameIndex >= frames.length) {
+        state.timer = setTimeout(finishClip, Math.max(120, Number(frame?.durationMs) || 1000));
+        return;
+      }
+      state.timer = setTimeout(tick, Math.max(120, Number(frame?.durationMs) || 1000));
+    };
+    if (!frames.length) {
+      finishClip();
+      return;
+    }
+    tick();
+  }
+
+  function showClip(index, { play = false, restart = true } = {}) {
+    if (!state.reel.length) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    state.clipIndex = Math.max(0, Math.min(index, state.reel.length - 1));
+    const clip = state.reel[state.clipIndex];
+    if (restart) state.frameIndex = 0;
+    state.playingOn = Boolean(play);
+    const outline = state.outline.find((item) => item.number === clip.number);
+    if (outline) {
+      state.step = {
+        ...(state.step || {}),
+        number: outline.number,
+        action: outline.action,
+        body: outline.body || clipCaption(clip),
+        toolRequired: outline.toolRequired,
+      };
+    }
+    setOut(el.caption, clipCaption(clip) || state.step?.body || `Step ${clip.number}`);
+    renderSteps();
+    renderTransport();
+
+    if (clip.videoUrl && showVideo(clip.videoUrl, { play })) {
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = null;
+      return;
+    }
+
+    hideVideo();
+    const frame = clip.frames[Math.min(state.frameIndex, Math.max(0, clip.frames.length - 1))] || {};
+    drawFrame(frame);
+    renderTransport();
+    if (play) playCanvasClip(clip, state.playGen);
+  }
+
+  function finishClip() {
+    if (!state.playingOn) return;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return;
+    }
+    showClip(state.clipIndex + 1, { play: true, restart: true });
+  }
+
+  function togglePlay() {
+    if (!state.reel.length) return;
+    if (state.playingOn) {
+      stopPlayback({ keepFrame: true });
+      announce("Stopped.");
+      return;
+    }
+    state.playGen += 1;
+    state.playingOn = true;
+    renderTransport();
+    showClip(state.clipIndex, { play: true, restart: false });
+    announce(`Playing step ${currentStepNumber()}.`);
+  }
+
+  function goToClip(index, { play = state.playingOn } = {}) {
+    if (!state.reel.length) return null;
+    const next = Math.max(0, Math.min(index, state.reel.length - 1));
+    state.playGen += 1;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    if (!play) state.playingOn = false;
+    showClip(next, { play, restart: true });
+    return state.reel[next];
   }
 
   // ------------------------------------------------------------------- controls
 
   async function nextStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runConfirm(state.run.id, {
-        step: state.run.cursor,
-        checked: Boolean(el.confirm?.checked),
-      });
-      if (result.ok === false) {
-        announce(result.reason || "That step is not confirmed yet.");
-        if (result.confirmPrompt) setOut(el.confirmLabel, result.confirmPrompt);
-        if (el.confirm) el.confirm.disabled = false;
-        return result;
-      }
-      const before = state.run.cursor;
-      applyView(result);
-      if (result.run?.done && result.run.cursor === before) {
-        announce("Every step confirmed. That is the whole build.");
-        return result;
-      }
-      await playCurrent();
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex >= state.reel.length - 1) {
+      stopPlayback({ keepFrame: true });
+      announce("End of the reel.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex + 1);
+    announce(`Step ${clip.number}.`);
+    return clip;
   }
 
   async function backStep() {
-    if (!state.run) return null;
-    try {
-      const result = await api.runBack(state.run.id, Math.max(1, state.run.cursor - 1));
-      if (result.ok === false) return announce(result.reason);
-      applyView(result);
-      await playCurrent();
-      announce("Back a step. Everything after it is open again.");
-      return result;
-    } catch (error) {
-      return fail(error);
+    if (!state.reel.length) return null;
+    if (state.clipIndex <= 0) {
+      announce("Already at the first step.");
+      return null;
     }
+    const clip = goToClip(state.clipIndex - 1);
+    announce(`Back to step ${clip.number}.`);
+    return clip;
   }
 
   /** Skip exists so the refusal is visible: official says no, your own guide says yes. */
@@ -745,7 +1040,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
         return result;
       }
       applyView(result);
-      await playCurrent();
+      const index = state.reel.findIndex((clip) => clip.number === result.run?.cursor);
+      goToClip(index >= 0 ? index : state.clipIndex + 1);
       announce(`Skipped step ${result.skipped}. Your guide, your call.`);
       return result;
     } catch (error) {
@@ -775,11 +1071,30 @@ export function initStudio({ api, hud = () => {} } = {}) {
     }
   }
 
-  /** Clicking a step reads it. It never moves the cursor, and it never opens a locked plate. */
+  /** Jump the reel to a step. One click in #steps or the scrub list. */
   async function openStep(number) {
+    const target = Number(number);
+    if (!target) return null;
+    const index = state.reel.findIndex((clip) => clip.number === target);
+    if (index >= 0) {
+      const clip = goToClip(index);
+      const outline = state.outline.find((item) => item.number === target);
+      setOut(
+        el.detail,
+        [
+          `Step ${target}${outline?.action ? ` — ${outline.action}` : ""}`,
+          outline?.body || clipCaption(clip),
+          outline?.toolRequired ? `Tool: ${outline.toolRequired}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      announce(`Jumped to step ${target}.`);
+      return clip;
+    }
     if (!state.run) return null;
     try {
-      const result = await api.runPeek(state.run.id, number);
+      const result = await api.runPeek(state.run.id, target);
       if (result.ok === false) {
         setOut(el.detail, result.reason);
         announce(result.reason);
@@ -792,11 +1107,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
           result.step.body,
           result.step.toolRequired ? `Tool: ${result.step.toolRequired}` : "Hands only",
           ...(result.step.warnings || []).map((w) => `Watch out: ${w}`),
-          result.step.fittings?.length
-            ? `Free fittings for this step: ${result.step.fittings
-                .map((f) => `${f.name} (${f.articleNumber})`)
-                .join(", ")}`
-            : "",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -823,27 +1133,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
           .join("\n"),
       );
       announce(`Still on step ${result.stillOnStep}. Slow version is on the right.`);
-      return result;
-    } catch (error) {
-      return fail(error);
-    }
-  }
-
-  async function colorizePlate() {
-    if (!state.run) return null;
-    try {
-      const result = await api.colorize(state.run.cursor);
-      drawFrame({
-        caption: state.frames[Math.max(0, state.frameIndex - 1)]?.caption || state.step?.body,
-        colorized: true,
-      });
-      setOut(
-        el.detail,
-        ["COLORIZED PLATE", ...(result.fills || []).map((f) => `${f.name} ${f.color} ${f.texture}`), result.note]
-          .filter(Boolean)
-          .join("\n"),
-      );
-      announce(result.note || "Plate painted with catalog materials.");
       return result;
     } catch (error) {
       return fail(error);
@@ -882,7 +1171,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       const result = await api.spare({
         runId: state.run?.id,
-        stepNumber: state.run?.cursor,
+        stepNumber: currentStepNumber(),
         articleNumber: el.spareArticle?.value || "",
         qty: Number(el.spareQty?.value || 1),
         note: el.brokenNote?.value || "",
@@ -928,7 +1217,7 @@ export function initStudio({ api, hud = () => {} } = {}) {
     el.chatInput.value = "";
     addChatLine("you", message);
     try {
-      const reply = await api.chat(message, { step: state.run?.cursor, mode: state.mode });
+      const reply = await api.chat(message, { step: currentStepNumber(), mode: state.mode });
       addChatLine(reply?.agent?.name || "shop", reply?.text || "");
       return reply;
     } catch (error) {
@@ -940,49 +1229,76 @@ export function initStudio({ api, hud = () => {} } = {}) {
   // --------------------------------------------------------------------- wiring
 
   listen(el.officialMode, "click", startOfficial);
-  listen(el.product, "change", startOfficial);
   listen(el.customMode, "click", () => {
     setMode("custom");
     restoreCustom();
-    announce("Paste a guide, then parse it. This one you can edit and skip.");
+    announce("Drop a PDF or paste a guide, then build the reel.");
   });
+  listen(el.uploadForm, "submit", parseCustom);
   listen(el.parse, "click", parseCustom);
-  listen(el.clear, "click", clearCustomSession);
+  listen(el.pdf, "change", () => showPdfName(el.pdf?.files?.[0] || null));
+  listen(el.pdfDrop, "dragover", (event) => {
+    event.preventDefault();
+    el.pdfDrop.classList.add("drag");
+  });
+  listen(el.pdfDrop, "dragleave", () => el.pdfDrop.classList.remove("drag"));
+  listen(el.pdfDrop, "drop", (event) => {
+    event.preventDefault();
+    el.pdfDrop.classList.remove("drag");
+    const file = [...(event.dataTransfer?.files || [])].find(
+      (item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name),
+    );
+    if (!file || !el.pdf) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    el.pdf.files = transfer.files;
+    showPdfName(file);
+  });
+  listen(el.clear, "click", () => {
+    if (el.pdf) el.pdf.value = "";
+    showPdfName(null);
+    clearCustomSession();
+    setInterface("upload");
+  });
   listen(el.steps, "click", (event) => {
     if (event.target.isContentEditable) return;
     const row = event.target.closest("[data-step]");
     if (row) openStep(Number(row.dataset.step));
   });
-  listen(el.confirm, "change", () => {
-    if (el.next) el.next.disabled = !(el.confirm.checked || !state.run?.locked) || !state.watched;
+  listen(el.scrub, "click", (event) => {
+    const tick = event.target.closest("[data-step]");
+    if (tick) openStep(Number(tick.dataset.step));
   });
+  listen(el.play, "click", togglePlay);
   listen(el.next, "click", nextStep);
   listen(el.back, "click", backStep);
-  listen(el.skip, "click", skipStep);
-  listen(el.stuck, "click", stuckOnStep);
-  listen(el.colorize, "click", colorizePlate);
-  listen(el.render, "click", () => playCurrent());
+  listen(el.video, "ended", () => {
+    if (state.playingOn) finishClip();
+  });
   listen(el.broken, "click", attachBroken);
   listen(el.spare, "click", requestFittings);
   listen(el.chatForm, "submit", sendChat);
 
-  setMode("official");
-  fillProducts().then(startOfficial);
+  setMode("custom");
+  setInterface("upload");
+  fillProducts();
 
   return {
     state,
+    setInterface,
     startOfficial,
     parseCustom,
     nextStep,
     backStep,
     skipStep,
     openStep,
+    togglePlay,
+    jumpToStep: openStep,
     stuckOnStep,
-    colorizePlate,
     attachBroken,
     requestFittings,
     clearCustomSession,
-    replay: playCurrent,
+    replay: bootReel,
     destroy() {
       state.destroyed = true;
       stopPlayback();

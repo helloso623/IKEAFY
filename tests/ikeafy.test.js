@@ -11,9 +11,12 @@ import {
   officialGuide,
   officialProducts,
   parseGuide,
+  parseGuideAsync,
+  plateKind,
   shoppingList,
   storyboardForStep,
   reviewsForGuide,
+  searchOfficialProducts,
   verifyOfficialGuide,
 } from "../server/lib/ikeafy.js";
 
@@ -101,8 +104,24 @@ test("official products list the LACK side table", () => {
   assert.ok(lack, "LACK side table is an official product");
   assert.match(lack.name, /LACK/);
   assert.equal(lack.partId, "lack-table");
+  assert.equal(lack.unlocked, true);
   assert.equal(officialGuide(lack.article).productArticle, lack.article);
   assert.equal(officialGuide("000.000.00").ok, false);
+});
+
+test("KALLAX, BILLY and MALM sit locked in the catalog until transcribed", () => {
+  const products = officialProducts();
+  for (const name of ["KALLAX", "BILLY", "MALM"]) {
+    const hit = products.find((p) => p.name.includes(name));
+    assert.ok(hit, `${name} should be searchable`);
+    assert.equal(hit.unlocked, false);
+    assert.equal(hit.locked, true);
+  }
+  const kallax = officialGuide("802.758.87");
+  assert.equal(kallax.ok, false);
+  assert.equal(kallax.locked, true);
+  assert.match(kallax.reason, /not transcribed/i);
+  assert.equal(searchOfficialProducts("billy")[0].name.includes("BILLY"), true);
 });
 
 test("locked guide keeps the rest of the pipeline working", () => {
@@ -155,4 +174,93 @@ test("expand and broken part attach to a step", () => {
   assert.ok(broken.spare.id);
   const fix = generateFix("r1");
   assert.match(fix.fix, /glue|M6/i);
+});
+
+test("empty custom input is not the official LACK table", () => {
+  const guide = parseGuide("");
+  assert.equal(guide.steps.length, 0);
+  assert.equal(guide.locked, false);
+  assert.doesNotMatch(guide.title, /LACK/i);
+  assert.equal(guide.raw, "");
+});
+
+test("custom numbered text keeps its own steps", () => {
+  const guide = parseGuide(`Wall shelf\n1. Hang the rail on the two wall plugs.\n2. Slot the shelf onto the rail.`);
+  assert.equal(guide.steps.length, 2);
+  assert.match(guide.steps[0].body, /rail/);
+  assert.ok(!guide.steps.some((step) => /table top face down/i.test(step.body)));
+  assert.ok(!guide.bom.included.some((line) => line.id === "allen-key"));
+  assert.equal(plateKind(guide, guide.steps[0]), "bookcase");
+  assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
+});
+
+test("a BILLY-style custom guide does not become the LACK table", () => {
+  const guide = parseGuide(
+    `BILLY bookcase\n1. Attach a side panel to the base with dowels.\n2. Slide in the shelves.\n3. Fasten the top with screws.`,
+  );
+  assert.match(guide.title, /BILLY/i);
+  assert.doesNotMatch(guide.title, /LACK/i);
+  assert.equal(plateKind(guide, guide.steps[0]), "bookcase");
+  assert.equal(storyboardForStep(guide, 1)[0].kind, "bookcase");
+  assert.ok(reviewsForGuide(guide).every((row) => row.reviews.length === 0));
+});
+
+test("parseGuideAsync stays local without an OpenAI key", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const guide = await parseGuideAsync(`Crate\n1. Screw the side onto the base.`);
+    assert.equal(guide.parser, "local-gliner-standin");
+    assert.equal(guide.steps.length, 1);
+    assert.match(guide.steps[0].body, /Screw the side/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
+});
+
+test("parseGuideAsync uses the OpenAI result for this input, not LACK", async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-test";
+  let sent = "";
+  const fetchFn = async (_url, init = {}) => {
+    sent = String(init.body || "");
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                title: "Wall shelf",
+                steps: [
+                  {
+                    number: 1,
+                    action: "place",
+                    body: "Hang the rail on the two wall plugs.",
+                    partsUsed: [],
+                    toolRequired: "screwdriver",
+                    warnings: [],
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    };
+  };
+  try {
+    const guide = await parseGuideAsync("Hang the rail on the two wall plugs.", {}, { fetchFn });
+    assert.equal(guide.parser, "openai");
+    assert.equal(guide.title, "Wall shelf");
+    assert.equal(guide.steps.length, 1);
+    assert.match(guide.steps[0].body, /rail/);
+    assert.doesNotMatch(guide.title, /LACK/i);
+    assert.match(sent, /Hang the rail on the two wall plugs/);
+    assert.match(sent, /Do not invent a LACK table/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+  }
 });

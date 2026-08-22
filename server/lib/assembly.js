@@ -8,11 +8,12 @@
  * behind a disabled button that a devtools user can re-enable.
  */
 
-import { expandStep, officialGuide, parseGuide } from "./ikeafy.js";
+import { expandStep, officialGuide, parseGuide, parseGuideAsync, shoppingListAsync } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
+import { extractPdfText } from "./pdf-text.js";
 
 const CONFIRM_BY_ACTION = {
-  unpack: "Every part on the parts list is out of the box and counted.",
+  unpack: "The kit matches the parts list.",
   place: "The part is sitting exactly as the plate shows.",
   align: "Every fastener is hand-started and square — nothing is cross-threaded.",
   fasten: "Every fastener is snug, and none of them was forced past snug.",
@@ -49,14 +50,70 @@ export function startAssembly({
   guide: rawGuide = "",
   instructions = "",
   availableTools = [],
+  pdfBase64 = "",
 } = {}) {
   let guide;
   if (mode === "official") {
     guide = officialGuide({ article, availableTools, instructions });
     if (guide?.ok === false) return { ok: false, reason: guide.reason, products: guide.products };
   } else {
-    guide = parseGuide(rawGuide, { instructions, availableTools });
+    let text = String(rawGuide || "");
+    if (pdfBase64) {
+      const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
+      text = [extracted, text].filter(Boolean).join("\n\n");
+    }
+    if (!text.trim()) {
+      return { ok: false, reason: "Drop a PDF or paste a guide first." };
+    }
+    guide = parseGuide(text, { instructions, availableTools });
   }
+  return beginRun(mode, guide);
+}
+
+async function withShopping(result, deps = {}) {
+  if (!result.ok) return result;
+  const run = getAssembly(result.run.id);
+  if (!run) return result;
+  try {
+    run.guide.bom = await shoppingListAsync(run.guide, deps);
+  } catch {
+    // Keep the catalog BOM if Tavily is down.
+  }
+  return { ok: true, ...view(run) };
+}
+
+export async function startAssemblyAsync({
+  mode = "official",
+  article = null,
+  guide: rawGuide = "",
+  instructions = "",
+  availableTools = [],
+  images = [],
+  pdfBase64 = "",
+} = {}, deps = {}) {
+  if (mode === "official") {
+    return withShopping(startAssembly({ mode, article, instructions, availableTools }), deps);
+  }
+  let text = String(rawGuide || "");
+  if (pdfBase64) {
+    const extracted = extractPdfText(Buffer.from(String(pdfBase64), "base64"));
+    text = [extracted, text].filter(Boolean).join("\n\n");
+  }
+  const guide = await parseGuideAsync(text, { instructions, availableTools, images });
+  if (!guide?.steps?.length) {
+    const photoOnly = images.length && !String(text || "").trim();
+    return {
+      ok: false,
+      reason: photoOnly
+        ? "Could not read those photos into steps. Paste the guide as text, or check the OpenAI key."
+        : "That guide has no steps. If you dropped a drawing-only PDF, wait for the plates to be read.",
+    };
+  }
+  return withShopping(beginRun("custom", guide), deps);
+}
+
+function beginRun(mode, guide) {
+  if (guide?.ok === false) return guide;
   if (!guide?.steps?.length) return { ok: false, reason: "That guide has no steps." };
 
   const run = {

@@ -22,8 +22,10 @@ import {
   officialGuide,
   officialProducts,
   parseGuide,
+  parseGuideAsync,
   reviewsForGuide,
-  shoppingList,
+  searchOfficialProducts,
+  shoppingListAsync,
   storyboardForStep,
   verifyOfficialGuide,
 } from "./lib/ikeafy.js";
@@ -31,10 +33,11 @@ import {
   assemblyView,
   confirmStep,
   editStep,
+  getAssembly,
   goBack,
   peekStep,
   skipStep,
-  startAssembly,
+  startAssemblyAsync,
   stuckOn,
 } from "./lib/assembly.js";
 import {
@@ -45,7 +48,9 @@ import {
   listFreeFittings,
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
-import { hasVeed, renderStepVideo } from "./lib/video.js";
+import { hasFal, renderStepVideo } from "./lib/video.js";
+import { hasTavily } from "./lib/tavily.js";
+import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
 import { ROSTER, chat, hasHostedBrain } from "./lib/agents.js";
@@ -73,22 +78,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadDotEnv(path.join(__dirname, "..", ".env"));
 
 const VIDEO_PARTNERS = {
-  veed: {
-    name: "Veed",
-    model: "veed/fabric-1.0",
+  seedance: {
+    name: "ByteDance Seedance 2.5",
+    model: "bytedance/seedance-2.5/text-to-video",
     status: "optional",
     note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
   },
   fal: {
     name: "fal.ai",
     status: "optional",
-    keyed: hasVeed(),
-    note: "Set FAL_KEY to let lib/video.js call veed/fabric-1.0. Nothing leaves the machine without it.",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/video.js call Seedance 2.5. Nothing leaves the machine without it.",
   },
 };
 
 const app = express();
-app.use(express.json({ limit: "8mb" }));
+app.use(express.json({ limit: "16mb" }));
 
 const state = {
   project: seedLampTable(),
@@ -100,14 +105,23 @@ app.get("/api/health", (_req, res) => {
   const official = officialGuide();
   res.json({
     ok: true,
-    name: "IKEAFY",
+    name: "IKEAlive",
     hostedAgents: hasHostedBrain(),
     partners: PARTNERS,
     video: {
       partners: VIDEO_PARTNERS,
-      renderer: hasVeed() ? "veed/fabric-1.0 via fal.ai" : "local-storyboard",
-      live: hasVeed(),
+      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "local-storyboard",
+      live: hasFal(),
       route: "/api/ikeafy/video/render",
+      reel: "/api/ikeafy/video/reel",
+    },
+    shopping: {
+      partner: hasTavily() ? "tavily" : "tavily-standin",
+      live: hasTavily(),
+      route: "/api/ikeafy/shopping",
+      note: hasTavily()
+        ? "Tavily looks up IKEA / Amazon / hardware shops for tools you still need."
+        : "Set TAVILY_API_KEY to scrape live shop links for missing tools.",
     },
     official: {
       route: "/api/ikeafy/official",
@@ -149,7 +163,7 @@ app.post("/api/search", (req, res) => {
   res.json({
     query: req.body?.query || "",
     results: searchParts(req.body || {}),
-    note: "List only — Tavily scrape is a later partner hook.",
+    note: "Tavily stand-in — catalog list with IKEA, Amazon and local offers. No live scrape yet.",
   });
 });
 
@@ -182,10 +196,16 @@ app.post("/api/cables/bundle", (req, res) => {
   res.json(manageBundle(req.body?.cables || state.project.cables, req.body || {}));
 });
 
-app.post("/api/ikeafy/parse", (req, res) => {
-  const guide = parseGuide(req.body?.guide, {
+app.post("/api/ikeafy/parse", async (req, res) => {
+  let raw = req.body?.guide || "";
+  if (req.body?.pdfBase64) {
+    const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
+    raw = [extracted, raw].filter(Boolean).join("\n\n");
+  }
+  const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
+    images: req.body?.images || [],
   });
   state.guide = guide;
   res.json(guide);
@@ -201,8 +221,12 @@ app.get("/api/ikeafy/official", (req, res) => {
   res.json(guide);
 });
 
-app.get("/api/ikeafy/official/products", (_req, res) => {
-  res.json({ products: officialProducts(), locked: true, policy: SPARES_POLICY.free });
+app.get("/api/ikeafy/official/products", (req, res) => {
+  res.json({
+    products: searchOfficialProducts(req.query.q || ""),
+    locked: true,
+    policy: SPARES_POLICY.free,
+  });
 });
 
 app.post("/api/ikeafy/official/verify", (req, res) => {
@@ -213,26 +237,30 @@ app.post("/api/ikeafy/expand", (req, res) => {
   res.json(expandStep(state.guide, req.body?.step || 1, { stuckNote: req.body?.note || "" }));
 });
 
+function guideForVideo(body = {}) {
+  const stored = body.runId ? getAssembly(body.runId) : null;
+  if (stored?.guide) return stored.guide;
+  if (typeof body.guide === "string" && body.guide.trim()) return parseGuide(body.guide, body);
+  if (body.guide && typeof body.guide === "object" && Array.isArray(body.guide.steps)) return body.guide;
+  return state.guide;
+}
+
 app.post("/api/ikeafy/video", (req, res) => {
-  const guide = req.body?.guide ? parseGuide(req.body.guide, req.body) : state.guide;
-  res.json(makeVideoPlan(guide));
+  res.json(makeVideoPlan(guideForVideo(req.body || {})));
 });
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
-  const run = body.runId ? assemblyView(body.runId) : null;
-  const guide = run?.ok
-    ? { ...run.guide, steps: [run.step].filter(Boolean), theme: run.guide.theme }
-    : body.guide
-      ? parseGuide(body.guide, body)
-      : state.guide;
-  const stepNumber = Number(body.stepNumber ?? body.step ?? 1);
+  const stored = body.runId ? getAssembly(body.runId) : null;
+  const guide = guideForVideo(body);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
   try {
     const result = await renderStepVideo({
-      guide: run?.ok ? state.guide : guide,
+      guide,
       stepNumber,
-      imageDataUrl: body.imageDataUrl,
+      extra: body.instructions || body.extra || "",
     });
+    if (stored?.guide) state.guide = stored.guide;
     res.json({
       ok: true,
       stepNumber,
@@ -243,6 +271,38 @@ app.post("/api/ikeafy/video/render", async (req, res) => {
     });
   } catch (err) {
     res.status(502).json({ ok: false, stepNumber, error: String(err.message || err) });
+  }
+});
+
+app.post("/api/ikeafy/video/reel", async (req, res) => {
+  const body = req.body || {};
+  const guide = guideForVideo(body);
+  const steps = [];
+  try {
+    for (const step of guide?.steps || []) {
+      const result = await renderStepVideo({
+        guide,
+        stepNumber: step.number,
+        imageDataUrl: body.imageDataUrl,
+      });
+      steps.push({
+        number: step.number,
+        live: result.provider !== "local-storyboard",
+        plan: result.frames.length ? result.frames : storyboardForStep(guide, step.number),
+        ...result,
+      });
+    }
+    const live = steps.find((step) => step.videoUrl);
+    res.json({
+      ok: true,
+      reel: true,
+      live: Boolean(live),
+      partners: VIDEO_PARTNERS,
+      videoUrl: live?.videoUrl || null,
+      steps,
+    });
+  } catch (err) {
+    res.status(502).json({ ok: false, reel: true, error: String(err.message || err) });
   }
 });
 
@@ -308,8 +368,11 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  * Assembly runs. The client can draw whatever buttons it likes: the cursor,
  * the confirmations and the refusals all live here.
  */
-app.post("/api/assembly/start", (req, res) => {
-  const result = startAssembly(req.body || {});
+app.post("/api/assembly/start", async (req, res) => {
+  const result = await startAssemblyAsync(req.body || {});
+  if (result.ok && getAssembly(result.run?.id)?.guide) {
+    state.guide = getAssembly(result.run.id).guide;
+  }
   res.status(result.ok ? 200 : 400).json(result);
 });
 
@@ -373,8 +436,8 @@ app.post("/api/ikeafy/fix", (req, res) => {
   res.json(generateFix(req.body?.reviewId || "r1"));
 });
 
-app.get("/api/ikeafy/shopping", (_req, res) => {
-  res.json(shoppingList(state.guide));
+app.get("/api/ikeafy/shopping", async (_req, res) => {
+  res.json(await shoppingListAsync(state.guide));
 });
 
 app.get("/api/agents", (_req, res) => {

@@ -42,6 +42,13 @@ test("a stripped screw is a free fitting, a table top is not", () => {
   assert.equal(numbered.fitting.name, "Allen key");
 });
 
+test("no identifiable part number sends the user to the store", () => {
+  const unknown = classifySpare({ note: "this mystery blob arrived smashed", photoName: "blob.jpg" });
+  assert.equal(unknown.storeVisit, true);
+  assert.equal(unknown.fitting, null);
+  assert.match(unknown.reason, /store|spare parts desk/i);
+});
+
 test("the tightening step suggests the screw and the Allen key", () => {
   const guide = officialGuide();
   const fasten = guide.steps.find((s) => s.action === "fasten");

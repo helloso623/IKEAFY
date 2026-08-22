@@ -84,17 +84,56 @@ const IKEA_HINTS = /ikea|step|guide|spare|review|stuck|video|assemble/i;
 const ROOM_HINTS = /room|photo|ar\b|adapt|measure|house|place/i;
 const MOVE_HINTS = /move|rotate|camera|scale|texture|color|zoom/i;
 const PART_HINTS = /add |find |cheap|cost|part|component|ikea|amazon/i;
+const CATALOG_ASK =
+  /\b(find|cheap|cheaper|catalog|shelf|sku|part|component|lack|linnmon|linmon|table|budget|under\s+\$?\d|amazon)\b/i;
+const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
+const ELECTRONICS_ASK =
+  /arduino|nano|esp32|led|firmware|sketch|pin\b|board|circuit|usb|header|button|lamp|light|wire|cable/i;
+const SMALL_QUESTION =
+  /^(where|what|which|how many|do i|is the|can i|which tool|what tool|what part|included|in the box|this step|allen|screw|dowel|leg|top)\b/i;
+const COMPLEX_QUESTION =
+  /fix|broken|regenerate|redesign|calculate|rewrite|rebuild|why (is|does|did)|stuck for|explain how to|design a|optim/i;
+
+function isCatalogAsk(text) {
+  return CATALOG_ASK.test(text) || PART_HINTS.test(text);
+}
+
+function isElectronicsAsk(text) {
+  return ELECTRONICS_ASK.test(String(text || ""));
+}
+
+function catalogNeedle(message) {
+  const lower = String(message || "").toLowerCase();
+  for (const token of ["led", "table", "tape", "lack", "linnmon", "linmon", "arduino", "nano", "esp32", "cable", "leg", "dowel", "screw"]) {
+    if (lower.includes(token)) return token === "linmon" ? "linnmon" : token;
+  }
+  return lower
+    .replace(/[?!.,]/g, " ")
+    .replace(/\b(what|which|who|where|when|why|how|can|could|should|is|are|do|does|did|will|would|please|find|show|list|get|search|look|recommend|suggest|help|me|my|a|an|the|some|any|for|with|under|over|cheap|cheaper|best|good|about|add)\b/g, " ")
+    .replace(/\$?\d+(?:\.\d+)?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function shouldEscalate(message) {
+  const text = String(message || "").trim();
+  if (!text) return false;
+  if (COMPLEX_QUESTION.test(text) || text.length > 180) return true;
+  if (text.length < 110 && (SMALL_QUESTION.test(text) || IKEA_HINTS.test(text))) return false;
+  return text.length > 140;
+}
 
 export function routeAgent(text) {
-  if (ROOM_HINTS.test(text)) return ROSTER.find((a) => a.id === "stylist");
-  if (IKEA_HINTS.test(text)) return ROSTER.find((a) => a.id === "assembler");
-  if (MOVE_HINTS.test(text)) return ROSTER.find((a) => a.id === "shop");
-  if (PART_HINTS.test(text)) return ROSTER.find((a) => a.id === "scout");
-  if (/arduino|sketch|pin|firmware/i.test(text)) return ROSTER.find((a) => a.id === "firmware");
-  if (/weather|rain|heat|flow|aero|wave/i.test(text)) return ROSTER.find((a) => a.id === "lab");
-  if (/stress|break|load/i.test(text)) return ROSTER.find((a) => a.id === "stress");
-  if (/board|net|isolat|circuit/i.test(text)) return ROSTER.find((a) => a.id === "circuit");
-  if (HARD_HINTS.test(text)) return ROSTER.find((a) => a.id === "architect");
+  const t = String(text || "");
+  if (ROOM_HINTS.test(t) && !isCatalogAsk(t)) return ROSTER.find((a) => a.id === "stylist");
+  if (isCatalogAsk(t) && !STEP_LOCK.test(t)) return ROSTER.find((a) => a.id === "scout");
+  if (IKEA_HINTS.test(t)) return ROSTER.find((a) => a.id === "assembler");
+  if (MOVE_HINTS.test(t)) return ROSTER.find((a) => a.id === "shop");
+  if (/arduino|sketch|pin|firmware/i.test(t)) return ROSTER.find((a) => a.id === "firmware");
+  if (/weather|rain|heat|flow|aero|wave/i.test(t)) return ROSTER.find((a) => a.id === "lab");
+  if (/stress|break|load/i.test(t)) return ROSTER.find((a) => a.id === "stress");
+  if (/board|net|isolat|circuit/i.test(t)) return ROSTER.find((a) => a.id === "circuit");
+  if (HARD_HINTS.test(t)) return ROSTER.find((a) => a.id === "architect");
   return ROSTER.find((a) => a.id === "foreman");
 }
 
@@ -108,20 +147,23 @@ function localReply(message, ctx) {
   const maxCost = costMatch ? Number(costMatch[1]) : ctx.costBarrier;
 
   if (agent.id === "scout" || /add |find |cheap/.test(lower)) {
-    const query = lower.includes("led")
-      ? "led"
-      : lower.includes("table")
-        ? "table"
-        : lower.includes("tape")
-          ? "tape"
-          : "";
-    const hits = searchParts({ query, maxCost: maxCost || Infinity }).slice(0, 6);
+    const query = catalogNeedle(lower);
+    let hits = searchParts({ query, maxCost: maxCost || Infinity });
+    if (!isElectronicsAsk(lower)) {
+      const furniture = hits.filter((h) => h.category !== "electronics" && h.category !== "cable");
+      if (furniture.length) hits = furniture;
+    }
+    hits = hits.slice(0, 6);
     if (/add/.test(lower) && hits[0] && ctx.project) {
       const piece = addPiece(ctx.project, hits[0].id, { x: 0.2, y: 0.26, z: 0.12 });
       actions.push({ type: "add_part", partId: hits[0].id, piece });
-      text += `Dropped ${hits[0].name} (${hits[0].dimsMm.x}×${hits[0].dimsMm.y}×${hits[0].dimsMm.z} mm) on the bench.`;
+      text += `Dropped ${hits[0].name} on the bench.`;
+    } else if (!hits.length) {
+      text += "Nothing on the shelf matches that. Try “table”, “lack”, or “tape”.";
+      actions.push({ type: "catalog", hits: [] });
     } else {
-      text += `Catalog hits under ${maxCost || "any"}: ${hits.map((h) => `${h.name} $${h.cost} @ ${h.store}`).join("; ")}.`;
+      const cap = maxCost && Number.isFinite(Number(maxCost)) ? ` under $${maxCost}` : "";
+      text += `On the shelf${cap}: ${hits.map((h) => `${h.name} · $${h.cost}${h.store ? ` at ${h.store}` : ""}`).join("; ")}.`;
       actions.push({ type: "catalog", hits });
     }
   } else if (agent.id === "assembler") {
@@ -201,7 +243,7 @@ async function hostedReply(message, ctx, agent) {
     messages: [
       {
         role: "system",
-        content: `You are ${agent.name} in IKEAFY, a furniture/electronics workshop. Be concrete. Never ask for secrets. Reply in under 120 words.`,
+        content: `You are ${agent.name} in IKEAFY, a furniture shop with an optional electronics bench. Be concrete. Never ask for secrets. Reply in under 120 words. If the user is asking about furniture, tables, or catalog parts, talk only about those — no Arduino, ports, firmware, or boards unless they asked about electronics.`,
       },
       { role: "user", content: message },
     ],
@@ -223,13 +265,19 @@ async function hostedReply(message, ctx, agent) {
 
 export async function chat(message, ctx = {}) {
   const agent = routeAgent(message);
-  try {
-    const hosted = await hostedReply(message, ctx, agent);
-    if (hosted) return hosted;
-  } catch {
-    // fall through to local steward — never leak key errors
+  const escalate = shouldEscalate(message);
+  if (escalate) {
+    try {
+      const hosted = await hostedReply(message, ctx, agent);
+      if (hosted) return { ...hosted, escalated: true, from: "gliner-2-standin" };
+    } catch {
+      // fall through to local steward — never leak key errors
+    }
   }
-  return localReply(message, ctx);
+  const local = localReply(message, ctx);
+  const ikeaSmall = !escalate && (agent.id === "assembler" || IKEA_HINTS.test(message));
+  if (ikeaSmall) return { ...local, backend: "gliner-2-standin", escalated: false };
+  return local;
 }
 
 export function hasHostedBrain() {
