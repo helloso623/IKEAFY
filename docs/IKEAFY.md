@@ -21,6 +21,6 @@ The studio runs fully local today. Three partners are named in `/api/health` and
 
 - **Veed Fabric 1.0 via fal** — the step films. With `FAL_KEY` set, plates become rendered video; without it, a local canvas storyboard plays the same beats. Optional by design.
 - **GLiNER (Pioneer / GLiNER 2)** — entity extraction from pasted guides, and the first desk for small chat questions. Harder questions escalate to a larger OpenAI model when a key is set. A local parser stands in.
-- **Tavily** — live research for prices and spare-part listings. Today each extra part gets several catalog store URLs, not a live scrape.
+- **Tavily** — live research for tools and extra parts. With `TAVILY_API_KEY` set, Material looks up IKEA / Amazon / hardware shops for anything not in the box and not already on your bench. Without it, catalog shop URLs stand in.
 
 Each stand-in keeps the same shape as the real integration, so swapping a partner in changes a module, not the flow.

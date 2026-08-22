@@ -1,5 +1,6 @@
-import { bomFromIds, getPart, listParts, searchParts, retailerOffers } from "./catalog.js";
+import { bomFromIds, getPart, listParts } from "./catalog.js";
 import { usableOpenAiKey } from "./secrets.js";
+import { classifyTools, enrichShopping, neededTools } from "./tavily.js";
 
 const LACK_GUIDE = `LACK side table
 1. Unpack the table top and four legs. Keep the Allen key from the bag.
@@ -159,7 +160,9 @@ function inferParts(text) {
 function inferTool(text, availableTools = []) {
   const lower = text.toLowerCase();
   if (/allen|hex/.test(lower)) return "allen-key";
-  if (/screw driver|phillips/.test(lower)) return "screwdriver";
+  if (/screwdriver|phillips|pozi/.test(lower)) return "screwdriver";
+  if (/\bmallet\b|\bhammer\b/.test(lower)) return "hammer";
+  if (/\bdrill\b/.test(lower)) return "drill";
   if (/solder/.test(lower)) return "soldering-iron";
   if (/meter|volt/.test(lower)) return "multimeter";
   if (availableTools.length && /tool/.test(lower)) return availableTools[0];
@@ -722,21 +725,18 @@ export function remixGuide() {
 export { LACK_GUIDE, OFFICIAL_LACK_GUIDE, OFFICIAL_PRODUCTS, SAMPLE_REVIEWS };
 
 export function shoppingList(guide) {
-  const ids = [...new Set(guide.steps.flatMap((s) => [s.toolRequired, ...s.partsUsed].filter(Boolean)))];
-  const bom = bomFromIds(ids);
-  const extras = searchParts({ category: "tool" }).filter((p) => p.extra);
+  const partIds = [...new Set((guide?.steps || []).flatMap((s) => s.partsUsed || []))];
+  const toolIds = neededTools(guide);
+  const bom = bomFromIds([...partIds, ...toolIds]);
+  const classified = classifyTools(bom, guide);
   return {
-    ...bom,
+    ...classified,
     partner: "tavily-standin",
-    suggestedExtras: extras.map((p) => ({
-      id: p.id,
-      name: p.name,
-      store: p.store,
-      storeUrl: p.storeUrl,
-      cost: p.cost,
-      badge: "to purchase",
-      retailers: retailerOffers(p).offers,
-      why: "Not in the flat-pack. Handy if a fastener strips.",
-    })),
+    live: false,
+    suggestedExtras: classified.missing,
   };
+}
+
+export async function shoppingListAsync(guide, deps = {}) {
+  return enrichShopping(shoppingList(guide), deps);
 }

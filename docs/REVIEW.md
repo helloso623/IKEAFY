@@ -6,4 +6,4 @@
 
 **Official steps are locked.** Official guides set `locked`, and therefore `editable: false` and `skipAhead: false`; instructions cannot rewrite official steps, and a drift check compares the guide back to the catalog product. Plates unlock strictly in order, and only LACK is unlocked while KALLAX, BILLY and MALM stay visibly locked.
 
-**Gaps.** GLiNER and Tavily are still local stand-ins (local parser plus catalog store URLs, no live extraction or scrape), spare requests are filed locally rather than against a real IKEA endpoint, and there is no browser or end-to-end coverage.
+**Gaps.** GLiNER is still a local parser stand-in. Spare requests are filed locally rather than against a real IKEA endpoint, and there is no browser or end-to-end coverage.

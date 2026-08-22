@@ -745,6 +745,7 @@ button.refuses { border-style: dashed; opacity: 0.75; }
   color: var(--ink);
 }
 .tag.included { background: var(--ok); color: #14200a; }
+.tag.owned { background: #d7e4c7; color: #14200a; }
 .tag.purchase { background: var(--yellow); color: var(--ink); }
 .tag.locked { background: #3d372d; color: var(--paper); }
 

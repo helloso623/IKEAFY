@@ -705,5 +705,5 @@ export function bomFromIds(ids, { kit = "lack-kit" } = {}) {
 export const PARTNERS = {
   video: { name: "ByteDance Seedance 2.5", status: "proposed", used: false, note: "Local storyboard player stands in until FAL_KEY is set." },
   parser: { name: "Pioneer / GLiNER 2", status: "proposed", used: false, note: "Deterministic guide parser stands in." },
-  search: { name: "Tavily", status: "proposed", used: false, note: "Catalog list with multi-store offers — no live scrape yet." },
+  search: { name: "Tavily", status: "optional", used: false, note: "Looks up IKEA / Amazon / hardware shops for tools that are not in the box. Set TAVILY_API_KEY." },
 };

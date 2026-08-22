@@ -308,8 +308,8 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const title = document.createElement("h3");
     title.textContent = `${line.qty || 1}× ${line.name}`;
     const tag = document.createElement("span");
-    tag.className = badge === "included" ? "tag included" : "tag purchase";
-    tag.textContent = badge === "included" ? "included" : "to purchase";
+    tag.className = badge === "included" ? "tag included" : badge === "owned" ? "tag owned" : "tag purchase";
+    tag.textContent = badge === "included" ? "included" : badge === "owned" ? "you have this" : "to purchase";
     title.append(" ", tag);
     body.append(title);
     if (line.ikeaArticle) {
@@ -318,8 +318,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
       art.textContent = `Article ${line.ikeaArticle}`;
       body.append(art);
     }
+    if (line.why) {
+      const why = document.createElement("p");
+      why.className = "hint";
+      why.textContent = line.why;
+      body.append(why);
+    }
     const offers = line.retailers || line.offers || [];
-    if (badge !== "included" && (offers.length || line.storeUrl)) {
+    if (badge !== "included" && badge !== "owned" && (offers.length || line.storeUrl)) {
       const list = document.createElement("div");
       list.className = "offers";
       const rows = offers.length
@@ -345,7 +351,14 @@ export function initStudio({ api, hud = () => {} } = {}) {
     const bom = state.guide?.bom;
     el.bom.replaceChildren();
     if (!bom) return;
+    if (bom.live) {
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = "Missing tools: live shop links from Tavily.";
+      el.bom.append(note);
+    }
     for (const line of bom.included || []) el.bom.append(materialCard(line, "included"));
+    for (const line of bom.owned || []) el.bom.append(materialCard(line, "owned"));
     for (const line of bom.extra || []) el.bom.append(materialCard(line, "to-purchase"));
   }
 

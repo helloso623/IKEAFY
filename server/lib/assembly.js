@@ -8,7 +8,7 @@
  * behind a disabled button that a devtools user can re-enable.
  */
 
-import { expandStep, officialGuide, parseGuide, parseGuideAsync } from "./ikeafy.js";
+import { expandStep, officialGuide, parseGuide, parseGuideAsync, shoppingListAsync } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
 
 const CONFIRM_BY_ACTION = {
@@ -60,6 +60,18 @@ export function startAssembly({
   return beginRun(mode, guide);
 }
 
+async function withShopping(result, deps = {}) {
+  if (!result.ok) return result;
+  const run = getAssembly(result.run.id);
+  if (!run) return result;
+  try {
+    run.guide.bom = await shoppingListAsync(run.guide, deps);
+  } catch {
+    // Keep the catalog BOM if Tavily is down.
+  }
+  return { ok: true, ...view(run) };
+}
+
 export async function startAssemblyAsync({
   mode = "official",
   article = null,
@@ -67,9 +79,9 @@ export async function startAssemblyAsync({
   instructions = "",
   availableTools = [],
   images = [],
-} = {}) {
+} = {}, deps = {}) {
   if (mode === "official") {
-    return startAssembly({ mode, article, instructions, availableTools });
+    return withShopping(startAssembly({ mode, article, instructions, availableTools }), deps);
   }
   const guide = await parseGuideAsync(rawGuide, { instructions, availableTools, images });
   if (!guide?.steps?.length) {
@@ -81,7 +93,7 @@ export async function startAssemblyAsync({
         : "That guide has no steps.",
     };
   }
-  return beginRun("custom", guide);
+  return withShopping(beginRun("custom", guide), deps);
 }
 
 function beginRun(mode, guide) {
