@@ -1,4 +1,5 @@
 import { getPart, retailerOffers, searchParts } from "./catalog.js";
+import { ikealiveLog, ikealiveWarn } from "./log.js";
 
 const SEARCH_URL = "https://api.tavily.com/search";
 
@@ -288,7 +289,7 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
   };
 
   if (!hasTavily()) {
-    console.log("[ikealive:tavily]", "manual stand-in", { query: name, catalog: catalog.map((c) => c.id) });
+    ikealiveLog("tavily", "manual stand-in", { query: name, catalog: catalog.map((c) => c.id) });
     return {
       ...standin,
       reason: catalog.length
@@ -298,7 +299,7 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
   }
 
   const query = `IKEA ${name} assembly instructions PDF site:ikea.com`;
-  console.log("[ikealive:tavily]", "manual search", { query });
+  ikealiveLog("tavily", "manual search", { query, keyed: true });
   const res = await fetchFn(SEARCH_URL, {
     method: "POST",
     headers: {
@@ -313,14 +314,14 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
     }),
   });
   if (!res.ok) {
-    console.warn("[ikealive:tavily]", "search failed", { status: res.status });
+    ikealiveWarn("tavily", "search failed", { status: res.status });
     return { ...standin, partner: "tavily", live: false, reason: `Tavily search failed (${res.status}).` };
   }
   const json = await res.json();
   const results = json.results || json.data || [];
   const hit = pickManualPdfHit(results);
   if (!hit?.url) {
-    console.log("[ikealive:tavily]", "no pdf hit", { query: name, results: results.length });
+    ikealiveLog("tavily", "no pdf hit", { query: name, results: results.length });
     return {
       ...standin,
       partner: "tavily",
@@ -329,10 +330,10 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
     };
   }
 
-  console.log("[ikealive:tavily]", "fetch pdf", { url: hit.url, title: hit.title || null });
+  ikealiveLog("tavily", "fetch pdf", { url: hit.url, title: hit.title || null });
   const pdfRes = await fetchFn(hit.url);
   if (!pdfRes.ok) {
-    console.warn("[ikealive:tavily]", "pdf fetch failed", { url: hit.url, status: pdfRes.status });
+    ikealiveWarn("tavily", "pdf fetch failed", { url: hit.url, status: pdfRes.status });
     return {
       ok: false,
       live: true,
@@ -348,7 +349,7 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
   }
   const buf = Buffer.from(await pdfRes.arrayBuffer());
   if (buf.byteLength > MAX_MANUAL_BYTES) {
-    console.warn("[ikealive:tavily]", "pdf too large", { url: hit.url, bytes: buf.byteLength });
+    ikealiveWarn("tavily", "pdf too large", { url: hit.url, bytes: buf.byteLength });
     return {
       ok: false,
       live: true,
@@ -365,7 +366,7 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
   }
   const looksPdf = buf.subarray(0, 5).toString("utf8") === "%PDF-";
   if (!looksPdf) {
-    console.warn("[ikealive:tavily]", "not a pdf", { url: hit.url, bytes: buf.byteLength });
+    ikealiveWarn("tavily", "not a pdf", { url: hit.url, bytes: buf.byteLength });
     return {
       ok: false,
       live: true,
@@ -380,7 +381,7 @@ export async function findIkeaManual(productName, { fetchFn = fetch } = {}) {
     };
   }
 
-  console.log("[ikealive:tavily]", "manual ready", { url: hit.url, bytes: buf.byteLength, filename: filenameFromUrl(hit.url) });
+  ikealiveLog("tavily", "manual ready", { url: hit.url, bytes: buf.byteLength, filename: filenameFromUrl(hit.url) });
   return {
     ok: true,
     live: true,
