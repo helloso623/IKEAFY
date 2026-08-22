@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>IKEAFY — build anything like it came flat-packed</title>
+    <title>IKEAFY — assembly, step by step</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,62 +19,64 @@
           <span class="mark">IF</span>
           <div>
             <strong>IKEAFY</strong>
-            <small>studio · bench · house</small>
+            <small>Assembly, step by step</small>
           </div>
         </div>
-        <nav class="modes" id="modes" aria-label="Product tabs">
-          <button data-mode="ikeafy" class="main-idea on" title="IKEAFY — the main idea">
-            IKEAFY
-            <small class="badge">the main idea</small>
-          </button>
+        <nav class="modes" id="modes" aria-label="Sections">
+          <button data-mode="ikeafy" class="on">Assemble</button>
           <button data-mode="bench">Bench</button>
           <button data-mode="house">House</button>
         </nav>
         <div class="top-actions">
-          <label class="toggle bench-only">
+          <label class="toggle bench-only hidden">
             <input type="checkbox" id="sim-toggle" />
-            Sim
+            Simulate
           </label>
-          <button id="reset-sim" class="bench-only">Reset</button>
-          <button id="print-btn" class="bench-only">Print</button>
+          <button id="reset-sim" class="bench-only hidden">Reset</button>
+          <button id="print-btn" class="bench-only hidden">3D print</button>
           <button id="flash-btn" class="bench-only electronics-chrome hidden">Arduino</button>
         </div>
       </header>
 
-      <!-- ================= IKEAFY STUDIO — left column: source + steps ================= -->
-      <section class="studio-in" data-pane="ikeafy" aria-label="Guide source and steps">
-        <div class="panel">
-          <h2>Where the steps come from</h2>
-          <div class="row source-toggle">
-            <button id="official-mode" class="on" aria-pressed="true">Official IKEA</button>
-            <button id="custom-mode" aria-pressed="false">My own guide</button>
-          </div>
+      <!-- ============ ASSEMBLE — left column: pick a manual, follow the steps ============ -->
+      <section class="studio-in" data-pane="ikeafy" aria-label="Choose a manual and follow the steps">
+        <div class="panel start-panel">
+          <h2>Start a build</h2>
           <div id="official-source" class="official-picker">
-            <label class="picker-label" for="official-product">Printed sheet</label>
-            <select id="official-product" aria-label="Official IKEA product"></select>
+            <label class="picker-label" for="official-product">What are you building?</label>
+            <select id="official-product" aria-label="IKEA product"></select>
             <p class="hint lock-note" id="official-lock-note">
-              The official sheet is read-only and runs in order. Steps you have not reached stay
-              closed.
+              Steps come one at a time, in order — just like the paper manual.
             </p>
           </div>
           <div id="custom-source" class="custom-parse hidden">
-            <textarea id="guide-in" rows="8" placeholder="Paste any building guide…"></textarea>
-            <input id="guide-notes" placeholder="Tools you have, extra comments… (optional)" />
+            <label class="picker-label" for="guide-in">Your instructions</label>
+            <textarea id="guide-in" rows="7" placeholder="Paste any instructions here…"></textarea>
+            <input id="guide-notes" placeholder="Tools you have, notes… (optional)" />
             <div class="row">
-              <button id="parse-guide" class="primary">Parse into a film</button>
-              <button id="clear-custom-session">Delete session</button>
+              <button id="parse-guide" class="primary">Start my guide</button>
+              <button id="clear-custom-session" class="quiet">Clear</button>
             </div>
-            <p class="hint">Your own guide is editable and skippable. The official one is not.</p>
+            <p class="hint">Your own guide can be edited and skipped as you go.</p>
+          </div>
+          <div class="source-toggle">
+            <button id="official-mode" class="on start-official" aria-pressed="true">
+              <span class="when-official">Start</span>
+              <span class="when-custom">Use the IKEA manual instead</span>
+            </button>
+            <button id="custom-mode" class="quiet" aria-pressed="false">
+              I have my own instructions
+            </button>
           </div>
         </div>
         <div class="panel steps-panel">
-          <h2>Steps</h2>
+          <h2>Your steps</h2>
           <div id="lock-banner" class="lock-banner"></div>
           <div id="steps" class="list step-list" data-editable="false"></div>
         </div>
       </section>
 
-      <!-- ================= STAGE — 3D bench, and the plate/film in studio mode ============ -->
+      <!-- ============ STAGE — the 3D bench, and the manual plate in Assemble ============ -->
       <main class="stage">
         <canvas id="view"></canvas>
         <canvas id="ar-photo" class="hidden"></canvas>
@@ -86,20 +88,21 @@
             <input type="checkbox" id="step-confirm" />
             <span id="step-confirm-label">Confirm this step before the next plate.</span>
           </label>
-          <div class="row wrap">
-            <button id="film-back">Back a step</button>
-            <button id="film-wait" class="primary" disabled>I did this — next</button>
-            <button id="film-stuck">Stuck</button>
-            <button id="step-skip">Skip</button>
-            <button id="colorize">Colorize plate</button>
-            <button id="render-video">Render film</button>
+          <div class="row wrap film-actions">
+            <button id="film-wait" class="primary" disabled>I did this</button>
+            <button id="film-back" class="quiet">Back</button>
+            <button id="step-skip" class="quiet">Skip</button>
+            <button id="film-stuck" class="quiet">I’m stuck</button>
+            <span class="film-spacer" aria-hidden="true"></span>
+            <button id="colorize" class="quiet">Colour in</button>
+            <button id="render-video" class="quiet">Replay film</button>
           </div>
           <p class="hint" id="render-video-out"></p>
           <div id="step-detail" class="copy"></div>
         </div>
       </main>
 
-      <!-- ================= RIGHT RAIL — bench/house panels, plus the studio column ======== -->
+      <!-- ============ RIGHT RAIL — bench/house panels, plus the Assemble column ============ -->
       <aside class="rail right">
         <div class="panel hidden" data-pane="bench">
           <h2>Inspect</h2>
@@ -139,27 +142,24 @@
 
         <div class="panel hidden house-plate" data-pane="house">
           <header class="house-head">
-            <span class="house-num" aria-hidden="true">1</span>
             <div class="house-title">
-              <p class="house-kicker">Room plate</p>
-              <h2>Sit the piece on the floor</h2>
+              <h2>Fit the piece in the room</h2>
             </div>
-            <span class="house-scale">1 : 50</span>
           </header>
           <p class="house-caption">
-            Photograph the empty patch. The stylist lays the table where the door still swings.
+            Add a photo of the empty floor. We’ll place the table where the door still swings.
           </p>
           <figure class="house-frame">
             <svg class="house-plan" viewBox="0 0 260 168" aria-hidden="true">
               <rect x="28" y="18" width="204" height="128" fill="none" stroke="currentColor" stroke-width="2.2" />
-              <path d="M28 76 v32" stroke="#ead9b4" stroke-width="4" />
+              <path d="M28 76 v32" stroke="#f0f0f0" stroke-width="4" />
               <path d="M28 76 A32 32 0 0 1 60 44" fill="none" stroke="currentColor" stroke-width="1.15" stroke-dasharray="3 2.4" />
               <line x1="28" y1="76" x2="60" y2="44" stroke="currentColor" stroke-width="1.15" />
               <line x1="100" y1="14" x2="160" y2="14" stroke="currentColor" stroke-width="1.4" />
-              <line x1="100" y1="18" x2="160" y2="18" stroke="#ead9b4" stroke-width="3.2" />
+              <line x1="100" y1="18" x2="160" y2="18" stroke="#f0f0f0" stroke-width="3.2" />
               <rect x="90" y="64" width="88" height="54" fill="none" stroke="currentColor" stroke-width="1.05" stroke-dasharray="4 3" />
-              <text x="134" y="74" text-anchor="middle" fill="currentColor" font-size="6.2" font-family="IBM Plex Mono, ui-monospace, monospace" letter-spacing="1.1">CLEAR FLOOR</text>
-              <rect x="114" y="80" width="40" height="22" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5" />
+              <text x="134" y="74" text-anchor="middle" fill="currentColor" font-size="6.2" font-family="Source Sans 3, system-ui, sans-serif" letter-spacing="0.8">CLEAR FLOOR</text>
+              <rect x="114" y="80" width="40" height="22" fill="currentColor" fill-opacity="0.08" stroke="currentColor" stroke-width="1.5" />
               <circle cx="120" cy="85" r="1.5" fill="currentColor" />
               <circle cx="148" cy="85" r="1.5" fill="currentColor" />
               <circle cx="120" cy="97" r="1.5" fill="currentColor" />
@@ -176,7 +176,7 @@
             </svg>
             <label class="house-photo">
               <input id="room-photo" type="file" accept="image/*" />
-              <span class="house-photo-cta">Lay a room photo on this plate</span>
+              <span class="house-photo-cta">Add a room photo</span>
             </label>
           </figure>
           <div class="house-dims" aria-label="Room measurements">
@@ -204,115 +204,74 @@
           <div id="adapt-out" class="copy house-notes"></div>
         </div>
 
-        <!-- Studio column. .rail.right becomes display:contents in studio mode so this
+        <!-- Assemble column. .rail.right becomes display:contents in that mode so this
              sits directly in the app grid. -->
-        <section class="studio-side" data-pane="ikeafy" aria-label="Kit, reviews and spares">
+        <section class="studio-side" data-pane="ikeafy" aria-label="Kit, tips and spare parts">
           <div class="panel bom">
-            <div class="paper-kicker">
-              <span>Assembly inventory</span>
-              <span aria-hidden="true">01 / KIT</span>
-            </div>
-            <h2>In the box / bring your own</h2>
-            <p class="hint kit-vs-extra">
-              Checked against the flat-pack contents before you begin.
-            </p>
+            <h2>What’s in the box</h2>
+            <p class="hint">Checked against the flat-pack before you begin — plus anything to buy separately.</p>
             <div id="bom" class="copy bom-list"></div>
-            <div class="paper-footer" aria-hidden="true">
-              <span>Included parts</span>
-              <span>Extra purchases</span>
-            </div>
           </div>
 
           <div class="panel reviews">
-            <div class="paper-kicker">
-              <span>Assembly notes</span>
-              <span aria-hidden="true">Customer field report</span>
-            </div>
-            <h2>Where people get stuck</h2>
-            <p class="hint">Useful warnings from other builders, grouped by step.</p>
+            <h2>Tips from other builders</h2>
+            <p class="hint">Where people slow down, step by step.</p>
             <div id="reviews" class="copy review-notes"></div>
           </div>
 
           <div class="panel broken">
-            <div class="paper-kicker">
-              <span>Part identification desk</span>
-              <span aria-hidden="true">Before ordering</span>
-            </div>
-            <h2>Missing or broken fitting?</h2>
-            <p class="hint">
-              Show us the fitting and the step. We’ll identify the small part number for your
-              request.
-            </p>
-            <label class="paper-field file-field" for="broken-photo">
-              <span>Photo of fitting</span>
+            <h2>Missing or broken part?</h2>
+            <p class="hint">Show us the part and we’ll find its number for you.</p>
+            <label class="field file-field" for="broken-photo">
+              <span>Photo of the part</span>
               <input id="broken-photo" type="file" accept="image/*" />
             </label>
-            <label class="paper-field" for="broken-note">
+            <label class="field" for="broken-note">
               <span>What happened?</span>
               <input id="broken-note" placeholder="Missing, split, bent…" />
             </label>
-            <button id="broken-btn" class="identify-part">Identify from this step</button>
+            <button id="broken-btn" class="identify-part">Find my part number</button>
           </div>
 
           <div class="panel spare">
-            <div class="spare-letter">
-              <div class="letter-masthead">
-                <span class="letter-mark" aria-hidden="true">IF</span>
-                <div>
-                  <strong>Small parts service</strong>
-                  <small>Customer fittings request</small>
-                </div>
-                <span class="letter-ref">FORM 100.347</span>
-              </div>
-              <h2>Request free assembly fittings</h2>
-              <p class="letter-intro">
-                Screws, nails, dowels, cam locks, shelf pins and Allen keys are sent free of
-                charge. Panels and larger components are not included.
-              </p>
-              <div class="letter-rule"><span>Part requested</span></div>
-              <div class="row part-line">
-                <label class="paper-field" for="spare-article">
-                  <span>Fitting number</span>
-                  <input id="spare-article" placeholder="e.g. 100347" />
-                </label>
-                <label class="paper-field qty-field" for="spare-qty">
-                  <span>Qty.</span>
-                  <input id="spare-qty" type="number" min="1" value="1" />
-                </label>
-              </div>
-              <div class="letter-rule"><span>Send to</span></div>
-              <div class="row contact-line">
-                <label class="paper-field" for="spare-name">
-                  <span>Name</span>
-                  <input id="spare-name" autocomplete="name" placeholder="Your name" />
-                </label>
-                <label class="paper-field" for="spare-email">
-                  <span>Email</span>
-                  <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
-                </label>
-              </div>
-              <div class="letter-signoff">
-                <span>No receipt needed for small fittings.</span>
-                <button id="spare-request" class="primary">Send free-parts request</button>
-              </div>
-              <div id="spare-out" class="copy letter-response" aria-live="polite"></div>
+            <h2>Request a spare</h2>
+            <p class="hint">
+              Screws, dowels, cam locks and Allen keys are sent free of charge — no receipt needed.
+            </p>
+            <div class="row part-line">
+              <label class="field" for="spare-article">
+                <span>Part number</span>
+                <input id="spare-article" placeholder="e.g. 100347" />
+              </label>
+              <label class="field qty-field" for="spare-qty">
+                <span>Qty</span>
+                <input id="spare-qty" type="number" min="1" value="1" />
+              </label>
             </div>
+            <div class="row contact-line">
+              <label class="field" for="spare-name">
+                <span>Name</span>
+                <input id="spare-name" autocomplete="name" placeholder="Your name" />
+              </label>
+              <label class="field" for="spare-email">
+                <span>Email</span>
+                <input id="spare-email" type="email" autocomplete="email" placeholder="you@example.com" />
+              </label>
+            </div>
+            <button id="spare-request" class="primary spare-go">Request spare</button>
+            <div id="spare-out" class="copy spare-response" aria-live="polite"></div>
           </div>
 
           <div class="panel chat-panel studio-chat">
-            <div class="paper-kicker">
-              <span>Customer service</span>
-              <span class="service-open"><i aria-hidden="true"></i> Shop online</span>
-            </div>
-            <h2>Ask the shop</h2>
+            <h2>Ask us anything</h2>
             <details class="more-tools">
               <summary>Who is answering</summary>
               <div id="ikea-agent-bar" class="agent-bar"></div>
             </details>
             <div id="ikea-chat-log" class="chat-log" aria-live="polite"></div>
             <form id="ikea-chat-form">
-              <input id="ikea-chat-in" autocomplete="off" aria-label="Message the shop" placeholder="Ask about this step, tool or part…" />
-              <button type="submit">Send</button>
+              <input id="ikea-chat-in" autocomplete="off" aria-label="Message us" placeholder="Ask about a step, tool or part…" />
+              <button type="submit" class="primary">Send</button>
             </form>
           </div>
         </section>
@@ -326,20 +285,20 @@
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form">
             <input id="chat-in" autocomplete="off" placeholder="Ask, add a part, move the camera…" />
-            <button type="submit">Send</button>
+            <button type="submit" class="primary">Send</button>
           </form>
         </div>
       </aside>
 
-      <!-- ================= BENCH — left rail ================= -->
+      <!-- ============ BENCH — left rail ============ -->
       <aside class="rail left hidden" data-pane="bench">
         <div class="panel">
-          <h2>Pieces</h2>
+          <h2>Parts shelf</h2>
           <div class="row">
             <input id="cost" type="number" min="0" step="1" placeholder="Budget $" />
             <input id="search" type="search" placeholder="Find a part" />
           </div>
-          <p class="hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalog.</p>
+          <p class="hint">The shelf scrolls — <span id="catalog-count">0</span> parts in the catalogue.</p>
           <div id="catalog-well" class="well scroll samples">
             <div id="catalog" class="list samples"></div>
           </div>
