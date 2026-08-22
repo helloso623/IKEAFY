@@ -160,20 +160,68 @@ test(
   }),
 );
 
-test("quick assembly questions stay on the GLiNER desk until they get hard", async () => {
+test("quick assembly questions use real GLiNER 2 analysis and current-guide grounding", async () => {
   assert.equal(shouldEscalate("which tool for this step?"), false);
   assert.equal(shouldEscalate("I am stuck on step 4"), false);
   assert.equal(shouldEscalate("fix the stripped insert and regenerate a clearer film for step 4"), true);
   const previous = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
-    const quick = await chat("which tool for this step?", { step: 4 });
-    assert.equal(quick.backend, "gliner-2-standin");
+    let request;
+    const quick = await chat("which tool do I need?", {
+      step: 4,
+      guide: {
+        title: "Custom shelf",
+        steps: [
+          {
+            number: 4,
+            body: "Fasten the rail to the wall.",
+            toolRequired: "screwdriver",
+            partsUsed: ["rail"],
+            warnings: [],
+          },
+        ],
+      },
+      glinerInfer: async (value) => {
+        request = value;
+        return { guide_question: [{ step_number: "4", requested_detail: "tool" }] };
+      },
+    });
+    assert.equal(request.operation, "extract_json");
+    assert.equal(quick.backend, "gliner2:fastino/gliner2-base-v1");
+    assert.equal(quick.gliner2.status, "ok");
+    assert.match(quick.text, /screwdriver/);
+    assert.deepEqual(quick.grounding.stepNumbers, [4]);
     assert.equal(quick.escalated, false);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
+});
+
+test("guide questions expose a visible local fallback when GLiNER 2 fails", async () => {
+  const reply = await chat("which tool for step 2?", {
+    step: 2,
+    guide: {
+      title: "Custom crate",
+      steps: [
+        {
+          number: 2,
+          body: "Fasten the side.",
+          toolRequired: "hex key",
+          partsUsed: [],
+          warnings: [],
+        },
+      ],
+    },
+    glinerInfer: async () => {
+      throw new Error("sidecar offline");
+    },
+  });
+  assert.equal(reply.backend, "local-guide-fallback");
+  assert.equal(reply.gliner2.status, "unavailable");
+  assert.match(reply.text, /GLiNER 2 unavailable/);
+  assert.match(reply.text, /hex key/);
 });
 
 test(

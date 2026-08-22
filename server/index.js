@@ -1284,7 +1284,6 @@ app.post("/api/scan/video", async (req, res) => {
   }
 });
 
-
 app.post("/api/adaptation/plan", (req, res) => {
   state.adaptation = planRoom(req.body || {});
   res.json(state.adaptation);
