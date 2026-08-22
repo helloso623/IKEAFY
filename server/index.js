@@ -197,15 +197,19 @@ app.post("/api/cables/bundle", (req, res) => {
 });
 
 app.post("/api/ikeafy/parse", async (req, res) => {
+  const images = req.body?.images || [];
+  const hasPlates = images.some((image) =>
+    String(image?.dataUrl || image?.url || "").startsWith("data:image"),
+  );
   let raw = req.body?.guide || "";
-  if (req.body?.pdfBase64) {
+  if (!hasPlates && req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
     raw = [extracted, raw].filter(Boolean).join("\n\n");
   }
   const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
-    images: req.body?.images || [],
+    images,
   });
   state.guide = guide;
   res.json(guide);

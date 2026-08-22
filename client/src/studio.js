@@ -135,19 +135,6 @@ export function initStudio({ api, hud = () => {} } = {}) {
     document.getElementById("app")?.setAttribute("data-guide-mode", state.mode);
   }
 
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const comma = result.indexOf(",");
-        resolve(comma >= 0 ? result.slice(comma + 1) : result);
-      };
-      reader.onerror = () => reject(reader.error || new Error("Could not read that PDF."));
-      reader.readAsDataURL(file);
-    });
-  }
-
   function showPdfName(file) {
     if (el.pdfName) el.pdfName.textContent = file?.name || "";
   }
@@ -386,48 +373,38 @@ export function initStudio({ api, hud = () => {} } = {}) {
     try {
       setMode("custom");
       const file = el.pdf?.files?.[0] || null;
-      const pasted = el.guide?.value || "";
-      let pdfBase64 = "";
+      const pasted = (el.guide?.value || "").trim();
       let images = [];
       if (file) {
         showPdfName(file);
         announce("Reading the PDF plates…");
-        pdfBase64 = await fileToBase64(file);
-        if (isPdfFile(file)) {
-          try {
-            const plates = await pagesFromPdf(file);
-            images = plates.images || [];
-            if (plates.text && el.guide && !pasted.trim()) el.guide.value = plates.text;
-          } catch {
-            announce("Could not rasterize the PDF plates — trying extracted text.");
-          }
+        if (!isPdfFile(file)) {
+          return fail(new Error("Drop a PDF — IKEA manuals are drawings, not plain text."));
+        }
+        try {
+          const plates = await pagesFromPdf(file);
+          images = plates.images || [];
+        } catch (error) {
+          return fail(new Error(error?.message || "Could not read that PDF as plates."));
+        }
+        if (!images.length) {
+          return fail(new Error("That PDF has no readable plates."));
         }
       }
-      if (!pasted.trim() && !pdfBase64 && !images.length) {
+      if (!pasted && !images.length) {
         announce("Drop a PDF or paste a guide first.");
         return null;
       }
-      announce("Parsing the sheet…");
-      let guideText = el.guide?.value || pasted;
-      if ((pdfBase64 || images.length) && api.parseGuide) {
-        const parsed = await api.parseGuide(guideText, el.notes?.value || "", { pdfBase64, images });
-        if (parsed?.ok === false) return fail(new Error(parsed.reason));
-        if (parsed?.raw) {
-          guideText = parsed.raw;
-          if (el.guide) el.guide.value = parsed.raw;
-        }
-      }
-      announce("Starting the run and building the reel…");
+      announce(images.length ? "Reading the plates with vision…" : "Parsing the pasted guide…");
       const view = await api.runStart({
         mode: "custom",
-        guide: guideText,
+        guide: pasted,
         instructions: el.notes?.value || "",
-        pdfBase64,
         images,
       });
       if (view.ok === false) return fail(new Error(view.reason));
       applyView(view);
-      saveCustom(guideText);
+      saveCustom(pasted);
       await renderReviews();
       await bootReel();
       setInterface("watch");

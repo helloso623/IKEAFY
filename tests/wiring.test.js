@@ -93,7 +93,12 @@ test("custom studio input is sent as-is — no invented unpack-the-photos guide"
     false,
     "studio.js must not invent a placeholder guide when the user drops photos",
   );
-  assert.match(studio, /pdfBase64|pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.match(studio, /pdf-upload/, "uploaded PDFs need to travel with parse");
+  assert.equal(
+    /plates\.text/.test(studio),
+    false,
+    "extracted PDF text must not be stuffed into the guide textarea",
+  );
 });
 
 test("electronics stays a bench feature of the main Ikeafy app", () => {
