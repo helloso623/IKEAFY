@@ -22,7 +22,9 @@ import {
   officialGuide,
   officialProducts,
   parseGuide,
+  parseGuideAsync,
   reviewsForGuide,
+  searchOfficialProducts,
   shoppingList,
   storyboardForStep,
   verifyOfficialGuide,
@@ -35,7 +37,7 @@ import {
   goBack,
   peekStep,
   skipStep,
-  startAssembly,
+  startAssemblyAsync,
   stuckOn,
 } from "./lib/assembly.js";
 import {
@@ -46,7 +48,7 @@ import {
   listFreeFittings,
 } from "./lib/fittings.js";
 import { requestSpare } from "./lib/spares.js";
-import { hasVeed, renderStepVideo } from "./lib/video.js";
+import { hasFal, renderStepVideo } from "./lib/video.js";
 import { extractPdfText } from "./lib/pdf-text.js";
 import { analyzeSketch, runSketch, sketchFromFunctions } from "./lib/firmware.js";
 import { exportPrintJob } from "./lib/printer.js";
@@ -75,17 +77,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadDotEnv(path.join(__dirname, "..", ".env"));
 
 const VIDEO_PARTNERS = {
-  veed: {
-    name: "Veed",
-    model: "veed/fabric-1.0",
+  seedance: {
+    name: "ByteDance Seedance 2.5",
+    model: "bytedance/seedance-2.5/text-to-video",
     status: "optional",
     note: "Rendered through fal.ai when FAL_KEY is set; otherwise the local canvas storyboard plays.",
   },
   fal: {
     name: "fal.ai",
     status: "optional",
-    keyed: hasVeed(),
-    note: "Set FAL_KEY to let lib/video.js call veed/fabric-1.0. Nothing leaves the machine without it.",
+    keyed: hasFal(),
+    note: "Set FAL_KEY to let lib/video.js call Seedance 2.5. Nothing leaves the machine without it.",
   },
 };
 
@@ -107,8 +109,8 @@ app.get("/api/health", (_req, res) => {
     partners: PARTNERS,
     video: {
       partners: VIDEO_PARTNERS,
-      renderer: hasVeed() ? "veed/fabric-1.0 via fal.ai" : "local-storyboard",
-      live: hasVeed(),
+      renderer: hasFal() ? "bytedance/seedance-2.5 via fal.ai" : "local-storyboard",
+      live: hasFal(),
       route: "/api/ikeafy/video/render",
       reel: "/api/ikeafy/video/reel",
     },
@@ -152,7 +154,7 @@ app.post("/api/search", (req, res) => {
   res.json({
     query: req.body?.query || "",
     results: searchParts(req.body || {}),
-    note: "List only — Tavily scrape is a later partner hook.",
+    note: "Tavily stand-in — catalog list with IKEA, Amazon and local offers. No live scrape yet.",
   });
 });
 
@@ -185,7 +187,7 @@ app.post("/api/cables/bundle", (req, res) => {
   res.json(manageBundle(req.body?.cables || state.project.cables, req.body || {}));
 });
 
-app.post("/api/ikeafy/parse", (req, res) => {
+app.post("/api/ikeafy/parse", async (req, res) => {
   let raw = req.body?.guide || "";
   if (req.body?.pdfBase64) {
     const extracted = extractPdfText(Buffer.from(String(req.body.pdfBase64), "base64"));
@@ -197,9 +199,10 @@ app.post("/api/ikeafy/parse", (req, res) => {
       });
     }
   }
-  const guide = parseGuide(raw, {
+  const guide = await parseGuideAsync(raw, {
     instructions: req.body?.instructions || "",
     availableTools: req.body?.availableTools || [],
+    images: req.body?.images || [],
   });
   state.guide = guide;
   res.json(guide);
@@ -215,8 +218,12 @@ app.get("/api/ikeafy/official", (req, res) => {
   res.json(guide);
 });
 
-app.get("/api/ikeafy/official/products", (_req, res) => {
-  res.json({ products: officialProducts(), locked: true, policy: SPARES_POLICY.free });
+app.get("/api/ikeafy/official/products", (req, res) => {
+  res.json({
+    products: searchOfficialProducts(req.query.q || ""),
+    locked: true,
+    policy: SPARES_POLICY.free,
+  });
 });
 
 app.post("/api/ikeafy/official/verify", (req, res) => {
@@ -241,14 +248,16 @@ app.post("/api/ikeafy/video", (req, res) => {
 
 app.post("/api/ikeafy/video/render", async (req, res) => {
   const body = req.body || {};
+  const stored = body.runId ? getAssembly(body.runId) : null;
   const guide = guideForVideo(body);
-  const stepNumber = Number(body.stepNumber ?? body.step ?? 1);
+  const stepNumber = Number(body.stepNumber ?? body.step ?? stored?.cursor ?? 1);
   try {
     const result = await renderStepVideo({
       guide,
       stepNumber,
-      imageDataUrl: body.imageDataUrl,
+      extra: body.instructions || body.extra || "",
     });
+    if (stored?.guide) state.guide = stored.guide;
     res.json({
       ok: true,
       stepNumber,
@@ -356,8 +365,11 @@ app.post(["/api/spares/request", "/api/ikeafy/spare"], (req, res) => {
  * Assembly runs. The client can draw whatever buttons it likes: the cursor,
  * the confirmations and the refusals all live here.
  */
-app.post("/api/assembly/start", (req, res) => {
-  const result = startAssembly(req.body || {});
+app.post("/api/assembly/start", async (req, res) => {
+  const result = await startAssemblyAsync(req.body || {});
+  if (result.ok && getAssembly(result.run?.id)?.guide) {
+    state.guide = getAssembly(result.run.id).guide;
+  }
   res.status(result.ok ? 200 : 400).json(result);
 });
 

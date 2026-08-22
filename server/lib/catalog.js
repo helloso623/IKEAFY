@@ -628,6 +628,41 @@ export function searchParts({
   }));
 }
 
+export function retailerOffers(part) {
+  if (!part) return { partner: "tavily-standin", offers: [] };
+  const q = encodeURIComponent(part.name);
+  const offers = [
+    {
+      store: part.store || "Catalog",
+      url: part.storeUrl || `https://www.ikea.com/search?q=${q}`,
+      price: part.cost,
+      primary: true,
+    },
+  ];
+  if (part.store !== "Amazon") {
+    offers.push({
+      store: "Amazon",
+      url: `https://www.amazon.com/s?k=${q}`,
+      price: Number(((Number(part.cost) || 0) * 1.08).toFixed(2)),
+    });
+  }
+  if (part.store !== "IKEA") {
+    offers.push({
+      store: "IKEA",
+      url: `https://www.ikea.com/search?q=${encodeURIComponent(part.ikeaArticle || part.name)}`,
+      price: part.ikeaArticle ? part.cost : null,
+      note: part.ikeaArticle ? null : "Search — may not be an IKEA part",
+    });
+  }
+  offers.push({
+    store: "Hardware / local",
+    url: `https://www.google.com/search?q=${q}+buy`,
+    price: null,
+    note: "Compare nearby",
+  });
+  return { partner: "tavily-standin", offers };
+}
+
 export function cheaperAlternatives(partId, { maxCost } = {}) {
   const part = getPart(partId);
   if (!part) return [];
@@ -666,6 +701,12 @@ export function bomFromIds(ids, { kit = "lack-kit" } = {}) {
         included: (part.includedIn || []).includes(kit) || part.cost === 0,
         extra: Boolean(part.extra) || !(part.includedIn || []).includes(kit),
         category: part.category,
+        color: part.color,
+        texture: part.texture,
+        badge: (part.includedIn || []).includes(kit) || part.cost === 0 ? "included" : "to purchase",
+        picture: { color: part.color, texture: part.texture },
+        retailers:
+          (part.includedIn || []).includes(kit) || part.cost === 0 ? [] : retailerOffers(part).offers,
       });
     }
   }
@@ -676,7 +717,7 @@ export function bomFromIds(ids, { kit = "lack-kit" } = {}) {
 }
 
 export const PARTNERS = {
-  video: { name: "Veed", status: "proposed", used: false, note: "Local storyboard player stands in for Veed." },
+  video: { name: "ByteDance Seedance 2.5", status: "proposed", used: false, note: "Local storyboard player stands in until FAL_KEY is set." },
   parser: { name: "Pioneer / GLiNER 2", status: "proposed", used: false, note: "Deterministic guide parser stands in." },
-  search: { name: "Tavily", status: "proposed", used: false, note: "Catalog list only — no live scrape yet." },
+  search: { name: "Tavily", status: "proposed", used: false, note: "Catalog list with multi-store offers — no live scrape yet." },
 };

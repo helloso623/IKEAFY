@@ -77,6 +77,37 @@ test("the css does not hide the custom guide inputs while the studio is open", (
   assert.equal(guideHidden, false, "a blanket display:none on #guide-in kills the custom guide");
 });
 
+test("the studio starts on input, then progress, then instruction/material results", () => {
+  assert.match(html, /data-studio-view="input"/);
+  assert.match(html, /id="studio-input"/);
+  assert.match(html, /id="studio-progress"/);
+  assert.match(html, /id="product-search"/);
+  assert.match(html, /id="guide-drop"/);
+  assert.match(html, /id="tab-instructions"/);
+  assert.match(html, /id="tab-material"/);
+  assert.match(html, /id="step-scheme"/);
+  assert.match(html, /id="see-guide"/);
+  assert.match(html, /id="film-video"/);
+});
+
+test("custom studio input is sent as-is — no invented unpack-the-photos guide", () => {
+  assert.equal(
+    /Unpack the pieces in the photos/.test(studio),
+    false,
+    "studio.js must not invent a placeholder guide when the user drops photos",
+  );
+  assert.match(studio, /images/, "dropped photos need to travel with runStart");
+});
+
+test("electronics stays a bench feature of the main Ikeafy app", () => {
+  assert.equal(/data-mode="electronics"/.test(html), false);
+  const modes = html.slice(html.indexOf('id="modes"'), html.indexOf("</nav>"));
+  assert.match(modes, /data-mode="ikeafy"/);
+  assert.match(modes, /data-mode="bench"/);
+  assert.match(modes, /data-mode="house"/);
+  assert.match(html, /id="electronics-only"[^>]*electronics-chrome/);
+});
+
 test("bench chrome is driven by one class the server can switch off", () => {
   assert.match(html, /class="[^"]*electronics-chrome/, "electronics controls need the shared class");
   assert.match(main, /electronics-chrome/, "main.js must toggle the electronics chrome");
@@ -103,6 +134,9 @@ test("the workshop is the app — no leftover Next store", () => {
   assert.equal(existsSync(path.join(root, "src/app")), false, "src/app is the old Next store");
   assert.equal(existsSync(path.join(root, "next.config.mjs")), false);
   assert.equal(existsSync(path.join(root, "tsconfig.json")), false);
+  assert.equal(existsSync(path.join(root, ".next")), false, ".next is leftover Next build output");
+  assert.equal(existsSync(path.join(root, "next-env.d.ts")), false);
+  assert.doesNotMatch(read(".gitignore"), /next-env\.d\.ts|\.next/, "gitignore should not reserve Next files");
 });
 
 test("empty inspect is quiet — no ports, no Arduino", () => {

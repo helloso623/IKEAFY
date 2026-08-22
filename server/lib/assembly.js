@@ -8,7 +8,7 @@
  * behind a disabled button that a devtools user can re-enable.
  */
 
-import { expandStep, officialGuide, parseGuide } from "./ikeafy.js";
+import { expandStep, officialGuide, parseGuide, parseGuideAsync } from "./ikeafy.js";
 import { fittingsForStep } from "./fittings.js";
 import { extractPdfText } from "./pdf-text.js";
 
@@ -67,6 +67,35 @@ export function startAssembly({
     }
     guide = parseGuide(text, { instructions, availableTools });
   }
+  return beginRun(mode, guide);
+}
+
+export async function startAssemblyAsync({
+  mode = "official",
+  article = null,
+  guide: rawGuide = "",
+  instructions = "",
+  availableTools = [],
+  images = [],
+} = {}) {
+  if (mode === "official") {
+    return startAssembly({ mode, article, instructions, availableTools });
+  }
+  const guide = await parseGuideAsync(rawGuide, { instructions, availableTools, images });
+  if (!guide?.steps?.length) {
+    const photoOnly = images.length && !String(rawGuide || "").trim();
+    return {
+      ok: false,
+      reason: photoOnly
+        ? "Could not read those photos into steps. Paste the guide as text, or check the OpenAI key."
+        : "That guide has no steps.",
+    };
+  }
+  return beginRun("custom", guide);
+}
+
+function beginRun(mode, guide) {
+  if (guide?.ok === false) return guide;
   if (!guide?.steps?.length) return { ok: false, reason: "That guide has no steps." };
 
   const run = {

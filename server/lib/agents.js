@@ -89,6 +89,10 @@ const CATALOG_ASK =
 const STEP_LOCK = /\b(step\s+\d+|i'?m stuck|spare|allen key|cam lock|guide|manual|assemble|this step)\b/i;
 const ELECTRONICS_ASK =
   /arduino|nano|esp32|led|firmware|sketch|pin\b|board|circuit|usb|header|button|lamp|light|wire|cable/i;
+const SMALL_QUESTION =
+  /^(where|what|which|how many|do i|is the|can i|which tool|what tool|what part|included|in the box|this step|allen|screw|dowel|leg|top)\b/i;
+const COMPLEX_QUESTION =
+  /fix|broken|regenerate|redesign|calculate|rewrite|rebuild|why (is|does|did)|stuck for|explain how to|design a|optim/i;
 
 function isCatalogAsk(text) {
   return CATALOG_ASK.test(text) || PART_HINTS.test(text);
@@ -109,6 +113,14 @@ function catalogNeedle(message) {
     .replace(/\$?\d+(?:\.\d+)?/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function shouldEscalate(message) {
+  const text = String(message || "").trim();
+  if (!text) return false;
+  if (COMPLEX_QUESTION.test(text) || text.length > 180) return true;
+  if (text.length < 110 && (SMALL_QUESTION.test(text) || IKEA_HINTS.test(text))) return false;
+  return text.length > 140;
 }
 
 export function routeAgent(text) {
@@ -253,13 +265,19 @@ async function hostedReply(message, ctx, agent) {
 
 export async function chat(message, ctx = {}) {
   const agent = routeAgent(message);
-  try {
-    const hosted = await hostedReply(message, ctx, agent);
-    if (hosted) return hosted;
-  } catch {
-    // fall through to local steward — never leak key errors
+  const escalate = shouldEscalate(message);
+  if (escalate) {
+    try {
+      const hosted = await hostedReply(message, ctx, agent);
+      if (hosted) return { ...hosted, escalated: true, from: "gliner-2-standin" };
+    } catch {
+      // fall through to local steward — never leak key errors
+    }
   }
-  return localReply(message, ctx);
+  const local = localReply(message, ctx);
+  const ikeaSmall = !escalate && (agent.id === "assembler" || IKEA_HINTS.test(message));
+  if (ikeaSmall) return { ...local, backend: "gliner-2-standin", escalated: false };
+  return local;
 }
 
 export function hasHostedBrain() {

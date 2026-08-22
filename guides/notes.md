@@ -4,8 +4,8 @@ These names are reserved in the API health payload. Nothing is called yet.
 
 | Partner | Intended job | What runs now |
 | --- | --- | --- |
-| Veed | Step videos | Local birch-workshop storyboard |
+| ByteDance Seedance 2.5 | Step videos | Local birch-workshop storyboard until `FAL_KEY` is set |
 | Pioneer / GLiNER 2 | Guide → JSON steps | Deterministic parser in `server/lib/ikeafy.js` |
-| Tavily | Web parts + extra tools | Catalog list with store URLs |
+| Tavily | Web parts + extra tools | Catalog list with IKEA / Amazon / local offers |
 
 Fine-tune target for the parser: `{ number, partsUsed, action, toolRequired }`.
