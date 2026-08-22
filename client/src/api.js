@@ -1,3 +1,12 @@
+/** Short interactive calls (health, chat, confirm). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * Seedance waits on the server up to DEFAULT_FAL_TIMEOUT_MS (15 min).
+ * Keep the browser fetch at least that long, plus slack for HTTP overhead,
+ * so the UI cannot show "AI request timed out" while fal is still polling.
+ */
+export const FAL_VIDEO_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
+
 export function apiRoot(loc = globalThis.location) {
   const explicit = String(globalThis.__IKEALIVE_API_ORIGIN__ || "").trim().replace(/\/+$/, "");
   if (explicit) return explicit;
@@ -10,13 +19,16 @@ export function apiRoot(loc = globalThis.location) {
 }
 
 async function req(url, opts = {}) {
-  const controller = opts.signal ? null : new AbortController();
-  const timeout = controller ? setTimeout(() => controller.abort(), 30_000) : null;
-  const { headers, ...requestOptions } = opts;
+  const { headers, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, signal: externalSignal, ...requestOptions } = opts;
+  // Caller-owned signals (e.g. cancel parse) skip the default abort timer.
+  const controller = externalSignal ? null : new AbortController();
+  const ms = Number(timeoutMs);
+  const applyTimeout = Boolean(controller) && Number.isFinite(ms) && ms > 0;
+  const timeout = applyTimeout ? setTimeout(() => controller.abort(), ms) : null;
   try {
     const res = await fetch(`${apiRoot()}${url}`, {
       ...requestOptions,
-      signal: opts.signal || controller?.signal,
+      signal: externalSignal || controller?.signal,
       headers: { "Content-Type": "application/json", ...headers },
     });
     const text = await res.text();
@@ -99,8 +111,10 @@ export const api = {
   defaultGuide: () => req("/api/ikeafy/default"),
   expand: (step, note) => post("/api/ikeafy/expand", { step, note }),
   video: (body = {}) => post("/api/ikeafy/video", body),
-  renderVideo: (body = {}) => post("/api/ikeafy/video/render", body),
-  renderReel: (body = {}) => post("/api/ikeafy/video/reel", body),
+  renderVideo: (body = {}, opts = {}) =>
+    post("/api/ikeafy/video/render", body, { timeoutMs: FAL_VIDEO_REQUEST_TIMEOUT_MS, ...opts }),
+  renderReel: (body = {}, opts = {}) =>
+    post("/api/ikeafy/video/reel", body, { timeoutMs: FAL_VIDEO_REQUEST_TIMEOUT_MS, ...opts }),
   renderImage: (body = {}) => post("/api/ikeafy/image/render", body),
   renderScene: (body = {}) => post("/api/ikeafy/scene/render", body),
   render: (body = {}) => post("/api/ikeafy/render", body),

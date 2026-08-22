@@ -132,6 +132,10 @@ test("IKEAlive starts on PDF upload and plays a Seedance reel on watch", () => {
   assert.match(studio, /bom\.owned|You have this/);
   const showClip = studio.slice(studio.indexOf("function showClip"), studio.indexOf("function finishClip"));
   assert.equal(/drawFrame\(/.test(showClip), false, "watch film must be Seedance MP4, not the canvas table");
+  assert.match(apiSource, /FAL_VIDEO_REQUEST_TIMEOUT_MS/);
+  assert.match(apiSource, /timeoutMs:\s*FAL_VIDEO_REQUEST_TIMEOUT_MS/);
+  const vite = read("client/vite.config.js");
+  assert.match(vite, /proxyTimeout:\s*0/, "Vite must not cut Seedance /api sockets early");
 });
 
 test("image instructions render Nano Banana 2 stills in the film stage", () => {
