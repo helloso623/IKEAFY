@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+.vite/
+coverage/
+tmp/
+*.stl
+uploads/
+client/public/generated/
