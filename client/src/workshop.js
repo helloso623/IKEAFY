@@ -992,7 +992,10 @@ export function createWorkshop(canvas) {
       if (!quiet) onSelect(null);
       return false;
     }
-    transform.attach(mesh);
+    // Select is Blender's cursor tool: the body is picked and outlined,
+    // but no transform gizmo lands on it.
+    if (editMode === "select") transform.detach();
+    else transform.attach(mesh);
     markSelected(mesh);
     if (!quiet) onSelect(mesh.userData);
     return true;
@@ -1157,7 +1160,7 @@ export function createWorkshop(canvas) {
     clearJoint();
     cadTool = next || null;
     orbit.enabled = cadTool !== "sketch-rect" && cadTool !== "sketch-circle";
-    if (cadTool) transform.detach();
+    if (cadTool || editMode === "select") transform.detach();
     else if (selected) transform.attach(selected);
     for (const btn of document.querySelectorAll("[data-cad-tool]")) {
       btn.classList.toggle("on", Boolean(cadTool) && btn.dataset.cadTool === cadTool);
@@ -1868,10 +1871,15 @@ export function createWorkshop(canvas) {
     setCadTool,
     getCadTool: () => cadTool,
     setMode: (mode) => {
-      if (!["translate", "rotate", "scale"].includes(mode)) return editMode;
+      if (!["select", "translate", "rotate", "scale"].includes(mode)) return editMode;
       if (cadTool) setCadTool(null);
       editMode = mode;
-      transform.setMode(mode);
+      if (mode === "select") {
+        transform.detach();
+      } else {
+        transform.setMode(mode);
+        if (selected) transform.attach(selected);
+      }
       return editMode;
     },
     getMode: () => editMode,

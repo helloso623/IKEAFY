@@ -217,12 +217,21 @@
       </aside>
 
       <!-- ============ LAB — left browser (catalog / bodies) ============ -->
-      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Browser">
+      <aside class="rail left lab-browser hidden" data-pane="lab" aria-label="Outliner">
         <header class="lab-pane-head">
-          <span class="lab-pane-kicker">Browser</span>
-          <strong class="lab-pane-title">Catalog / Bodies / Room</strong>
+          <span class="lab-pane-kicker">Outliner</span>
+          <strong class="lab-pane-title">Scene Collection</strong>
         </header>
         <div class="pane bench-nav lab-tree">
+          <details class="lab-folder" open>
+            <summary class="lab-folder-sum">
+              <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
+              Bodies
+            </summary>
+            <div class="lab-folder-body">
+              <div id="bench-pieces" class="list thin lab-body-list"></div>
+            </div>
+          </details>
           <details class="lab-folder catalog-panel" open>
             <summary class="lab-folder-sum">
               <span class="lab-swatch lab-swatch-lib" aria-hidden="true"></span>
@@ -237,15 +246,6 @@
               <div id="catalog-well" class="well scroll samples lab-well">
                 <div id="catalog" class="list samples"></div>
               </div>
-            </div>
-          </details>
-          <details class="lab-folder" open>
-            <summary class="lab-folder-sum">
-              <span class="lab-swatch lab-swatch-body" aria-hidden="true"></span>
-              Bodies
-            </summary>
-            <div class="lab-folder-body">
-              <div id="bench-pieces" class="list thin lab-body-list"></div>
             </div>
           </details>
           <details class="lab-folder" id="lab-room" open>
@@ -282,41 +282,44 @@
       </aside>
 
       <div class="lab-viewport" aria-hidden="true">
-        <div class="lab-view-bar">
-          <div class="lab-view-tools" id="edit-tools">
-            <button type="button" class="lab-tool on" data-edit="translate">Move</button>
-            <button type="button" class="lab-tool" data-edit="rotate">Rotate</button>
-            <button type="button" class="lab-tool" data-edit="scale">Scale</button>
-            <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool on" data-snap aria-pressed="true">Snap</button>
-            <button type="button" class="lab-tool" data-duplicate>Duplicate</button>
-            <button type="button" class="lab-tool" data-undo disabled>Undo</button>
-            <button type="button" class="lab-tool" data-redo disabled>Redo</button>
-            <span class="lab-tool-rule"></span>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build">Sketch ▭</button>
-            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build">Sketch ◯</button>
-            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to">Joint</button>
-          </div>
-          <div class="lab-view-meta">
-            <span class="lab-proj">Perspective</span>
-            <label class="lab-theme">
-              <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
-              Light
-            </label>
+        <div id="edit-tools" class="lab-vp-chrome">
+          <header class="lab-header">
+            <div class="lab-header-cell">
+              <span class="lab-mode-chip">Object Mode</span>
+              <span class="lab-tool-rule"></span>
+              <button type="button" class="lab-menu" data-duplicate>Duplicate</button>
+              <button type="button" class="lab-menu" data-undo disabled>Undo</button>
+              <button type="button" class="lab-menu" data-redo disabled>Redo</button>
+            </div>
+            <div class="lab-header-cell">
+              <button type="button" class="lab-magnet on" data-snap aria-pressed="true" title="Snap to 10 mm / 15°">Snap</button>
+              <span class="lab-tool-rule"></span>
+              <span class="lab-proj">User Perspective</span>
+            </div>
+          </header>
+          <div class="lab-toolbar" role="toolbar" aria-label="Select, move, rotate, scale and sketch tools">
+            <button type="button" class="lab-tool" data-edit="select" title="Select (Q)"><i class="lab-ico lab-ico-select">➤</i></button>
+            <button type="button" class="lab-tool on" data-edit="translate" title="Move (G)"><i class="lab-ico">✥</i></button>
+            <button type="button" class="lab-tool" data-edit="rotate" title="Rotate (R)"><i class="lab-ico">↻</i></button>
+            <button type="button" class="lab-tool" data-edit="scale" title="Scale (S)"><i class="lab-ico">⤢</i></button>
+            <span class="lab-tool-gap"></span>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-rect" title="Sketch a rectangle on the bench, pull it up, click to build"><i class="lab-ico">▭</i></button>
+            <button type="button" class="lab-tool" data-cad-tool="sketch-circle" title="Sketch a circle on the bench, pull it up, click to build"><i class="lab-ico">◯</i></button>
+            <button type="button" class="lab-tool" data-cad-tool="joint" title="Joint: click the piece to move, then the piece to mate it to"><i class="lab-ico">⚭</i></button>
           </div>
         </div>
-        <div class="lab-viewcube">
-          <span class="lab-cube-top">TOP</span>
-          <span class="lab-cube-front">FRONT</span>
-          <span class="lab-cube-right">RIGHT</span>
-        </div>
-        <div class="lab-axis">
-          <i class="lab-ax lab-ax-x">X</i>
-          <i class="lab-ax lab-ax-y">Y</i>
-          <i class="lab-ax lab-ax-z">Z</i>
+        <div class="lab-gizmo" id="lab-gizmo" aria-label="Snap the view to an axis">
+          <button type="button" class="lab-gz lab-gz-z" data-view="z" title="Top view">Z</button>
+          <button type="button" class="lab-gz lab-gz-y" data-view="y" title="Front view">Y</button>
+          <button type="button" class="lab-gz lab-gz-x" data-view="x" title="Right view">X</button>
+          <button type="button" class="lab-gz lab-gz-neg lab-gz-nz" data-view="-z" title="Bottom view"></button>
+          <button type="button" class="lab-gz lab-gz-neg lab-gz-ny" data-view="-y" title="Back view"></button>
+          <button type="button" class="lab-gz lab-gz-neg lab-gz-nx" data-view="-x" title="Left view"></button>
+          <button type="button" class="lab-gz-home" data-view="home" title="Frame the bench (F)">⌂</button>
         </div>
         <div class="lab-status">
-          <span>Ready</span>
+          <span id="lab-mode-flag">Tool · Move</span>
+          <span id="lab-count">0 bodies</span>
           <span>Grid 10 mm</span>
           <span id="snap-flag">Snap on</span>
           <span>Units mm</span>
@@ -337,6 +340,28 @@
                 <span class="lab-param-key">Selection</span>
                 <div id="inspect" class="copy lab-param-val">Nothing selected.</div>
               </div>
+              <div id="lab-props" class="lab-props" aria-label="Transform and dimensions">
+                <span class="lab-props-head">Transform</span>
+                <div class="lab-props-grid">
+                  <span class="lab-prop-key">Location</span>
+                  <label class="lab-prop"><i class="lab-prop-x">X</i><input type="number" step="1" data-prop="x" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-y">Y</i><input type="number" step="1" data-prop="y" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-z">Z</i><input type="number" step="1" data-prop="z" disabled /></label>
+                  <span class="lab-prop-key">Rotation</span>
+                  <label class="lab-prop"><i class="lab-prop-x">X</i><input type="number" step="5" data-prop="rx" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-y">Y</i><input type="number" step="5" data-prop="ry" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-z">Z</i><input type="number" step="5" data-prop="rz" disabled /></label>
+                  <span class="lab-prop-key">Scale</span>
+                  <label class="lab-prop"><i class="lab-prop-x">X</i><input type="number" step="0.1" min="0.05" data-prop="sx" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-y">Y</i><input type="number" step="0.1" min="0.05" data-prop="sy" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-z">Z</i><input type="number" step="0.1" min="0.05" data-prop="sz" disabled /></label>
+                  <span class="lab-prop-key">Dimensions</span>
+                  <label class="lab-prop"><i class="lab-prop-x">X</i><input type="number" step="1" min="1" data-dim="x" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-y">Y</i><input type="number" step="1" min="1" data-dim="y" disabled /></label>
+                  <label class="lab-prop"><i class="lab-prop-z">Z</i><input type="number" step="1" min="1" data-dim="z" disabled /></label>
+                </div>
+                <p class="hint lab-hint lab-props-note">Location and dimensions in mm · rotation in degrees.</p>
+              </div>
               <div id="edit-bar" class="edit-bar">
                 <div class="row wrap">
                   <button type="button" id="edit-move" data-edit="translate" class="on">Move</button>
@@ -352,12 +377,7 @@
                   <button type="button" id="undo-edit" disabled>Undo</button>
                   <button type="button" id="redo-edit" disabled>Redo</button>
                 </div>
-                <div class="row wrap" aria-label="Lab CAD tools">
-                  <button type="button" data-cad-tool="sketch-rect">Sketch rect</button>
-                  <button type="button" data-cad-tool="sketch-circle">Sketch circle</button>
-                  <button type="button" data-cad-tool="joint">Joint</button>
-                </div>
-                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. G move, R rotate, S scale.</p>
+                <p class="hint lab-hint" id="edit-pose">Click a piece to move it. Q select, G move, R rotate, S scale.</p>
               </div>
             </div>
           </details>

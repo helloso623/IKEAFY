@@ -1262,13 +1262,14 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 
 /* ============================================================
-   Lab CAD chrome — KiCad browser + Fusion viewport + inspector.
-   Scoped to .lab-* so IKEAlive upload/watch and Finley cards stay put.
+   Lab CAD chrome — Blender-style outliner + viewport + properties.
+   The --lab-* tokens live on #app so the viewport overlays (timeline,
+   net strip, HUD) can read them, but every rule is scoped to .lab-* or
+   #app.mode-lab, so IKEAlive upload/watch and Finley cards stay put.
+   Dark CAD only — the bench does not follow the OS light scheme.
    ============================================================ */
 
-.lab-browser,
-.lab-inspector,
-.lab-viewport {
+#app {
   --lab-bg: #1b1f26;
   --lab-panel: #232833;
   --lab-raised: #2c3340;
@@ -1285,53 +1286,12 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   --lab-radius: 3px;
   --lab-ui: "DM Sans", system-ui, sans-serif;
   --lab-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.lab-browser,
+.lab-inspector,
+.lab-viewport {
   color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  .lab-browser,
-  .lab-inspector,
-  .lab-viewport {
-    --lab-bg: #e8eaef;
-    --lab-panel: #f4f5f8;
-    --lab-raised: #ffffff;
-    --lab-line: #c8ced8;
-    --lab-ink: #1b1f26;
-    --lab-soft: #5b6473;
-    --lab-faint: #7b8494;
-    --lab-accent: #1569c7;
-    color-scheme: light;
-  }
-}
-
-#app:has(.lab-theme-toggle:checked) .lab-browser,
-#app:has(.lab-theme-toggle:checked) .lab-inspector,
-#app:has(.lab-theme-toggle:checked) .lab-viewport {
-  --lab-bg: #e8eaef;
-  --lab-panel: #f4f5f8;
-  --lab-raised: #ffffff;
-  --lab-line: #c8ced8;
-  --lab-ink: #1b1f26;
-  --lab-soft: #5b6473;
-  --lab-faint: #7b8494;
-  --lab-accent: #1569c7;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: light) {
-  #app:has(.lab-theme-toggle:checked) .lab-browser,
-  #app:has(.lab-theme-toggle:checked) .lab-inspector,
-  #app:has(.lab-theme-toggle:checked) .lab-viewport {
-    --lab-bg: #1b1f26;
-    --lab-panel: #232833;
-    --lab-raised: #2c3340;
-    --lab-line: #3c4454;
-    --lab-ink: #e7ebf2;
-    --lab-soft: #9aa3b5;
-    --lab-faint: #6d7688;
-    --lab-accent: #3d9cf0;
-    color-scheme: dark;
-  }
 }
 
 .rail.lab-browser,
@@ -1589,6 +1549,47 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   color: var(--lab-soft);
 }
 
+/* Outliner rows — one body per line, the mesh glyph in front, delete on
+   the right, the selected body lit the way Blender lights active rows. */
+.lab-body-list .item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.3rem 0.3rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--lab-line) 55%, transparent);
+  cursor: pointer;
+}
+
+.lab-body-list .item.on {
+  background: color-mix(in srgb, var(--lab-accent) 24%, transparent);
+}
+
+.lab-node-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-node-ico {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--lab-accent-2);
+  flex: none;
+}
+
+.lab-body-list .item small[data-drop] {
+  cursor: pointer;
+  color: var(--lab-faint);
+  flex: none;
+}
+
+.lab-body-list .item small[data-drop]:hover { color: var(--lab-x); }
+
 .lab-param-grid {
   display: grid;
   grid-template-columns: 5.4rem 1fr;
@@ -1612,6 +1613,72 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   font-size: 11px;
   white-space: pre-wrap;
 }
+
+/* Properties — the N-panel: editable Location / Rotation / Scale rows plus
+   Dimensions, which write back through api.move on change. */
+.lab-props {
+  margin: 0 0 0.6rem;
+  padding: 0.45rem 0.5rem 0.35rem;
+  background: var(--lab-panel);
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+}
+
+.lab-props-head {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-family: var(--lab-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lab-faint);
+}
+
+.lab-props-grid {
+  display: grid;
+  grid-template-columns: 4.4rem repeat(3, 1fr);
+  gap: 0.25rem 0.3rem;
+  align-items: center;
+}
+
+.lab-prop-key {
+  font-family: var(--lab-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lab-soft);
+}
+
+.lab-prop {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.lab-prop i {
+  font-style: normal;
+  font-family: var(--lab-mono);
+  font-size: 9px;
+  font-weight: 600;
+  flex: none;
+}
+
+.lab-prop-x { color: var(--lab-x); }
+.lab-prop-y { color: var(--lab-y); }
+.lab-prop-z { color: var(--lab-z); }
+
+.lab-inspector .lab-props input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.2rem 0.28rem;
+  font-family: var(--lab-mono);
+  font-size: 10px;
+}
+
+.lab-props input:disabled { opacity: 0.45; }
+
+.lab-props-note { margin: 0.35rem 0 0; font-size: 9px; }
 
 .lab-actions { margin: 0 0 0.2rem; }
 
@@ -1667,28 +1734,86 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   background: #14181e;
 }
 
-.lab-view-bar,
+/* The Blender viewport: a header strip across the top (mode chip, edit
+   history, the snap magnet, projection label), a vertical tool column on
+   the left (select / move / rotate / scale, then sketch and joint), the
+   navigation gizmo top-right, and a status bar along the bottom. */
+
+.lab-vp-chrome { display: contents; }
+
+.lab-header,
 .lab-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
   pointer-events: none;
-  background: color-mix(in srgb, var(--lab-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--lab-bg) 92%, transparent);
   border-color: var(--lab-line);
   color: var(--lab-ink);
   font-family: var(--lab-ui);
   font-size: 11px;
 }
 
-.lab-view-bar {
-  padding: 0.28rem 0.45rem;
+.lab-header {
+  padding: 0.26rem 0.5rem;
   border-bottom: 1px solid var(--lab-line);
+  pointer-events: auto;
 }
+
+.lab-header-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.lab-mode-chip {
+  padding: 0.15rem 0.55rem;
+  background: var(--lab-raised);
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.lab-menu,
+.lab-magnet {
+  padding: 0.18rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: var(--lab-radius);
+  color: var(--lab-soft);
+  font-weight: 500;
+  font-size: 11px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lab-menu:hover,
+.lab-magnet:hover { color: var(--lab-ink); background: var(--lab-raised); }
+
+.lab-menu:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lab-magnet::before {
+  content: "⌗ ";
+  color: var(--lab-faint);
+}
+
+.lab-magnet.on {
+  background: var(--lab-accent);
+  border-color: var(--lab-accent);
+  color: #fff;
+}
+
+.lab-magnet.on::before { color: rgba(255, 255, 255, 0.75); }
 
 .lab-status {
   padding: 0.2rem 0.55rem;
   border-top: 1px solid var(--lab-line);
+  justify-content: flex-start;
   color: var(--lab-soft);
   font-family: var(--lab-mono);
   font-size: 10px;
@@ -1700,26 +1825,40 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   color: var(--lab-faint);
 }
 
-.lab-view-tools,
-.lab-view-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-}
+.lab-status span:last-child { margin-left: auto; }
 
-.lab-view-tools {
+.lab-toolbar {
+  position: absolute;
+  top: 2.6rem;
+  left: 0.55rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
   pointer-events: auto;
+  background: color-mix(in srgb, var(--lab-panel) 94%, transparent);
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
 .lab-tool {
-  padding: 0.18rem 0.45rem;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--lab-radius);
   color: var(--lab-soft);
-  font-weight: 500;
+  font-size: 14px;
   background: transparent;
   cursor: pointer;
 }
+
+.lab-tool:hover { color: var(--lab-ink); background: var(--lab-raised); }
 
 .lab-tool:disabled {
   opacity: 0.4;
@@ -1727,9 +1866,18 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 
 .lab-tool.on {
-  background: var(--lab-raised);
-  border-color: var(--lab-line);
-  color: var(--lab-ink);
+  background: var(--lab-accent);
+  border-color: var(--lab-accent);
+  color: #fff;
+}
+
+.lab-ico { font-style: normal; line-height: 1; }
+.lab-ico-select { display: inline-block; transform: rotate(-65deg); font-size: 12px; }
+
+.lab-tool-gap {
+  height: 1px;
+  margin: 2px 3px;
+  background: var(--lab-line);
 }
 
 .lab-tool-rule {
@@ -1743,71 +1891,69 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   font-family: var(--lab-mono);
   font-size: 10px;
   color: var(--lab-faint);
-  margin-right: 0.45rem;
+  margin-right: 0.2rem;
 }
 
-.lab-theme {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  pointer-events: auto;
-  color: var(--lab-soft);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.lab-viewcube {
+/* Navigation gizmo — the Blender axis ball: X/Y/Z orbs snap the camera to
+   right / front / top, the hollow ones to the opposite side, ⌂ reframes. */
+.lab-gizmo {
   position: absolute;
-  top: 2.35rem;
+  top: 2.6rem;
   right: 0.7rem;
-  width: 4.4rem;
-  height: 4.4rem;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 1px;
-  background: var(--lab-line);
-  border: 1px solid var(--lab-line);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  width: 4.6rem;
+  height: 4.6rem;
+  pointer-events: auto;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lab-panel) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lab-line) 70%, transparent);
 }
 
-.lab-cube-top,
-.lab-cube-front,
-.lab-cube-right {
+.lab-gz,
+.lab-gz-home {
+  position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--lab-raised);
-  color: var(--lab-soft);
+  border: 0;
+  cursor: pointer;
   font-family: var(--lab-mono);
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-}
-
-.lab-cube-top { grid-column: 1 / -1; background: #3a414e; color: #d7dde8; }
-.lab-cube-front { background: #2a313c; }
-.lab-cube-right { background: #323946; }
-
-.lab-axis {
-  position: absolute;
-  left: 0.7rem;
-  bottom: 1.7rem;
-  display: flex;
-  gap: 0.35rem;
-  font-family: var(--lab-mono);
-  font-size: 10px;
-  font-style: normal;
   font-weight: 600;
+  color: #10131a;
 }
 
-.lab-ax { padding: 0 0.15rem; }
-.lab-ax-x { color: var(--lab-x); }
-.lab-ax-y { color: var(--lab-y); }
-.lab-ax-z { color: var(--lab-z); }
+.lab-gz {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  font-size: 9px;
+  transform: translate(-50%, -50%);
+}
+
+.lab-gz:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--lab-ink) 40%, transparent); }
+
+.lab-gz-x { left: 82%; top: 50%; background: var(--lab-x); }
+.lab-gz-y { left: 28%; top: 74%; background: var(--lab-y); }
+.lab-gz-z { left: 50%; top: 16%; background: var(--lab-z); }
+
+.lab-gz-neg { background: var(--lab-raised); }
+.lab-gz-nx { left: 18%; top: 50%; box-shadow: inset 0 0 0 2px var(--lab-x); }
+.lab-gz-ny { left: 72%; top: 26%; box-shadow: inset 0 0 0 2px var(--lab-y); }
+.lab-gz-nz { left: 50%; top: 84%; box-shadow: inset 0 0 0 2px var(--lab-z); }
+
+.lab-gz-home {
+  left: 50%;
+  top: calc(100% + 0.35rem);
+  transform: translateX(-50%);
+  width: 1.5rem;
+  height: 1.3rem;
+  border-radius: var(--lab-radius);
+  background: var(--lab-raised);
+  border: 1px solid var(--lab-line);
+  color: var(--lab-soft);
+  font-size: 11px;
+}
+
+.lab-gz-home:hover { color: var(--lab-ink); background: var(--lab-panel); }
 
 #app.mode-lab .lab-link,
 #app.mode-bench .lab-link,
@@ -1878,6 +2024,68 @@ button.refuses { border-style: dashed; opacity: 0.7; }
 }
 .vs-out:empty, .vs-out.hidden { display: none; }
 
+/* In Lab mode the strip docks under the Blender header and goes dark CAD. */
+#app.mode-lab .viewport-strip {
+  top: 2.5rem;
+  max-width: min(70%, 54rem);
+  background: color-mix(in srgb, var(--lab-panel) 94%, transparent);
+  border-color: var(--lab-line);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  color: var(--lab-ink);
+  font-family: var(--lab-ui);
+}
+
+#app.mode-lab .viewport-strip button {
+  background: var(--lab-raised);
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+  color: var(--lab-ink);
+  font-size: 11px;
+}
+
+#app.mode-lab .viewport-strip button:hover { background: var(--lab-panel); }
+
+#app.mode-lab .viewport-strip button.on,
+#app.mode-lab .viewport-strip button.primary,
+#app.mode-lab .viewport-strip .chip.on {
+  background: var(--lab-accent);
+  border-color: var(--lab-accent);
+  color: #fff;
+}
+
+#app.mode-lab .viewport-strip .vs-seg {
+  border-color: var(--lab-line);
+  border-radius: var(--lab-radius);
+}
+
+#app.mode-lab .viewport-strip .vs-sep { background: var(--lab-line); }
+
+#app.mode-lab .viewport-strip .chip {
+  background: transparent;
+  border-color: transparent;
+  color: var(--lab-soft);
+}
+
+#app.mode-lab .vs-out {
+  top: 5.2rem;
+  background: color-mix(in srgb, var(--lab-panel) 94%, transparent);
+  border-color: var(--lab-line);
+  border-radius: 6px;
+  color: var(--lab-ink);
+}
+
+/* The HUD line clears the status bar and matches the dark chrome. */
+#app.mode-lab #hud {
+  left: 0.7rem;
+  bottom: 2rem;
+  background: color-mix(in srgb, var(--lab-panel) 92%, transparent);
+  border-color: var(--lab-line);
+  border-radius: 6px;
+  color: var(--lab-soft);
+  font-family: var(--lab-ui);
+}
+
 @media (max-width: 1100px) {
   .viewport-strip { top: 0.5rem; border-radius: var(--radius-sm); }
   .vs-out { top: 5.4rem; }
@@ -1909,6 +2117,31 @@ button.refuses { border-style: dashed; opacity: 0.7; }
   white-space: nowrap;
 }
 #app.mode-lab .cad-timeline:empty { display: none; }
+#app.mode-lab .cad-timeline {
+  background: var(--lab-panel);
+  border-color: var(--lab-line);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  color: var(--lab-ink);
+}
+#app.mode-lab .cad-tl-kicker { color: var(--lab-faint); }
+#app.mode-lab .cad-chip {
+  background: var(--lab-raised);
+  border-color: var(--lab-line);
+  color: var(--lab-ink);
+}
+#app.mode-lab .cad-chip:last-of-type {
+  background: var(--lab-accent);
+  border-color: var(--lab-accent);
+  color: #fff;
+}
+#app.mode-lab .cad-tl-last { color: var(--lab-soft); }
+#app.mode-lab .cad-timeline .cad-tl-undo {
+  background: var(--lab-raised);
+  border: 1px solid var(--lab-line);
+  border-radius: var(--lab-radius);
+  color: var(--lab-ink);
+}
 .cad-tl-kicker {
   font-family: var(--mono);
   font-size: 0.6rem;

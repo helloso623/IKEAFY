@@ -45,7 +45,7 @@ function syncDeleteButton() {
 }
 
 function poseHint(piece) {
-  if (!piece) return "Click a piece to move it. G move, R rotate, S scale.";
+  if (!piece) return "Click a piece to move it. Q select, G move, R rotate, S scale.";
   const mm = (n) => Math.round((Number(n) || 0) * 1000);
   const deg = (n) => Math.round(((Number(n) || 0) * 180) / Math.PI);
   return `${mm(piece.x)} × ${mm(piece.z)} mm · ${deg(piece.ry)}° · ×${Number(piece.sx || 1).toFixed(1)}`;
@@ -77,11 +77,16 @@ function syncEditButtons() {
     const picked = selectedPiece();
     pose.textContent = available
       ? `${poseHint(picked?.piece || shop.getSelectedPose())}. Delete / Ctrl+D / Ctrl+Z.`
-      : "Click a piece to move it. G move, R rotate, S scale.";
+      : "Click a piece to move it. Q select, G move, R rotate, S scale.";
   }
   const mode = shop.getMode?.() || "translate";
   for (const btn of document.querySelectorAll("[data-edit]")) {
     btn.classList.toggle("on", btn.dataset.edit === mode);
+  }
+  const modeFlag = $("lab-mode-flag");
+  if (modeFlag) {
+    const toolNames = { select: "Select", translate: "Move", rotate: "Rotate", scale: "Scale" };
+    modeFlag.textContent = `Tool · ${toolNames[mode] || "Move"}`;
   }
   const snapOn = shop.getSnap?.() !== false;
   const snapBtn = $("edit-snap");
@@ -95,6 +100,37 @@ function syncEditButtons() {
   }
   const flag = $("snap-flag");
   if (flag) flag.textContent = snapOn ? "Snap on" : "Snap off";
+  renderProps();
+}
+
+/* Properties N-panel: Location (mm), Rotation (deg), Scale, and Dimensions
+   (mm, part dims × scale) for the selected body. Edits land as api.move. */
+function renderProps() {
+  const box = $("lab-props");
+  if (!box) return;
+  const picked = selectedPiece();
+  const piece = picked?.piece;
+  const dims = picked?.part?.dimsMm;
+  for (const input of box.querySelectorAll("input")) {
+    const prop = input.dataset.prop;
+    const dim = input.dataset.dim;
+    const off = !piece || (dim && !dims);
+    input.disabled = off;
+    if (document.activeElement === input) continue;
+    if (off) {
+      input.value = "";
+      continue;
+    }
+    if (prop) {
+      const raw = Number(piece[prop] ?? (prop[0] === "s" ? 1 : 0));
+      if (prop === "x" || prop === "y" || prop === "z") input.value = String(Math.round(raw * 1000));
+      else if (prop[0] === "r") input.value = String(Math.round((raw * 180) / Math.PI));
+      else input.value = (raw || 1).toFixed(2);
+    } else if (dim) {
+      const scale = Number(piece[`s${dim}`] ?? 1) || 1;
+      input.value = String(Math.max(1, Math.round((Number(dims[dim]) || 0) * scale)));
+    }
+  }
 }
 
 function money(n) {
@@ -198,8 +234,10 @@ async function refreshProject() {
 function renderBenchPieces() {
   const list = $("bench-pieces");
   if (!list) return;
+  const count = $("lab-count");
+  if (count) count.textContent = `${project.pieces.length} ${project.pieces.length === 1 ? "body" : "bodies"}`;
   if (!project.pieces.length) {
-    list.innerHTML = `<p class="hint">Nothing on the bench. Add a piece from the shelf.</p>`;
+    list.innerHTML = `<p class="hint lab-hint">Nothing on the bench. Add a piece from the catalog.</p>`;
     return;
   }
   const current = selectedPieceId();
@@ -209,7 +247,7 @@ function renderBenchPieces() {
       const ref = piece.ref ? `${piece.ref} · ` : "";
       const job = piece.functionLabel ? ` · ${piece.functionLabel}` : "";
       const on = piece.id === current ? " on" : "";
-      return `<div class="item${on}" data-piece="${piece.id}"><span>${ref}${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}">Delete</small></div>`;
+      return `<div class="item${on}" data-piece="${piece.id}"><span class="lab-node-name"><i class="lab-node-ico" aria-hidden="true">▦</i>${ref}${part?.name || piece.partId}${job}</span><small data-drop="${piece.id}" title="Delete this body">✕</small></div>`;
     })
     .join("");
 }
@@ -740,9 +778,9 @@ $("print-btn").addEventListener("click", async () => {
   hud(jobs.length ? "Ready to print." : "Nothing here is ready to print.");
 });
 
-async function commitPose(pose) {
+async function commitPose(pose, snap = shop.getSnap()) {
   if (!pose?.id) return;
-  const result = await api.move({ ...pose, snap: shop.getSnap() });
+  const result = await api.move({ ...pose, snap });
   if (result?.ok === false) {
     hud(result.error || "Could not move that piece.");
     return;
@@ -758,7 +796,15 @@ async function commitPose(pose) {
 function setEditMode(mode) {
   shop.setMode(mode);
   syncEditButtons();
-  hud(mode === "rotate" ? "Rotate the piece." : mode === "scale" ? "Scale the piece." : "Move the piece.");
+  hud(
+    mode === "select"
+      ? "Select — click a piece, the gizmo stays away."
+      : mode === "rotate"
+        ? "Rotate the piece."
+        : mode === "scale"
+          ? "Scale the piece."
+          : "Move the piece.",
+  );
 }
 
 function setSnap(on) {
@@ -836,6 +882,66 @@ $("edit-tools")?.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-duplicate]")) duplicateSelected();
   if (ev.target.closest("[data-undo]")) undoLastEdit();
   if (ev.target.closest("[data-redo]")) redoLastEdit();
+});
+
+// Typed transforms: a changed field becomes one exact api.move, no snap.
+$("lab-props")?.addEventListener("change", async (ev) => {
+  const input = ev.target.closest("input");
+  if (!input) return;
+  const picked = selectedPiece();
+  if (!picked) return renderProps();
+  const piece = picked.piece;
+  const value = Number(input.value);
+  if (!Number.isFinite(value)) return renderProps();
+  const pose = {
+    id: piece.id,
+    x: piece.x,
+    y: piece.y,
+    z: piece.z,
+    rx: piece.rx || 0,
+    ry: piece.ry || 0,
+    rz: piece.rz || 0,
+    sx: piece.sx || 1,
+    sy: piece.sy || 1,
+    sz: piece.sz || 1,
+  };
+  const prop = input.dataset.prop;
+  const dim = input.dataset.dim;
+  if (prop === "x" || prop === "y" || prop === "z") pose[prop] = value / 1000;
+  else if (prop === "rx" || prop === "ry" || prop === "rz") pose[prop] = (value * Math.PI) / 180;
+  else if (prop === "sx" || prop === "sy" || prop === "sz") pose[prop] = Math.max(value, 0.05);
+  else if (dim) {
+    const base = Number(picked.part?.dimsMm?.[dim]);
+    if (!base) return renderProps();
+    pose[`s${dim}`] = Math.max(value / base, 0.05);
+  } else return;
+  await commitPose(pose, false);
+  renderProps();
+});
+
+// Navigation gizmo: the axis orbs snap the camera, ⌂ frames the bench.
+const GIZMO_VIEWS = {
+  x: { az: 0, el: 0 },
+  "-x": { az: 180, el: 0 },
+  y: { az: 90, el: 0 },
+  "-y": { az: -90, el: 0 },
+  z: { az: -90, el: 88 },
+  "-z": { az: -90, el: -88 },
+};
+
+$("lab-gizmo")?.addEventListener("click", (ev) => {
+  const view = ev.target.closest("[data-view]")?.dataset.view;
+  if (!view) return;
+  if (view === "home") {
+    if (!shop.frameSelected()) shop.setCamera({ az: 42, el: 28, zoom: 1 });
+    hud("Framed the bench.");
+    return;
+  }
+  const pose = GIZMO_VIEWS[view];
+  if (!pose) return;
+  shop.setCamera({ ...pose, zoom: 1 });
+  const names = { x: "Right", "-x": "Left", y: "Front", "-y": "Back", z: "Top", "-z": "Bottom" };
+  hud(`${names[view]} view.`);
 });
 
 function isLab() {
@@ -952,6 +1058,7 @@ window.addEventListener("keydown", (ev) => {
     duplicateSelected();
     return;
   }
+  if (key === "q") setEditMode("select");
   if (key === "g") setEditMode("translate");
   if (key === "r") setEditMode("rotate");
   if (key === "s") setEditMode("scale");
