@@ -545,7 +545,7 @@
                 <p class="hint">Move or edit the table to generate overhang, room-height, and collision checks.</p>
               </div>
               <button id="scene-bake-plan" type="button" class="primary scene-bake-plan">Scan current model + scene</button>
-              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Hunt table pieces matches boards, tops, legs, and aprons to the final table.</p>
+              <p class="hint">Bakes the occupancy cut and auto-fit into an IKEAlive plan. Finish / Find a way scores physical methods for the current model.</p>
               <div id="adapt-out" class="copy house-notes"></div>
               <div id="scan-out" class="copy scan-panel" aria-live="polite"></div>
             </div>
@@ -590,13 +590,20 @@
             <button type="button" class="lab-tool" id="lab-measure" title="Click two points, read millimetres">Measure</button>
           </div>
           <div class="lab-view-meta">
-            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Find tabletops, legs, aprons, and boards for this model">Hunt table pieces</button>
+            <button type="button" class="lab-tool lab-finish" id="finish-model" title="Analyze this exact model, find the closest physical construction, print its cut list, and create IKEAlive steps">Finish / Find a way</button>
             <span class="lab-proj">Perspective</span>
             <label class="lab-theme">
               <input type="checkbox" class="lab-theme-toggle" id="lab-theme-light" />
               Light
             </label>
           </div>
+        </div>
+        <div id="finish-progress" class="finish-progress" role="status" aria-live="polite" hidden>
+          <div class="finish-progress-copy">
+            <strong id="finish-progress-text">Reading the model…</strong>
+            <span id="finish-progress-percent">3%</span>
+          </div>
+          <progress id="finish-progress-bar" max="100" value="3">3%</progress>
         </div>
         <p id="edit-pose" hidden></p>
         <div class="lab-viewcube">
@@ -668,9 +675,9 @@
             </div>
           </details>
           <details class="lab-sheet" id="diy-build-sheet">
-            <summary class="lab-sheet-sum">Piece-plan history</summary>
+            <summary class="lab-sheet-sum">Ways-to-make history</summary>
             <div class="lab-sheet-body">
-              <p class="hint lab-hint">Hunt table pieces finds dimension-matched tops, legs, aprons, stretchers, and boards, then makes a PDF and IKEAlive plan. Older model revisions stay here.</p>
+              <p class="hint lab-hint">Finish / Find a way reads the current geometry and finish, scores physical construction routes by visual and dimensional similarity, and creates a cut-list PDF plus IKEAlive todo. Older revisions stay here.</p>
               <div id="finish-build-out" class="build-result" aria-live="polite"></div>
               <ol id="diy-history" class="diy-history"></ol>
             </div>

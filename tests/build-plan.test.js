@@ -29,6 +29,8 @@ test("piece hunt follows the current scaled table dimensions", () => {
   assert.ok(plan.lines.some((line) => line.role === "top"));
   assert.ok(plan.lines.some((line) => line.role === "leg"));
   assert.ok(plan.ways.some((way) => way.recommended && way.joinery));
+  assert.ok(plan.similarityScore >= 90);
+  assert.equal(plan.ways[0].similarity.dimensions, 100);
 });
 
 test("model signatures change and old piece plans remain in history", () => {
@@ -117,6 +119,39 @@ test("round pedestal model keeps the final circular and tapered shapes", () => {
   assert.ok(plan.ways.some((way) => way.id === "turned-pedestal"));
   assert.equal(plan.cutList[0].dimsMm.x, 900);
   assert.equal(plan.hardwareLines, undefined);
+  assert.equal(plan.profile.topShape, "round");
+  assert.equal(plan.profile.supportStyle, "central");
+  assert.ok(plan.similarityScore >= 95);
+  assert.equal(plan.ways[0].id, "turned-pedestal");
+  assert.equal(plan.ways[0].similarity.silhouette, 100);
+});
+
+test("a LACK-sized round pedestal mesh is not mislabeled as a square four-leg LACK", () => {
+  const plan = pieceBomForProject(
+    { name: "Edited round object", pieces: [] },
+    {
+      model: [
+        {
+          id: "mesh-round",
+          name: "Edited pedestal mesh",
+          shape: "generated-mesh",
+          dimsMm: { x: 550, y: 550, z: 450 },
+          material: { texture: "wood", roughness: 0.55, metalness: 0 },
+          geometryAnalysis: {
+            source: "local-triangle-analysis",
+            topShape: "round",
+            supportStyle: "central",
+            silhouette: "round-pedestal",
+          },
+        },
+      ],
+    },
+  );
+  assert.equal(plan.ikeaMatch, null);
+  assert.deepEqual(plan.cutList.map((line) => line.shape), ["circular slab", "tapered cylinder", "circular slab"]);
+  assert.equal(plan.ways[0].id, "turned-pedestal");
+  assert.ok(plan.ways[0].similarity.score > 90);
+  assert.equal(plan.ways.some((way) => /LACK/.test(way.title)), false);
 });
 
 test("piece-plan source is numbered for the IKEAlive parser", () => {
@@ -125,9 +160,10 @@ test("piece-plan source is numbered for the IKEAlive parser", () => {
     pieces: [piece("generic-shelf-board", "shelf")],
   });
   const source = buildPlanSource(plan);
-  assert.match(source, /Candidate piece routes:/);
-  assert.match(source, /Furniture pieces:/);
+  assert.match(source, /Construction ways:/);
+  assert.match(source, /Closest construction similarity:/);
+  assert.match(source, /Geometry-derived pieces:/);
   assert.doesNotMatch(source, /hardware|shelf brackets|wall screws/i);
   assert.match(source, /^1\. Freeze this model revision/m);
-  assert.match(source, /^6\. Turn the table upright/m);
+  assert.match(source, /^6\. Place the object/m);
 });

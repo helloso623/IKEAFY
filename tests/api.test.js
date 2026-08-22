@@ -59,7 +59,26 @@ async function waitForHealth(url, timeoutMs = 20_000) {
   throw new Error(`server did not start: ${lastError}`);
 }
 
-test("hunting after a remodel returns current pieces and preserves prior piece plans", async (t) => {
+async function finishModel(base, model = []) {
+  const response = await fetch(`${base}/api/project/finish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+  assert.equal(response.status, 202);
+  const started = await response.json();
+  assert.equal(started.job.status, "queued");
+  assert.match(started.job.text, /Reading the model/i);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const update = await (await fetch(`${base}/api/project/finish/${started.job.id}`)).json();
+    if (update.job.status === "complete") return { started, update, packet: update.result };
+    if (update.job.status === "failed") assert.fail(update.reason || update.job.text);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail("finish job did not complete");
+}
+
+test("finish starts a progress job, scores the current model, and preserves prior plans", async (t) => {
   const port = 20500 + (process.pid % 400);
   const child = spawn(process.execPath, ["server/index.js"], {
     cwd: root,
@@ -78,16 +97,27 @@ test("hunting after a remodel returns current pieces and preserves prior piece p
   assert.equal(added.status, 200);
   const addedPiece = await added.json();
 
-  const response = await fetch(`${base}/api/project/finish`, { method: "POST" });
-  assert.equal(response.status, 200);
-  const packet = await response.json();
+  const first = await finishModel(base);
+  const packet = first.packet;
   assert.equal(packet.ok, true);
   assert.equal(packet.pdf.method, "client-print");
-  assert.match(packet.bom.scope, /Furniture pieces matched.*shape and millimetres/);
+  assert.match(packet.bom.scope, /geometry-derived visible pieces/);
   assert.equal(packet.bom.ikeaMatch.article, "304.499.08");
   assert.ok(packet.bom.ways.length >= 2);
   assert.deepEqual(packet.bom.lines.map((line) => line.role), ["top", "leg"]);
   assert.equal(packet.bom.lines.some((line) => /screw|bolt|fastener/i.test(line.name)), false);
+  assert.ok(packet.bom.similarityScore >= 90);
+  assert.ok(packet.bom.ways.every((way) => Number.isFinite(way.similarity.score)));
+  const progressText = first.update.job.events.map((event) => event.text);
+  assert.ok(progressText.includes("Reading the model…"));
+  assert.ok(progressText.includes("Matching boards and construction…"));
+  assert.ok(progressText.includes("Scoring look-alikes…"));
+  assert.ok(progressText.includes("Writing the IKEAlive plan…"));
+  assert.match(progressText.at(-1), /Ready.*closest physical match/);
+  assert.deepEqual(
+    first.update.job.events.map((event) => event.percent),
+    [...first.update.job.events.map((event) => event.percent)].sort((a, b) => a - b),
+  );
   assert.equal(packet.assembly.ok, true);
   assert.ok(packet.assembly.run.id);
   assert.ok(packet.assembly.outline.length >= 5);
@@ -98,9 +128,7 @@ test("hunting after a remodel returns current pieces and preserves prior piece p
     body: JSON.stringify({ id: addedPiece.id, sx: 1.2 }),
   });
   assert.equal(moved.status, 200);
-  const refreshed = await fetch(`${base}/api/project/finish`, { method: "POST" });
-  assert.equal(refreshed.status, 200);
-  const changed = await refreshed.json();
+  const changed = (await finishModel(base)).packet;
   assert.notEqual(changed.bom.modelSignature, packet.bom.modelSignature);
   assert.equal(changed.bom.ikeaMatch, null);
   assert.ok(changed.bom.ways.some((way) => way.additionalPieces?.some((line) => line.role === "apron")));

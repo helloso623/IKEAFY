@@ -13,6 +13,7 @@ import { initStudio } from "./studio.js";
 import { bindVoice } from "./voice.js";
 import { ikealiveLog } from "./log.js";
 import { openBuildPacketPrint } from "./build-packet.js";
+import { finishModelSnapshot } from "./model-finish.js";
 import "./motion.js";
 
 const $ = (id) => document.getElementById(id);
@@ -279,7 +280,7 @@ async function refreshCurrentDiy() {
     return null;
   }
   const out = $("finish-build-out");
-  if (out) out.innerHTML = `<span class="hint">Refreshing furniture pieces for the current model’s shapes and millimetres…</span>`;
+  if (out) out.innerHTML = `<span class="hint">Reading geometry and refreshing the closest construction routes…</span>`;
   try {
     const packet = await api.diyCurrent();
     if (version !== diyRefreshVersion || packet?.ok === false) return null;
@@ -309,7 +310,7 @@ function renderDiyHistory(active = null) {
           .reverse()
           .map(
             (entry) => `<li>
-              <strong>${escapeHtml(entry.name || "Custom table")}</strong><br />
+              <strong>${escapeHtml(entry.name || "Custom object")}</strong><br />
               <span>${escapeHtml(entry.dimensions || entry.signature || "modeled dimensions")} · ${escapeHtml(
                 new Date(entry.createdAt || Date.now()).toLocaleString(),
               )}</span>
@@ -323,7 +324,9 @@ function renderDiyHistory(active = null) {
   if (out && current) {
     const bom = current.bom || {};
     out.innerHTML = `<strong>${escapeHtml(current.name || bom.name || "Current model")}</strong>
-      <span>${bom.cutList?.length || 0} shaped table pieces · ${bom.ways?.length || 0} candidate routes · estimated $${Number(
+      <span>${escapeHtml(bom.similarityScore ?? 0)}% closest result · ${bom.ways?.length || 0} construction ways · ${
+        bom.cutList?.length || 0
+      } geometry-derived pieces · estimated $${Number(
         bom.estimatedTotal || 0,
       ).toFixed(2)}${
         bom.live ? " · live piece matches" : " · catalog and cut links"
@@ -331,8 +334,8 @@ function renderDiyHistory(active = null) {
       <div class="row wrap">
         ${
           current.id
-            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print piece plan</button>`
-            : `<span class="hint">Live current design · Hunt table pieces to save this revision</span>`
+            ? `<button type="button" class="quiet" data-piece-plan="${escapeHtml(current.id)}">Print way + cut list</button>`
+            : `<span class="hint">Live current design · Finish / Find a way to save this revision</span>`
         }
         <span class="hint">${escapeHtml(
           current.planSteps ? `${current.planSteps} IKEAlive watch / plan / todo steps` : current.current ? "updates when the mesh changes" : "IKEAlive plan ready",
@@ -1231,6 +1234,32 @@ document.addEventListener("click", (event) => {
   openPiecePlanPrint(build);
 });
 
+function paintFinishProgress(job = {}) {
+  const panel = $("finish-progress");
+  const bar = $("finish-progress-bar");
+  const text = $("finish-progress-text");
+  const percent = Math.max(0, Math.min(100, Math.round(Number(job.percent) || 0)));
+  if (panel) panel.hidden = false;
+  if (bar) {
+    bar.value = percent;
+    bar.textContent = `${percent}%`;
+  }
+  if (text) text.textContent = job.text || "Reading the model…";
+  const percentOut = $("finish-progress-percent");
+  if (percentOut) percentOut.textContent = `${percent}%`;
+}
+
+async function waitForFinishJob(id) {
+  for (let poll = 0; poll < 480; poll += 1) {
+    const update = await api.finishJob(id);
+    paintFinishProgress(update.job);
+    if (update.job?.status === "complete" && update.result) return update.result;
+    if (update.job?.status === "failed") throw new Error(update.reason || update.job.text || "Could not find a way.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Finding a way took too long. Please try again.");
+}
+
 let finishingModel = false;
 $("finish-model")?.addEventListener("click", async () => {
   if (finishingModel) return;
@@ -1238,37 +1267,48 @@ $("finish-model")?.addEventListener("click", async () => {
   const button = $("finish-model");
   button.disabled = true;
   button.classList.add("busy");
-  button.textContent = "Hunting pieces…";
+  button.textContent = "Finding a way…";
+  paintFinishProgress({ percent: 3, text: "Reading the model…" });
   const printWindow = window.open("", "_blank");
   if (printWindow) {
-    printWindow.document.write("<!doctype html><title>Finding table pieces…</title><p>Matching tops, legs, aprons, and boards to this model…</p>");
+    printWindow.document.write(
+      "<!doctype html><title>Finding a way…</title><p>Reading the current geometry, matching construction routes, and scoring look-alikes…</p>",
+    );
   }
-  hud("Hunting furniture pieces in this model’s shapes and millimetres…");
+  hud("Reading this exact model and finding the closest physical way to make it…");
   try {
-    const packet = await api.finishProject();
+    const model = finishModelSnapshot(
+      shop.getReconstructed?.() || [],
+      (id) => shop.getPieceMaterial?.(id),
+    );
+    const started = await api.startFinishProject(model);
+    if (!started?.job?.id) throw new Error(started?.reason || "Could not start the similarity search.");
+    paintFinishProgress(started.job);
+    const packet = await waitForFinishJob(started.job.id);
     openBuildPacketPrint(packet, printWindow);
     await refreshProject();
     const saved = diyBuilds().find((entry) => entry.id === packet.build?.id) || packet.build;
     renderDiyHistory(saved);
     $("diy-build-sheet") && ($("diy-build-sheet").open = true);
     setMode("ikeafy");
-    await studio?.openAssemblyView?.(packet.assembly, { label: "table-piece plan" });
-    const match = packet.bom?.ikeaMatch;
+    await studio?.openAssemblyView?.(packet.assembly, { label: "closest ways-to-make plan" });
     hud(
-      match
-        ? `Piece PDF ready · IKEA ${match.article} is one dimension-matched route · IKEAlive todo created.`
-        : `Piece PDF ready · ${packet.bom?.ways?.length || 0} candidate routes · ${
-            packet.bom?.lines?.length || 0
-          } shaped table pieces · IKEAlive todo created.`,
+      `${packet.bom?.similarityScore || 0}% closest physical result · ${packet.bom?.ways?.length || 0} scored ways · ` +
+        `${packet.bom?.lines?.length || 0} geometry-derived pieces · PDF and IKEAlive todo ready.`,
     );
   } catch (error) {
     printWindow?.close();
-    hud(error?.message || "Could not finish this furniture model.");
+    paintFinishProgress({ percent: 100, text: error?.message || "Could not find a way for this model." });
+    hud(error?.message || "Could not find a way for this model.");
   } finally {
     finishingModel = false;
     button.disabled = false;
     button.classList.remove("busy");
-    button.textContent = "Hunt table pieces";
+    button.textContent = "Finish / Find a way";
+    setTimeout(() => {
+      const panel = $("finish-progress");
+      if (panel && Number($("finish-progress-bar")?.value) === 100) panel.hidden = true;
+    }, 1600);
   }
 });
 

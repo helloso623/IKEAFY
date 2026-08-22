@@ -22,8 +22,49 @@ function pieceDims(piece, part) {
   };
 }
 
-export function modelComponents(project = {}) {
-  return (project.pieces || [])
+function clientModelComponents(model = []) {
+  return (Array.isArray(model) ? model : [])
+    .map((item, index) => {
+      const dims = item?.dimsMm || {};
+      const x = mm(dims.x);
+      const y = mm(dims.y);
+      const z = mm(dims.z);
+      if (!x || !y || !z) return null;
+      const finish = item.material && typeof item.material === "object" ? item.material : {};
+      const material =
+        finish.metalness >= 0.5 || finish.texture === "metal"
+          ? "metal"
+          : finish.texture || String(item.material || "match modeled finish");
+      return {
+        pieceId: String(item.id || `client-model-${index + 1}`),
+        partId: String(item.partId || "client-mesh"),
+        name: String(item.name || "Current mesh"),
+        category: "furniture",
+        shape: String(item.shape || "mesh"),
+        material,
+        finish: {
+          color: finish.color || null,
+          texture: finish.texture || null,
+          roughness: Number.isFinite(Number(finish.roughness)) ? Number(finish.roughness) : 0.6,
+          metalness: Number.isFinite(Number(finish.metalness)) ? Number(finish.metalness) : 0,
+        },
+        ikeaArticle: null,
+        geometry: null,
+        geometryAnalysis: item.geometryAnalysis || null,
+        cost: 0,
+        dimsMm: { x, y, z },
+        poseM: {
+          x: Number(item.poseM?.x) || 0,
+          y: Number(item.poseM?.y) || 0,
+          z: Number(item.poseM?.z) || 0,
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+export function modelComponents(project = {}, model = []) {
+  const catalog = (project.pieces || [])
     .map((piece) => {
       const part = getPart(piece.partId);
       if (!part || part.category !== "furniture") return null;
@@ -33,9 +74,16 @@ export function modelComponents(project = {}) {
         name: part.name,
         category: part.category,
         shape: part.shape || "",
-        material: part.material || "",
+        material: piece.texture || part.material || "",
+        finish: {
+          color: piece.color || part.color || null,
+          texture: piece.texture || part.texture || null,
+          roughness: /metal/i.test(piece.texture || part.texture || part.material || "") ? 0.25 : 0.6,
+          metalness: /metal|steel|aluminium|aluminum/i.test(piece.texture || part.texture || part.material || "") ? 1 : 0,
+        },
         ikeaArticle: part.ikeaArticle || null,
         geometry: part.specs?.geometry || null,
+        geometryAnalysis: null,
         cost: Number(part.cost) || 0,
         dimsMm: pieceDims(piece, part),
         poseM: {
@@ -46,6 +94,7 @@ export function modelComponents(project = {}) {
       };
     })
     .filter(Boolean);
+  return [...catalog, ...clientModelComponents(model)];
 }
 
 export function modelDimensionsMm(components = []) {
@@ -88,9 +137,12 @@ export function modelSignature(components = []) {
 }
 
 function profileFor(components) {
-  const wholeTable = components.find((item) => /table/i.test(item.shape)) || null;
+  const wholeTable =
+    components.find((item) => /table/i.test(item.shape)) ||
+    components.find((item) => item.geometryAnalysis?.silhouette === "round-pedestal") ||
+    null;
   const slabs = components.filter((item) => item.shape === "slab");
-  const posts = components.filter((item) => ["post", "dowel"].includes(item.shape));
+  const posts = components.filter((item) => ["post", "dowel", "leg"].includes(item.shape));
   const top = wholeTable || [...slabs].sort((a, b) => b.dimsMm.x * b.dimsMm.y - a.dimsMm.x * a.dimsMm.y)[0] || null;
   const topDims = top?.dimsMm || { x: 0, y: 0, z: 0 };
   const postHeight = Math.max(0, ...posts.map((item) => item.dimsMm.z));
@@ -101,7 +153,9 @@ function profileFor(components) {
     top,
     topDims,
     postHeight,
-    roundPedestal: wholeTable?.shape === "round-pedestal-table",
+    roundPedestal:
+      wholeTable?.shape === "round-pedestal-table" ||
+      wholeTable?.geometryAnalysis?.silhouette === "round-pedestal",
     tableLike: Boolean(wholeTable || (top && posts.length >= 3)),
     shelfLike: Boolean(!wholeTable && top && posts.length < 3),
   };
@@ -118,7 +172,7 @@ function sameFootprint(dims, x, y) {
 export function matchIkeaArticle(components = []) {
   const profile = profileFor(components);
   const height = profile.wholeTable?.dimsMm.z || profile.postHeight + profile.topDims.z;
-  if (sameFootprint(profile.topDims, 550, 550) && near(height, 450, 22)) {
+  if (!profile.roundPedestal && sameFootprint(profile.topDims, 550, 550) && near(height, 450, 22)) {
     return {
       article: "304.499.08",
       name: "LACK side table",
@@ -129,6 +183,7 @@ export function matchIkeaArticle(components = []) {
     };
   }
   if (
+    !profile.roundPedestal &&
     sameFootprint(profile.topDims, 1000, 600) &&
     (!profile.posts.length || near(profile.postHeight, 700, 22))
   ) {
@@ -259,7 +314,7 @@ function exactPieceLines(ikeaMatch) {
 
 function decomposeWholeTable(table) {
   const { x, y, z } = table.dimsMm;
-  if (table.shape === "round-pedestal-table") {
+  if (table.shape === "round-pedestal-table" || table.geometryAnalysis?.silhouette === "round-pedestal") {
     const geometry = table.geometry || {};
     const topHeight = mm(geometry.tabletop?.heightMm) || Math.max(18, Math.round(z * 0.05));
     const baseHeight = mm(geometry.base?.heightMm) || Math.max(30, Math.round(z * 0.07));
@@ -472,29 +527,122 @@ function constructionWays(profile, ikeaMatch, lines) {
   return ways;
 }
 
-export function pieceBomForProject(project = {}) {
-  const components = modelComponents(project);
-  if (!components.length) return { ok: false, reason: "Add or model a table before hunting pieces for it." };
+function materialFamily(components) {
+  const text = components.map((item) => `${item.material || ""} ${item.finish?.texture || ""}`).join(" ");
+  if (/metal|steel|aluminium|aluminum/i.test(text)) return "metal";
+  if (/plastic|acrylic|poly/i.test(text)) return "plastic";
+  if (/wood|ply|timber|oak|birch|beech|mdf|fibre|fiber|foil/i.test(text)) return "wood";
+  return "mixed";
+}
+
+function targetTraits(profile, components, cutList) {
+  return {
+    topShape: profile.roundPedestal ? "round" : "rectangular",
+    supportStyle: profile.roundPedestal ? "central" : profile.posts.length >= 3 ? "four-leg" : "piece-for-piece",
+    material: materialFamily(components),
+    roles: [...new Set(cutList.map((line) => line.role))],
+  };
+}
+
+function candidateTraits(way, target) {
+  if (["turned-pedestal", "laminated-pedestal"].includes(way.id)) {
+    return { topShape: "round", supportStyle: "central", material: "wood", roles: ["top", "pedestal", "base"] };
+  }
+  if (["top-and-ready-legs", "apron-frame"].includes(way.id)) {
+    return { topShape: "rectangular", supportStyle: "four-leg", material: "wood", roles: ["top", "leg"] };
+  }
+  if (way.id.startsWith("ikea-")) {
+    return { topShape: "rectangular", supportStyle: "four-leg", material: "wood", roles: ["top", "leg"] };
+  }
+  return { ...target };
+}
+
+function relativeDimensionScore(actual, candidate) {
+  const axes = ["x", "y", "z"];
+  const error = axes.reduce((sum, axis) => {
+    const wanted = Math.max(1, Number(actual?.[axis]) || 1);
+    return sum + Math.min(1, Math.abs(wanted - (Number(candidate?.[axis]) || 0)) / wanted);
+  }, 0);
+  return Math.round(100 * (1 - error / axes.length));
+}
+
+function scoreConstructionWays(ways, profile, components, cutList, ikeaMatch, dimensions) {
+  const target = targetTraits(profile, components, cutList);
+  const scored = ways.map((way) => {
+    const candidate = candidateTraits(way, target);
+    const dimensionsScore = way.id.startsWith("ikea-")
+      ? relativeDimensionScore(dimensions, ikeaMatch?.dimensionsMm)
+      : 100;
+    const silhouette =
+      (candidate.topShape === target.topShape ? 50 : 0) +
+      (candidate.supportStyle === target.supportStyle ? 50 : 0);
+    const material =
+      candidate.material === target.material || target.material === "mixed"
+        ? 100
+        : candidate.material === "wood" && target.material !== "metal"
+          ? 75
+          : 25;
+    const sharedRoles = target.roles.filter((role) => candidate.roles.includes(role)).length;
+    const pieceBreakdown = Math.round((100 * sharedRoles) / Math.max(1, target.roles.length));
+    const score = Math.round(
+      dimensionsScore * 0.35 + silhouette * 0.35 + material * 0.2 + pieceBreakdown * 0.1,
+    );
+    return {
+      ...way,
+      recommended: false,
+      similarity: {
+        score,
+        dimensions: dimensionsScore,
+        silhouette,
+        material,
+        pieceBreakdown,
+        reason:
+          `${candidate.topShape} top / ${candidate.supportStyle} support; ` +
+          `${dimensionsScore}% dimensional and ${material}% material match.`,
+      },
+    };
+  });
+  scored.sort((a, b) => b.similarity.score - a.similarity.score || a.title.localeCompare(b.title));
+  if (scored[0]) scored[0].recommended = true;
+  return scored;
+}
+
+export function pieceBomForProject(project = {}, options = {}) {
+  const components = modelComponents(project, options.model);
+  if (!components.length) return { ok: false, reason: "Add or model an object before finding a way to make it." };
   const profile = profileFor(components);
   const ikeaMatch = matchIkeaArticle(components);
   const cutList = visiblePieceLines(components, profile, ikeaMatch);
-  const ways = constructionWays(profile, ikeaMatch, cutList);
+  const dimensions = modelDimensionsMm(components);
+  const ways = scoreConstructionWays(
+    constructionWays(profile, ikeaMatch, cutList),
+    profile,
+    components,
+    cutList,
+    ikeaMatch,
+    dimensions,
+  );
   const lines = [...cutList];
   return {
     ok: true,
-    name: String(project.name || "Custom table").trim() || "Custom table",
-    scope: "Furniture pieces matched to the current model by shape and millimetres",
+    name: String(project.name || components[0]?.name || "Custom object").trim() || "Custom object",
+    scope: "Construction ways and geometry-derived visible pieces for this exact modeled shape",
     components,
-    modelDimensionsMm: modelDimensionsMm(components),
+    modelDimensionsMm: dimensions,
     modelSignature: modelSignature(components),
     profile: {
       tableLike: profile.tableLike,
       shelfLike: profile.shelfLike,
+      topShape: profile.roundPedestal ? "round" : "rectangular",
+      supportStyle: profile.roundPedestal ? "central" : profile.posts.length >= 3 ? "four-leg" : "piece-for-piece",
+      materialFamily: materialFamily(components),
       supportCount: profile.posts.length || (profile.tableLike ? 4 : 0),
       topDimsMm: profile.topDims,
     },
     ikeaMatch,
     ways,
+    similarityScore: ways[0]?.similarity.score || 0,
+    similarity: ways[0]?.similarity || null,
     lines,
     cutList,
     estimatedTotal: Number(lines.reduce((sum, line) => sum + line.estimatedCost, 0).toFixed(2)),
@@ -511,11 +659,11 @@ function numberedSteps(build) {
   const pieces = build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ");
   return [
     `1. Freeze this model revision at ${dimsText(build.modelDimensionsMm)} and verify its piece list: ${pieces}.`,
-    "2. Choose the recommended top-and-leg route or the apron-frame route, then buy or cut every shaped piece to the listed finished millimetres.",
-    "3. Label the tabletop, legs, and any apron or stretcher pairs; preserve the intended faces and grain direction.",
-    "4. Lay out the shaped pieces in the same positions as the current 3D model and dry-fit the complete table.",
+    `2. Choose the ${build.similarityScore}% closest construction route, then buy or cut every shaped piece to the listed finished millimetres.`,
+    "3. Label every geometry-derived piece; preserve its intended face, finish, and grain or brushing direction.",
+    "4. Lay out the shaped pieces in the same positions as the current 3D model and dry-fit the complete object.",
     "5. Assemble the selected pieces with joinery appropriate to their real material and thickness, preserving the modeled overhang and offsets.",
-    "6. Turn the table upright, compare its footprint and height with this saved revision, and check level and wobble before loading it.",
+    "6. Place the object in its intended orientation, compare its silhouette and dimensions with this saved revision, and check stability before loading it.",
   ];
 }
 
@@ -528,16 +676,17 @@ export function buildPlanSource(build) {
       const additions = way.additionalPieces?.length
         ? ` Additional pieces: ${way.additionalPieces.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}`).join("; ")}.`
         : "";
-      return `${way.title}: ${way.summary} Construction: ${way.joinery}${additions}`;
+      return `${way.title} — ${way.similarity?.score || 0}% similar: ${way.summary} Construction: ${way.joinery}${additions}`;
     })
     .join("\n");
   return [
-    `${build.name} — pieces for this table`,
+    `${build.name} — ways to make the current model`,
     `Current modeled envelope: ${dimsText(build.modelDimensionsMm)}.`,
-    `Piece-list scope: ${build.scope}.`,
+    `Build scope: ${build.scope}.`,
+    `Closest construction similarity: ${build.similarityScore}% (${build.similarity?.reason || "geometry-derived route"}).`,
     match,
-    `Furniture pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
-    "Candidate piece routes:",
+    `Geometry-derived pieces: ${build.cutList.map((line) => `${line.qty} × ${line.name}, ${line.dimensions}, ${line.material}`).join("; ")}`,
+    "Construction ways:",
     alternatives,
     "",
     ...numberedSteps(build),
@@ -547,8 +696,10 @@ export function buildPlanSource(build) {
 }
 
 export async function finishFurnitureBuild(project = {}, deps = {}) {
-  const build = pieceBomForProject(project);
+  deps.onProgress?.(12, "Reading the model…");
+  const build = pieceBomForProject(project, { model: deps.model });
   if (!build.ok) return build;
+  deps.onProgress?.(38, "Matching boards and construction…");
   let liveSources = [];
   if (hasTavily()) {
     try {
@@ -557,18 +708,29 @@ export async function finishFurnitureBuild(project = {}, deps = {}) {
       liveSources = [];
     }
   }
+  deps.onProgress?.(68, "Scoring look-alikes…");
+  const scoredSources = liveSources.map((source) => {
+    const text = `${source.title || ""} ${source.note || ""}`.toLowerCase();
+    const target = `${build.profile.topShape} ${build.profile.supportStyle} ${build.profile.materialFamily}`;
+    const matched = target.split(/\s+/).filter((word) => word && text.includes(word)).length;
+    return {
+      ...source,
+      similarityScore: Math.min(build.similarityScore, 45 + matched * 12),
+    };
+  });
+  deps.onProgress?.(86, "Writing the IKEAlive plan…");
   return {
     ok: true,
     bom: {
       ...build,
       partner: hasTavily() ? "tavily" : "catalog-standin",
-      live: liveSources.length > 0,
-      liveSources,
+      live: scoredSources.length > 0,
+      liveSources: scoredSources,
     },
     planSource: buildPlanSource(build),
     pdf: {
       method: "client-print",
-      filename: `${slug(build.name) || "table"}-piece-plan.pdf`,
+      filename: `${slug(build.name) || "object"}-ways-to-make.pdf`,
       note: "The browser creates the PDF locally; no model geometry is uploaded to a PDF service.",
     },
   };
