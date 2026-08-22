@@ -105,7 +105,7 @@ export default function PlanPage() {
     };
   }, [id]);
 
-  const materials = plan?.materials ?? [];
+  const materials = useMemo(() => plan?.materials ?? [], [plan]);
   const toBuy = useMemo(
     () => materials.filter((material) => material.badge === "purchase"),
     [materials],

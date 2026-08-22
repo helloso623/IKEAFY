@@ -467,7 +467,7 @@ export default function HomePage() {
                 style={{ borderTopColor: "var(--ikeafy-blue)" }}
                 aria-hidden
               />
-              {phase !== "idle" ? PHASE_LABEL[phase] : ""}
+              {PHASE_LABEL[phase]}
             </span>
           )}
         </div>
