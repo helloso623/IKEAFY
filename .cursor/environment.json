@@ -4,7 +4,12 @@
   "terminals": [
     {
       "name": "dev",
-      "command": "npm run dev"
+      "command": "npm run dev",
+      "description": "Runs the Vite client (http://localhost:5173) and the Express API (http://localhost:8787) together via `npm run dev`."
     }
+  ],
+  "ports": [
+    { "name": "client", "port": 5173 },
+    { "name": "api", "port": 8787 }
   ]
 }
